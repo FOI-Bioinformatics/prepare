@@ -197,7 +197,7 @@ a cached entry older than N days.
 
 ### 2. Process Branchwater Files
 
-Process the downloaded files to prepare them for the PREPARE pipeline:
+Process the downloaded files to ready them for the PREPARE pipeline:
 
 ```bash
 prepare use_branchwater --branchwater-folder /path/to/branchwater/files --matches-folder matches

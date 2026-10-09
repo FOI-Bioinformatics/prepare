@@ -197,7 +197,7 @@ project with no store configured exactly as it behaved before the store existed.
 
 #### Locking
 
-Every lock file in prepare is built on one mechanism, `prepare/utils/lockfile.py`, rather than each
+Every lock file in PREPARE is built on one mechanism, `prepare/utils/lockfile.py`, rather than each
 caller managing its own `O_EXCL` file:
 
 - **Holder record**: creating a lock (`O_EXCL`) writes a JSON record of `{pid, host, started, token,

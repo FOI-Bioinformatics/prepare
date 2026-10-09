@@ -45,7 +45,7 @@ class TestLockPaths:
 
 class TestLocksFolderInvisible:
     def test_locks_folder_hidden_from_directory_listings(self, tmp_path):
-        """``visible_files`` backs every folder listing in prepare (status included), so a
+        """``visible_files`` backs every folder listing in PREPARE (status included), so a
         lock file placed under the hidden ``.locks`` folder never shows up as a fake sample."""
         output_root = tmp_path / "targeted"
         lock = sample_lock_path(output_root, "SRR1", "GCF_1")

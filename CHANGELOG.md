@@ -20,9 +20,19 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   keep their names); `~/.config/metaquest/config.toml`
   to `~/.config/prepare/config.toml`; and every `METAQUEST_<NAME>` environment variable to
   `PREPARE_<NAME>` (`METAQUEST_DATA` to `PREPARE_DATA`, `METAQUEST_PERF_SCALE` to
-  `PREPARE_PERF_SCALE`).
-- The `metaquest_version` key in the data of `project_report` is now `prepare_version`. The registry and
+  `PREPARE_PERF_SCALE`). Rename these files before running any `prepare` command in the project:
+  in a folder that holds only the old registry, `status` and `doctor` treat the folder as not yet a
+  project, and `status --init` would build a new registry beside the old one.
+- In each project that uses a store, after renaming its registry file, run
+  `prepare store_init --data-root <store>` once, with the same `--project-name` if one was given
+  before. This records the renamed registry in the store catalogue. Until then `store_status` lists
+  the project as stale, and `store_gc --include-stale` treats its datasets as unused. Without
+  `--project-name`, `store_init` sets the project name to the folder name.
+- The `metaquest_version` key in the data of `project_report` is now `prepare_version`, and the
+  `metaquest` key in the data of the python check of `doctor --json` is now `prepare`. The registry and
   the store sidecars do not hold a version key under either name.
+- `make env` now creates a conda environment named `prepare`. An earlier `metaquest` environment keeps a
+  `metaquest` console script that no longer imports; it can be removed.
 - The hidden pointers for the commands renamed in 0.5.0 (`sra_stats`, `sra_profile_quality`,
   `sra_dashboard`, `sra_compare`) are unchanged.
 
