@@ -9,19 +9,19 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.cli.commands.genome import (
+from prepare.cli.commands.genome import (
     GenomeSearchCommand,
     GenomeDownloadCommand,
     GenomePrepareCommand,
 )
-from metaquest.core.exceptions import MetaQuestError
+from prepare.core.exceptions import PrepareError
 
 
 @pytest.fixture(autouse=True)
 def _datasets_present():
     """``download_genomes`` is mocked in these tests, so the ``datasets`` pre-flight check is too;
     tests/test_tools.py covers a missing ``datasets`` with an empty ``PATH``."""
-    with patch("metaquest.cli.commands.genome.require_tools"):
+    with patch("prepare.cli.commands.genome.require_tools"):
         yield
 
 
@@ -72,7 +72,7 @@ class TestGenomeSearchCommand:
         args = parser.parse_args(["--species", "Foo", "--all"])
         assert args.representative_only is False
 
-    @patch("metaquest.cli.commands.genome.get_accessions_for_species")
+    @patch("prepare.cli.commands.genome.get_accessions_for_species")
     def test_execute_species_search(self, mock_get):
         mock_get.return_value = ["GCF_000006945.2", "GCF_000007545.1"]
         cmd = GenomeSearchCommand()
@@ -87,7 +87,7 @@ class TestGenomeSearchCommand:
         assert result == 0
         mock_get.assert_called_once_with("Salmonella enterica", representative_only=True)
 
-    @patch("metaquest.cli.commands.genome.get_accessions_for_genus")
+    @patch("prepare.cli.commands.genome.get_accessions_for_genus")
     def test_execute_genus_search(self, mock_get):
         mock_get.return_value = ["GCF_000006945.2"]
         cmd = GenomeSearchCommand()
@@ -102,7 +102,7 @@ class TestGenomeSearchCommand:
         assert result == 0
         mock_get.assert_called_once_with("Salmonella", representative_only=True)
 
-    @patch("metaquest.cli.commands.genome.get_accessions_for_species")
+    @patch("prepare.cli.commands.genome.get_accessions_for_species")
     def test_execute_output_to_file(self, mock_get):
         mock_get.return_value = ["GCF_000006945.2"]
         cmd = GenomeSearchCommand()
@@ -124,7 +124,7 @@ class TestGenomeSearchCommand:
         finally:
             Path(outpath).unlink(missing_ok=True)
 
-    @patch("metaquest.cli.commands.genome.get_accessions_for_species")
+    @patch("prepare.cli.commands.genome.get_accessions_for_species")
     def test_execute_tsv_format(self, mock_get):
         mock_get.return_value = ["GCF_000006945.2"]
         cmd = GenomeSearchCommand()
@@ -146,7 +146,7 @@ class TestGenomeSearchCommand:
         finally:
             Path(outpath).unlink(missing_ok=True)
 
-    @patch("metaquest.cli.commands.genome.get_accessions_for_species")
+    @patch("prepare.cli.commands.genome.get_accessions_for_species")
     def test_execute_no_results(self, mock_get):
         mock_get.return_value = []
         cmd = GenomeSearchCommand()
@@ -160,9 +160,9 @@ class TestGenomeSearchCommand:
         result = cmd.execute(args)
         assert result == 0
 
-    @patch("metaquest.cli.commands.genome.get_accessions_for_species")
+    @patch("prepare.cli.commands.genome.get_accessions_for_species")
     def test_execute_api_failure(self, mock_get):
-        mock_get.side_effect = MetaQuestError("API error")
+        mock_get.side_effect = PrepareError("API error")
         cmd = GenomeSearchCommand()
         args = argparse.Namespace(
             species="Salmonella enterica",
@@ -223,8 +223,8 @@ class TestGenomeDownloadCommand:
         result = cmd.execute(args)
         assert result == 1
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
     def test_execute_with_accessions(self, mock_download, mock_extract):
         mock_download.return_value = Path("genomes/download.zip")
         mock_extract.return_value = {"GCF_000006945.2": Path("genomes/GCF_000006945.2.fna.gz")}
@@ -240,15 +240,15 @@ class TestGenomeDownloadCommand:
                 assembly_level=None,
                 force=False,
                 dry_run=False,
-                registry=str(Path(tmpdir) / "metaquest_registry.json"),
+                registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
             assert result == 0
             mock_download.assert_called_once()
             mock_extract.assert_called_once()
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
     def test_execute_with_no_extracted_genomes_leaves_registry_untouched(self, mock_download, mock_extract):
         """When extract_and_organize returns nothing (e.g. the zip held no usable genome
         files), no registry transaction should even open: there is nothing to record, so no
@@ -257,7 +257,7 @@ class TestGenomeDownloadCommand:
         mock_extract.return_value = {}
         cmd = GenomeDownloadCommand()
         with tempfile.TemporaryDirectory() as tmpdir:
-            registry_file = Path(tmpdir) / "metaquest_registry.json"
+            registry_file = Path(tmpdir) / "prepare_registry.json"
             args = argparse.Namespace(
                 accessions=["GCF_000006945.2"],
                 accession_file=None,
@@ -274,8 +274,8 @@ class TestGenomeDownloadCommand:
             assert result == 0
             assert not registry_file.exists()
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
     def test_execute_with_accession_file(self, mock_download, mock_extract):
         mock_download.return_value = Path("genomes/download.zip")
         mock_extract.return_value = {"GCF_000006945.2": Path("genomes/GCF_000006945.2.fna.gz")}
@@ -293,14 +293,14 @@ class TestGenomeDownloadCommand:
                 assembly_level=None,
                 force=False,
                 dry_run=False,
-                registry=str(Path(tmpdir) / "metaquest_registry.json"),
+                registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
             assert result == 0
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
-    @patch("metaquest.cli.commands.genome.get_accessions_for_species")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.get_accessions_for_species")
     def test_execute_with_species(self, mock_gtdb, mock_download, mock_extract):
         mock_gtdb.return_value = ["GCF_000006945.2"]
         mock_download.return_value = Path("genomes/download.zip")
@@ -317,7 +317,7 @@ class TestGenomeDownloadCommand:
                 assembly_level=None,
                 force=False,
                 dry_run=False,
-                registry=str(Path(tmpdir) / "metaquest_registry.json"),
+                registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
             assert result == 0
@@ -339,9 +339,9 @@ class TestGenomeDownloadCommand:
         result = cmd.execute(args)
         assert result == 1
 
-    @patch("metaquest.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.download_genomes")
     def test_execute_download_failure(self, mock_download):
-        mock_download.side_effect = MetaQuestError("Download failed")
+        mock_download.side_effect = PrepareError("Download failed")
         cmd = GenomeDownloadCommand()
         with tempfile.TemporaryDirectory() as tmpdir:
             args = argparse.Namespace(
@@ -358,8 +358,8 @@ class TestGenomeDownloadCommand:
             result = cmd.execute(args)
             assert result == 1
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
     def test_execute_skips_present_genome(self, mock_download, mock_extract):
         cmd = GenomeDownloadCommand()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -380,8 +380,8 @@ class TestGenomeDownloadCommand:
             mock_download.assert_not_called()
             mock_extract.assert_not_called()
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
     def test_execute_force_redownloads_present_genome(self, mock_download, mock_extract):
         mock_download.return_value = Path("genomes/download.zip")
         mock_extract.return_value = {"GCF_000006945.2": Path("genomes/GCF_000006945.2.fna")}
@@ -398,14 +398,14 @@ class TestGenomeDownloadCommand:
                 assembly_level=None,
                 force=True,
                 dry_run=False,
-                registry=str(Path(tmpdir) / "metaquest_registry.json"),
+                registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
             assert result == 0
             mock_download.assert_called_once()
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
     def test_execute_dry_run_downloads_nothing(self, mock_download, mock_extract):
         cmd = GenomeDownloadCommand()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -425,8 +425,8 @@ class TestGenomeDownloadCommand:
             assert result == 0
             mock_download.assert_not_called()
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
     def test_execute_records_genomes_in_registry(self, mock_download, mock_extract, tmp_path):
         """genome_download must record what it fetched, so later commands (e.g. status) find it."""
         mock_download.return_value = Path("genomes/download.zip")
@@ -435,7 +435,7 @@ class TestGenomeDownloadCommand:
             "GCF_000007545.1": tmp_path / "GCF_000007545.1.fna",
         }
         cmd = GenomeDownloadCommand()
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         args = argparse.Namespace(
             accessions=["GCF_000006945.2", "GCF_000007545.1"],
             accession_file=None,
@@ -457,15 +457,15 @@ class TestGenomeDownloadCommand:
         assert genomes["GCF_000006945.2"]["fasta"] == "GCF_000006945.2.fna"
         assert genomes["GCF_000006945.2"]["date"]
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
     def test_force_redownload_keeps_an_earlier_manifest(self, mock_download, mock_extract, tmp_path, monkeypatch):
         """genome_download writes no manifest of its own; a --force redownload of a genome that
         genome_prepare recorded with a manifest keeps that manifest rather than blanking it."""
-        from metaquest.data.registry import load_registry, record_genome, save_registry
+        from prepare.data.registry import load_registry, record_genome, save_registry
 
         monkeypatch.chdir(tmp_path)
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         fasta = tmp_path / "GCF_000006945.2.fna"
         fasta.write_text(">c\nACGT\n")
         seeded = load_registry(registry_file)
@@ -510,9 +510,9 @@ class TestGenomePrepareCommand:
         assert args.manifest_file == "genome_manifest.csv"
         assert args.skip_download is False
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
-    @patch("metaquest.cli.commands.genome.get_accessions_for_species")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.get_accessions_for_species")
     def test_execute_full_pipeline(self, mock_gtdb, mock_download, mock_extract):
         mock_gtdb.return_value = ["GCF_000006945.2"]
         mock_download.return_value = Path("download.zip")
@@ -531,7 +531,7 @@ class TestGenomePrepareCommand:
                 representative_only=True,
                 manifest_file=str(manifest),
                 skip_download=False,
-                registry=str(Path(tmpdir) / "metaquest_registry.json"),
+                registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
             assert result == 0
@@ -555,7 +555,7 @@ class TestGenomePrepareCommand:
                 representative_only=True,
                 manifest_file=str(manifest),
                 skip_download=True,
-                registry=str(Path(tmpdir) / "metaquest_registry.json"),
+                registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
             assert result == 0
@@ -576,15 +576,15 @@ class TestGenomePrepareCommand:
                 representative_only=True,
                 manifest_file="manifest.csv",
                 skip_download=False,
-                registry=str(Path(tmpdir) / "metaquest_registry.json"),
+                registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
             assert result == 1
 
-    @patch("metaquest.cli.commands.genome.download_genomes")
-    @patch("metaquest.cli.commands.genome.get_accessions_for_species")
+    @patch("prepare.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.get_accessions_for_species")
     def test_execute_api_failure(self, mock_gtdb, mock_download):
-        mock_gtdb.side_effect = MetaQuestError("API error")
+        mock_gtdb.side_effect = PrepareError("API error")
         cmd = GenomePrepareCommand()
         with tempfile.TemporaryDirectory() as tmpdir:
             args = argparse.Namespace(
@@ -595,7 +595,7 @@ class TestGenomePrepareCommand:
                 representative_only=True,
                 manifest_file="manifest.csv",
                 skip_download=False,
-                registry=str(Path(tmpdir) / "metaquest_registry.json"),
+                registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
             assert result == 1
@@ -612,7 +612,7 @@ class TestGenomePrepareCommand:
                 representative_only=True,
                 manifest_file=str(manifest),
                 skip_download=True,
-                registry=str(Path(tmpdir) / "metaquest_registry.json"),
+                registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
             assert result == 0
@@ -621,7 +621,7 @@ class TestGenomePrepareCommand:
         """With no genome files to manifest, no registry transaction should even open: an
         empty run must not create (or touch) a registry file that never gets anything
         written to it."""
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         genomes_dir = tmp_path / "genomes"
         genomes_dir.mkdir()
         manifest = tmp_path / "manifest.csv"
@@ -642,7 +642,7 @@ class TestGenomePrepareCommand:
         assert not registry_file.exists()
 
     def test_manifest_lists_plain_fna_files(self):
-        from metaquest.cli.commands.genome import GenomePrepareCommand
+        from prepare.cli.commands.genome import GenomePrepareCommand
 
         cmd = GenomePrepareCommand()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -651,7 +651,7 @@ class TestGenomePrepareCommand:
             (tmp_path / "GCF_000006945.2.faa").write_text(">p\nM\n")
             (tmp_path / "other.fasta.gz").write_bytes(b"")
             manifest = tmp_path / "manifest.csv"
-            n = cmd._create_manifest(tmp_path, str(manifest), str(tmp_path / "metaquest_registry.json"))
+            n = cmd._create_manifest(tmp_path, str(manifest), str(tmp_path / "prepare_registry.json"))
             rows = manifest.read_text().splitlines()
             assert n == 2
             assert rows[0] == "name,genome_filename,protein_filename"
@@ -664,7 +664,7 @@ class TestGenomePrepareCommand:
         (tmp_path / "GCF_000006945.2.fna").write_text(">c\nACGT\n")
         (tmp_path / "wMel.fasta").write_text(">c\nACGT\n")
         manifest = tmp_path / "manifest.csv"
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         args = argparse.Namespace(
             species=None,
             genus=None,
@@ -691,9 +691,9 @@ class TestGenomePrepareCommand:
         cmd.configure_parser(parser)
         assert parser.parse_args(["--registry", "r.json"]).registry == "r.json"
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
-    @patch("metaquest.cli.commands.genome.get_accessions_for_genus")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.get_accessions_for_genus")
     def test_execute_with_genus(self, mock_gtdb, mock_download, mock_extract):
         mock_gtdb.return_value = ["GCF_000006945.2", "GCF_000007545.1"]
         mock_download.return_value = Path("download.zip")
@@ -709,14 +709,14 @@ class TestGenomePrepareCommand:
                 representative_only=True,
                 manifest_file=str(manifest),
                 skip_download=False,
-                registry=str(Path(tmpdir) / "metaquest_registry.json"),
+                registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
             assert result == 0
             mock_gtdb.assert_called_once_with("Salmonella", representative_only=True)
 
-    @patch("metaquest.cli.commands.genome.extract_and_organize")
-    @patch("metaquest.cli.commands.genome.download_genomes")
+    @patch("prepare.cli.commands.genome.extract_and_organize")
+    @patch("prepare.cli.commands.genome.download_genomes")
     def test_execute_with_accession_file(self, mock_download, mock_extract):
         mock_download.return_value = Path("download.zip")
         mock_extract.return_value = {}
@@ -733,7 +733,7 @@ class TestGenomePrepareCommand:
                 representative_only=True,
                 manifest_file=str(manifest),
                 skip_download=False,
-                registry=str(Path(tmpdir) / "metaquest_registry.json"),
+                registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
             assert result == 0

@@ -1,4 +1,4 @@
-"""``metaquest/core/constants.py``: nothing in the tree still names the constants removed from it.
+"""``prepare/core/constants.py``: nothing in the tree still names the constants removed from it.
 
 ``DEFAULT_MEMORY_LIMIT_GB``, ``MAX_FILE_SIZE_MB``, ``DEFAULT_PLUGIN_TIMEOUT``, ``ERROR_MESSAGES``
 and ``SUCCESS_MESSAGES`` were never read anywhere outside their own definitions, and
@@ -22,7 +22,7 @@ REMOVED_CONSTANTS = (
 
 # Source trees that ship with the package or its tests; docs and the plan/report archive under
 # docs/superpowers are history, not code, and are allowed to keep mentioning a removed name.
-SEARCHED_DIRS = ("metaquest", "tests", "scripts")
+SEARCHED_DIRS = ("prepare", "tests", "scripts")
 
 
 def test_removed_constants_are_not_referenced_anywhere():
@@ -39,6 +39,6 @@ def test_removed_constants_are_not_referenced_anywhere():
 
 
 def test_removed_constants_are_gone_from_the_module():
-    text = (REPO_ROOT / "metaquest" / "core" / "constants.py").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "prepare" / "core" / "constants.py").read_text(encoding="utf-8")
     for name in REMOVED_CONSTANTS:
         assert name not in text

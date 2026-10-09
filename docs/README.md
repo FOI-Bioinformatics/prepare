@@ -1,6 +1,6 @@
-# MetaQuest Documentation
+# PREPARE Documentation
 
-Welcome to the MetaQuest documentation! This directory contains comprehensive guides for using and developing MetaQuest.
+Welcome to the PREPARE documentation! This directory contains comprehensive guides for using and developing PREPARE.
 
 ## 📖 Documentation Index
 
@@ -14,11 +14,11 @@ Welcome to the MetaQuest documentation! This directory contains comprehensive gu
   variable and flag
 
 ### Developer Resources
-- **[Architecture](ARCHITECTURE.md)** - Technical architecture and design decisions for MetaQuest
+- **[Architecture](ARCHITECTURE.md)** - Technical architecture and design decisions for PREPARE
 
 ## 🚀 Getting Started
 
-New to MetaQuest? Start with the main [README](../README.md) in the project root, then explore the specific feature guides above based on your needs.
+New to PREPARE? Start with the main [README](../README.md) in the project root, then explore the specific feature guides above based on your needs.
 
 ## 📝 Contributing
 
@@ -26,4 +26,4 @@ For contribution guidelines, see [CONTRIBUTING.md](../CONTRIBUTING.md) in the pr
 
 ---
 
-*For questions or issues, please visit our [GitHub repository](https://github.com/FOI-Bioinformatics/metaquest).*
+*For questions or issues, please visit our [GitHub repository](https://github.com/FOI-Bioinformatics/prepare).*

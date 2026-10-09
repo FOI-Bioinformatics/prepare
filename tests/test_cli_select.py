@@ -5,8 +5,8 @@ import json
 
 import pytest
 
-from metaquest.cli.commands.select import SelectDatasetsCommand
-from metaquest.data.registry import load_registry, record_download, record_exclusion, save_registry
+from prepare.cli.commands.select import SelectDatasetsCommand
+from prepare.data.registry import load_registry, record_download, record_exclusion, save_registry
 
 
 def _args(tmp_path, **kwargs):
@@ -21,7 +21,7 @@ def _args(tmp_path, **kwargs):
         metadata_column=None,
         metadata_value=None,
         output=str(tmp_path / "accessions.txt"),
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
         skip_excluded=True,
         skip_downloaded=False,
         no_record=False,
@@ -51,7 +51,7 @@ def test_selection_is_recorded_in_registry(tmp_path, monkeypatch):
     (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.1\t0.1\n")
     rc = SelectDatasetsCommand().execute(_args(tmp_path, genome_id="GCF_A", threshold=0.5, registry=None))
     assert rc == 0
-    data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    data = json.loads((tmp_path / "prepare_registry.json").read_text())
     sel = data["datasets"]["SRR1"]["selection"]
     assert sel["selected"] is True and sel["criteria"]["column"] == "GCF_A" and sel["criteria"]["threshold"] == 0.5
     assert "SRR2" not in data["datasets"] or not data["datasets"]["SRR2"]["selection"]["selected"]
@@ -76,7 +76,7 @@ def test_selection_records_resolved_metadata_file(tmp_path, monkeypatch):
         )
     )
     assert rc == 0
-    data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    data = json.loads((tmp_path / "prepare_registry.json").read_text())
     criteria = data["datasets"]["SRR1"]["selection"]["criteria"]
     assert criteria["metadata_file"] == str(meta.resolve())
 
@@ -102,7 +102,7 @@ def test_selection_records_autodetected_metadata_file(tmp_path, monkeypatch):
         )
     )
     assert rc == 0
-    data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    data = json.loads((tmp_path / "prepare_registry.json").read_text())
     criteria = data["datasets"]["SRR1"]["selection"]["criteria"]
     assert criteria["metadata_file"] == str(meta.resolve())
 
@@ -112,7 +112,7 @@ def test_selection_without_metadata_file_records_none(tmp_path, monkeypatch):
     (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.1\t0.1\n")
     rc = SelectDatasetsCommand().execute(_args(tmp_path, genome_id="GCF_A", threshold=0.5, registry=None))
     assert rc == 0
-    data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    data = json.loads((tmp_path / "prepare_registry.json").read_text())
     assert data["datasets"]["SRR1"]["selection"]["criteria"]["metadata_file"] is None
 
 
@@ -128,7 +128,7 @@ def test_selection_records_no_metadata_file_without_a_metadata_column(tmp_path, 
         _args(tmp_path, genome_id="GCF_A", threshold=0.5, registry=None, metadata_file=str(meta))
     )
     assert rc == 0
-    data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    data = json.loads((tmp_path / "prepare_registry.json").read_text())
     assert data["datasets"]["SRR1"]["selection"]["criteria"]["metadata_file"] is None
 
 
@@ -138,7 +138,7 @@ def test_no_record_leaves_registry_untouched(tmp_path, monkeypatch):
     (recorded by the first, normal run) exactly as it was."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.1\t0.1\n")
-    registry_path = tmp_path / "metaquest_registry.json"
+    registry_path = tmp_path / "prepare_registry.json"
 
     rc = SelectDatasetsCommand().execute(_args(tmp_path, genome_id="GCF_A", threshold=0.5, registry=str(registry_path)))
     assert rc == 0
@@ -164,7 +164,7 @@ def test_no_record_refuses_the_recorded_selection_file(tmp_path, monkeypatch, ca
     the file keeps the recorded list and the registry stays as it was."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.1\t0.1\n")
-    registry_path = tmp_path / "metaquest_registry.json"
+    registry_path = tmp_path / "prepare_registry.json"
     rc = SelectDatasetsCommand().execute(_args(tmp_path, genome_id="GCF_A", threshold=0.5, output="accessions.txt"))
     assert rc == 0
     before_registry = registry_path.read_text()
@@ -188,7 +188,7 @@ def test_no_record_refuses_the_recorded_selection_file(tmp_path, monkeypatch, ca
 def test_no_record_with_other_output_proceeds(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.1\t0.1\n")
-    registry_path = tmp_path / "metaquest_registry.json"
+    registry_path = tmp_path / "prepare_registry.json"
     assert SelectDatasetsCommand().execute(_args(tmp_path, genome_id="GCF_A")) == 0
     before = registry_path.read_text()
     rc = SelectDatasetsCommand().execute(
@@ -206,11 +206,11 @@ def test_no_record_default_output_without_recorded_selection(tmp_path, monkeypat
     rc = SelectDatasetsCommand().execute(_args(tmp_path, genome_id="GCF_A", no_record=True))
     assert rc == 0
     assert (tmp_path / "accessions.txt").read_text() == "SRR1\n"
-    assert not (tmp_path / "metaquest_registry.json").exists()
+    assert not (tmp_path / "prepare_registry.json").exists()
 
 
 def test_command_is_registered():
-    from metaquest.cli.main import create_parser, register_all_commands
+    from prepare.cli.main import create_parser, register_all_commands
 
     register_all_commands()
     parser = create_parser()
@@ -221,7 +221,7 @@ def test_command_is_registered():
 def test_excluded_accessions_removed_by_default(tmp_path, monkeypatch, caplog):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.8\t0.8\n")
-    registry_path = tmp_path / "metaquest_registry.json"
+    registry_path = tmp_path / "prepare_registry.json"
     registry = load_registry(registry_path)
     record_exclusion(registry, "SRR2", "16S amplicon")
     save_registry(registry)
@@ -236,7 +236,7 @@ def test_excluded_accessions_removed_by_default(tmp_path, monkeypatch, caplog):
 def test_downloaded_accessions_removed_with_flag(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.8\t0.8\n")
-    registry_path = tmp_path / "metaquest_registry.json"
+    registry_path = tmp_path / "prepare_registry.json"
     registry = load_registry(registry_path)
     record_download(registry, "SRR2", "downloaded", tmp_path / "fastq")
     save_registry(registry)
@@ -249,7 +249,7 @@ def test_downloaded_accessions_removed_with_flag(tmp_path, monkeypatch):
 def test_no_skip_excluded_keeps_excluded_accessions(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.8\t0.8\n")
-    registry_path = tmp_path / "metaquest_registry.json"
+    registry_path = tmp_path / "prepare_registry.json"
     registry = load_registry(registry_path)
     record_exclusion(registry, "SRR2", "16S amplicon")
     save_registry(registry)
@@ -260,7 +260,7 @@ def test_no_skip_excluded_keeps_excluded_accessions(tmp_path, monkeypatch):
 
 
 def test_argparse_rejects_genome_id_with_genome_ids():
-    from metaquest.cli.main import create_parser, register_all_commands
+    from prepare.cli.main import create_parser, register_all_commands
 
     register_all_commands()
     parser = create_parser()
@@ -278,7 +278,7 @@ def test_argparse_rejects_genome_id_with_genome_ids():
 
 
 def test_argparse_rejects_top_n_zero():
-    from metaquest.cli.main import create_parser, register_all_commands
+    from prepare.cli.main import create_parser, register_all_commands
 
     register_all_commands()
     parser = create_parser()
@@ -287,7 +287,7 @@ def test_argparse_rejects_top_n_zero():
 
 
 def test_argparse_rejects_top_n_negative():
-    from metaquest.cli.main import create_parser, register_all_commands
+    from prepare.cli.main import create_parser, register_all_commands
 
     register_all_commands()
     parser = create_parser()
@@ -298,7 +298,7 @@ def test_argparse_rejects_top_n_negative():
 def test_registry_records_ranked_selection(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.8\t0.8\n")
-    registry_path = tmp_path / "metaquest_registry.json"
+    registry_path = tmp_path / "prepare_registry.json"
     rc = SelectDatasetsCommand().execute(_args(tmp_path, registry=str(registry_path)))
     assert rc == 0
     data = json.loads(registry_path.read_text())
@@ -315,7 +315,7 @@ def test_registry_records_the_combined_column_for_genome_ids(tmp_path, monkeypat
     (tmp_path / "parsed_containment.txt").write_text(
         "\tGCF_A\tGCF_B\tmax_containment\nSRR1\t0.9\t0.7\t0.9\nSRR2\t0.1\t0.1\t0.1\n"
     )
-    registry_path = tmp_path / "metaquest_registry.json"
+    registry_path = tmp_path / "prepare_registry.json"
     rc = SelectDatasetsCommand().execute(
         _args(tmp_path, genome_ids=["GCF_A", "GCF_B"], require="any", registry=str(registry_path))
     )
@@ -355,7 +355,7 @@ def test_run_filters_autodetect_the_metadata_table_and_record_criteria(tmp_path,
     )
     assert rc == 0
     assert (tmp_path / "accessions.txt").read_text() == "SRR3\n"
-    data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    data = json.loads((tmp_path / "prepare_registry.json").read_text())
     criteria = data["datasets"]["SRR3"]["selection"]["criteria"]
     assert criteria["metadata_file"] == str(meta.resolve())
     assert criteria["max_run_size"] == 500_000_000
@@ -369,7 +369,7 @@ def test_criteria_record_absent_run_filters_as_none(tmp_path, monkeypatch):
     (tmp_path / "parsed_containment.txt").write_text(_RUN_CONTAINMENT)
     rc = SelectDatasetsCommand().execute(_args(tmp_path, registry=None))
     assert rc == 0
-    criteria = json.loads((tmp_path / "metaquest_registry.json").read_text())["datasets"]["SRR1"]["selection"][
+    criteria = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]["SRR1"]["selection"][
         "criteria"
     ]
     assert criteria["metadata_file"] is None
@@ -396,11 +396,11 @@ def test_run_filter_on_a_table_without_the_column_returns_1_and_writes_nothing(t
     assert rc == 1
     assert "--max-run-size needs a Run_Size column; branchwater_metadata.txt has none" in caplog.text
     assert not (tmp_path / "accessions.txt").exists()
-    assert not (tmp_path / "metaquest_registry.json").exists()
+    assert not (tmp_path / "prepare_registry.json").exists()
 
 
 def test_argparse_parses_run_filter_flags():
-    from metaquest.cli.main import create_parser, register_all_commands
+    from prepare.cli.main import create_parser, register_all_commands
 
     register_all_commands()
     parser = create_parser()
@@ -433,7 +433,7 @@ def test_argparse_parses_run_filter_flags():
     ],
 )
 def test_argparse_rejects_bad_run_filter_values(argv):
-    from metaquest.cli.main import create_parser, register_all_commands
+    from prepare.cli.main import create_parser, register_all_commands
 
     register_all_commands()
     parser = create_parser()
@@ -455,7 +455,7 @@ def test_min_spots_above_max_spots_fails_before_looking_for_a_metadata_table(tmp
 
 @pytest.mark.parametrize("value", ["", " ", "\t"])
 def test_argparse_rejects_blank_platform(value):
-    from metaquest.cli.main import create_parser, register_all_commands
+    from prepare.cli.main import create_parser, register_all_commands
 
     register_all_commands()
     parser = create_parser()

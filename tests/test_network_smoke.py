@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from metaquest.data.sra import download_accession
+from prepare.data.sra import download_accession
 
 pytestmark = pytest.mark.network
 
@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SMOKE_CHAIN_SCRIPT = REPO_ROOT / "scripts" / "smoke_chain.sh"
 
 needs_fasterq_dump = pytest.mark.skipif(shutil.which("fasterq-dump") is None, reason="fasterq-dump not on PATH")
-needs_cli = pytest.mark.skipif(shutil.which("metaquest") is None, reason="metaquest CLI not on PATH")
+needs_cli = pytest.mark.skipif(shutil.which("prepare") is None, reason="prepare CLI not on PATH")
 needs_minimap2 = pytest.mark.skipif(shutil.which("minimap2") is None, reason="minimap2 not on PATH")
 needs_samtools = pytest.mark.skipif(shutil.which("samtools") is None, reason="samtools not on PATH")
 
@@ -63,7 +63,7 @@ def test_download_accession_writes_paired_fastq_uncompressed(tmp_path, monkeypat
 def test_download_sra_cli_round_trip(tmp_path):
     (tmp_path / "accessions.txt").write_text(f"{TINY_RUN}\n")
     result = subprocess.run(
-        ["metaquest", "download_sra", "--accessions-file", "accessions.txt", "--fastq-folder", "fastq"],
+        ["prepare", "download_sra", "--accessions-file", "accessions.txt", "--fastq-folder", "fastq"],
         cwd=tmp_path,
         capture_output=True,
         text=True,

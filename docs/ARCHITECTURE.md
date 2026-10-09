@@ -1,10 +1,10 @@
-# MetaQuest Architecture
+# PREPARE Architecture
 
-This document provides an overview of the MetaQuest architecture and design principles.
+This document provides an overview of the PREPARE architecture and design principles.
 
 ## Design Principles
 
-MetaQuest is designed around the following principles:
+PREPARE is designed around the following principles:
 
 1. **Separation of Concerns**: Clear separation between data access, business logic, and user interfaces
 2. **Extensibility**: Plugin-based design allowing for easy addition of new features
@@ -43,10 +43,10 @@ The CLI layer provides the command-line interface for the application. It's resp
 - Routing commands to the appropriate handlers
 - Formatting output for the user
 
-Most commands are one module each under `metaquest/cli/commands/`. Two command groups are large
-enough to be their own packages instead: `metaquest/cli/commands/store/` (one module per store
+Most commands are one module each under `prepare/cli/commands/`. Two command groups are large
+enough to be their own packages instead: `prepare/cli/commands/store/` (one module per store
 command: `init`, `status`, `reindex`, `adopt`, `verify`, `link`, `usage`, `gc`, plus a shared
-`_shared.py`) and `metaquest/cli/commands/status/` (`command.py` for the `StatusCommand` class,
+`_shared.py`) and `prepare/cli/commands/status/` (`command.py` for the `StatusCommand` class,
 `suggest.py` for the `--next` suggestions, `render_text.py` for the text-output formatters). Two
 commands keep part of their logic in a helper module beside them: `extract_target_reads`
 (`read_extraction.py`) assembles through `extraction_assembly.py` (`assemble_samples`, one sample at a
@@ -58,8 +58,8 @@ the run log and compares runs through `processing/run_diff.py`) and `project_rep
 (`ProjectReportCommand`, which builds the report in `processing/project_report.py` and renders it
 through `processing/project_report_markdown.py` and `visualization/project_report.py`). Every
 command writes to stdout through exactly one channel, `BaseCommand.emit`/`emit_raw`/`emit_json`
-(`metaquest/cli/base.py`); library modules log or return their output instead of printing, and a
-`make check` gate fails on any other `print(` call in `metaquest/`.
+(`prepare/cli/base.py`); library modules log or return their output instead of printing, and a
+`make check` gate fails on any other `print(` call in `prepare/`.
 
 #### Core Logic Layer
 The core logic layer contains the business logic of the application. It includes:
@@ -76,7 +76,7 @@ The data layer manages access to data sources and external systems:
 - Caching mechanisms
 
 #### Project registry
-`metaquest/data/registry.py` is the project journal: a `metaquest_registry.json` file in the project
+`prepare/data/registry.py` is the project journal: a `prepare_registry.json` file in the project
 root recording screening, selection, exclusion, download, metadata, analysis, extraction, and
 assembly outcomes for every accession a project touches. Record functions (`record_screening`,
 `record_selection`, `record_exclusion`, `record_download`, `record_metadata`, `record_analysis`,
@@ -98,22 +98,22 @@ and `store` (`root`, `mode`, `linked[]`), which records the shared data store th
 Every path a project registry stores is written relative to the project root when it lies inside that
 root, and absolute otherwise, so moving the project directory does not break the registry.
 
-`metaquest/data/registry_blocks.py` defines every block the registry file holds (screening,
+`prepare/data/registry_blocks.py` defines every block the registry file holds (screening,
 selection, exclusion, download, metadata, analysis, extraction, assembly, plus the `project` and
 `store` blocks above) as a dataclass derived from a common `RegistryBlock`: `from_dict`/`to_dict`
-round-trip any key the block does not itself declare, so a field this version of MetaQuest does not
+round-trip any key the block does not itself declare, so a field this version of PREPARE does not
 know about survives a load-and-save cycle unchanged. `registry.py` reads and writes these typed
 blocks rather than raw dictionaries; the on-disk JSON layout is unchanged.
 
 #### Run log
-The registry keeps the latest outcome of each step; `metaquest/data/run_log.py` keeps one record per
+The registry keeps the latest outcome of each step; `prepare/data/run_log.py` keeps one record per
 run of a command, so a later run can be compared with an earlier one. The registry itself holds no list
-of runs. The layout is under `<project>/.metaquest/runs/`, where the project is the folder holding the
+of runs. The layout is under `<project>/.prepare/runs/`, where the project is the folder holding the
 registry file:
 
 - `runs.jsonl`: one JSON object per line (`RunRecord`, schema 1), one line per run, in the order the
   runs finished: run ID, command, start and finish times in UTC, seconds, exit code, the argument list
-  and parsed arguments with secret values replaced by `***`, MetaQuest version, host, process ID, a
+  and parsed arguments with secret values replaced by `***`, PREPARE version, host, process ID, a
   summary and the name of the detail file. Lines are appended under `runs.jsonl.lock` with flush and
   fsync; a line cut short by an interrupted append, or one holding a byte that is not UTF-8 outside a
   JSON string (the file is read with `errors="replace"`), is skipped on reading, with one warning.
@@ -139,7 +139,7 @@ key found in more than one section has its fields prefixed with the section's fu
 ID, a unique prefix, `latest` or `previous`, as `runs` selects a run) and `read_detail`.
 
 #### Optional dependencies
-`metaquest/core/optional.py` is the single point where an optional package is imported. Core
+`prepare/core/optional.py` is the single point where an optional package is imported. Core
 runtime dependencies (pandas, numpy, matplotlib, biopython, lxml, requests) are always available;
 everything else (scikit-learn and scipy behind the `analysis` extra, plotly and jinja2 behind
 `interactive`, cartopy behind `maps`, sourmash behind `sourmash`) is imported at the point of use
@@ -149,14 +149,14 @@ interpreter to install it into; a command that catches broad exceptions re-raise
 `ConfigurationError` rather than reporting a degraded result.
 
 #### Shared data store
-`metaquest/store` is a package, not a single module, because the store's concerns are independent of
+`prepare/store` is a package, not a single module, because the store's concerns are independent of
 each other and each is small enough to test alone:
 
-- **resolve**: finds the store root, in order, from `--data-root`, `METAQUEST_DATA`, `store.root` in
-  the project registry, and `[store] data_root` in `~/.config/metaquest/config.toml`, and writes the
+- **resolve**: finds the store root, in order, from `--data-root`, `PREPARE_DATA`, `store.root` in
+  the project registry, and `[store] data_root` in `~/.config/prepare/config.toml`, and writes the
   `[store]` table of that file (see "Configuration" below; the file reader itself lives in
   `core/settings.py` and is re-exported here).
-- **layout**: the store's on-disk shape (`metaquest_store.json` marker, `catalog.sqlite`, `locks/`,
+- **layout**: the store's on-disk shape (`prepare_store.json` marker, `catalog.sqlite`, `locks/`,
   `tmp/`, `sra/<accession>/`) and the paths derived from it.
 - **sidecar**: reads and writes `<accession>.json` next to each dataset's files: state, layout,
   compression, per-file size and md5, read and base counts, the NCBI spot and base counts used for the
@@ -189,15 +189,15 @@ each other and each is small enough to test alone:
 - **stats**: computes and caches the per-dataset statistics block (streaming exact read and base
   counts, plus a sample for per-read metrics such as GC content), invalidated when the FASTQ file's size
   or modification time changes; used by `sra_profile`, `sra_report` and `sra_validate` (through
-  `metaquest.sra.dataset_stats.load_dataset_stats` for the first two).
+  `prepare.sra.dataset_stats.load_dataset_stats` for the first two).
 
-Nothing outside `metaquest/store` depends on its internal layout; other layers call its public
+Nothing outside `prepare/store` depends on its internal layout; other layers call its public
 functions (`resolve_store_root`, `link_dataset`, `record_usage_safe`, and so on) and otherwise treat a
 project with no store configured exactly as it behaved before the store existed.
 
 #### Locking
 
-Every lock file in metaquest is built on one mechanism, `metaquest/utils/lockfile.py`, rather than each
+Every lock file in prepare is built on one mechanism, `prepare/utils/lockfile.py`, rather than each
 caller managing its own `O_EXCL` file:
 
 - **Holder record**: creating a lock (`O_EXCL`) writes a JSON record of `{pid, host, started, token,
@@ -218,7 +218,7 @@ caller managing its own `O_EXCL` file:
 - **Release**: a lock is removed only by the process whose token matches the one written in the file, so
   a process that took over a lock never removes a later holder's lock on the same path.
 
-Known limitation: a dataset lock's staging folder (a plain project's `.metaquest-tmp/<ACCESSION>`, or the
+Known limitation: a dataset lock's staging folder (a plain project's `.prepare-tmp/<ACCESSION>`, or the
 store's own staging path) is named after the accession alone, not the holder's token. A takeover of a
 holder that is not dead but merely stalled past the stale window (a suspended process, for example) does
 not stop that stalled holder from writing into the same staging folder the new holder is now using, so the
@@ -257,7 +257,7 @@ The registry policy covers `<registry>.lock`; the catalogue policy covers
 (`<store>/locks/<ACCESSION>.lock`), a plain project's per-accession download lock
 (`<fastq>/.locks/<ACCESSION>.lock`), an index build lock (`<index>.lock`), and a per-sample extraction
 lock (`<output>/.locks/<ACCESSION>.<GENOME_ID>.lock`). The run-log policy (`RUN_LOG_LOCK_POLICY`,
-fixed values, not read from the settings) covers `<project>/.metaquest/runs/runs.jsonl.lock`.
+fixed values, not read from the settings) covers `<project>/.prepare/runs/runs.jsonl.lock`.
 
 The dataset policy's wait varies by caller: a store dataset lock and an index build lock wait without a
 time limit (for as long as the holder's heartbeat shows it is alive); a plain project's per-accession
@@ -265,9 +265,9 @@ download lock is bounded by `--lock-wait` (0, the default, means no limit); a pe
 never waits (`blocking=False`), so a second process or thread finding a sample already locked reports it
 skipped instead of mapping it twice.
 
-Compatibility shims keep every existing caller unchanged: `metaquest/store/locks.py` re-exports the
+Compatibility shims keep every existing caller unchanged: `prepare/store/locks.py` re-exports the
 dataset-lock API (`dataset_lock`, `lock_is_held`, `read_holder`, `LockHeld`, `LockWaitStopped`) built on
-`held_lock` with the dataset policy, and `metaquest/data/registry.py`'s `_acquire_lock` is a thin
+`held_lock` with the dataset policy, and `prepare/data/registry.py`'s `_acquire_lock` is a thin
 context manager over `held_lock` with the registry policy.
 
 #### Registry write model
@@ -279,7 +279,7 @@ doing minutes of work, and writing it back under a single lock:
 - **`registry_transaction(path)`**: the low-level context manager, used inside the two helpers below and
   directly by a handful of call sites, that loads the registry under the lock, yields it for one quick
   mutation, and writes it back before releasing the lock.
-- **`registry_update(path, mutation)`** (`metaquest/data/registry_batch.py`): loads the registry,
+- **`registry_update(path, mutation)`** (`prepare/data/registry_batch.py`): loads the registry,
   applies `mutation` to it and writes it back, all under one `registry_transaction`, and returns the
   mutation's result. The pattern for a command that works on a read-only snapshot first (ranking,
   parsing, profiling) and then records what it found: `registry_update(path, partial(record_something,
@@ -301,7 +301,7 @@ is `apply(scan(...))` for a caller that wants the old one-call behaviour.
 #### Download completeness verdicts
 
 A download's verdict compares the reads on disk with NCBI's spot count: `complete` at a ratio of 0.99 or
-more, `truncated` below it, `unverified` when no count is known. `metaquest/data/sra/spots.py` holds two
+more, `truncated` below it, `unverified` when no count is known. `prepare/data/sra/spots.py` holds two
 rules. `download_sra` (`cli/commands/sra_verdicts.py`, `registry_inputs`), the store hand-off,
 `store_link`, `store_adopt` and `status --reconcile` use the lookup, with the project's and then the store's
 `metadata/` folder as the XML folders. A plain redownload that comes back `unverified` keeps a recorded
@@ -336,8 +336,8 @@ outcome: the retry pass in `data/sra/retry.py` (`_split_not_found`) does not ret
 
 #### Assembly identity and staging
 
-`metaquest/data/assembly_identity.py` decides whether an assembly folder `<genome_id>_assembly` still
-belongs to the reads it would be built from now. A marker file in the folder, `.metaquest-assembly.json`
+`prepare/data/assembly_identity.py` decides whether an assembly folder `<genome_id>_assembly` still
+belongs to the reads it would be built from now. A marker file in the folder, `.prepare-assembly.json`
 (written with `write_text_atomic`), records `inputs` (the extracted read files as sorted name and size
 pairs, the extraction date, the megahit preset, the minimum contig length and the k values), plus the
 megahit version, the run parameters and the time written, which are kept for reference and not compared.
@@ -364,7 +364,7 @@ removed afterwards and is not brought back. Staging and aside names are hidden, 
 
 #### Atomic writes and temp names
 
-`metaquest/data/file_io.py` provides `atomic_path`, `write_text_atomic`, `write_bytes_atomic`,
+`prepare/data/file_io.py` provides `atomic_path`, `write_text_atomic`, `write_bytes_atomic`,
 `open_atomic`, and `write_csv`, every one of them writing into a uniquely named temporary file next to
 the target (`.{name}.{host}.{pid}.{token}.tmp`, dot-prefixed so it is invisible to every folder listing
 built on `visible_files`) and publishing it with `os.replace`, so a reader never sees a partially
@@ -376,13 +376,13 @@ run as part of `make check`, fails on a direct `.write_text`, `.write_bytes`, `.
 
 #### Termination
 
-`metaquest/utils/termination.py` installs a signal handler for `SIGINT`, `SIGTERM`, and `SIGHUP` (and
+`prepare/utils/termination.py` installs a signal handler for `SIGINT`, `SIGTERM`, and `SIGHUP` (and
 `SIGBREAK` in place of the latter two on Windows) for the length of one command, through
 `graceful_termination()`. The first signal sets a `Termination.stop` event and raises
 `KeyboardInterrupt`, so `finally` blocks and `with` exits (a registry batch flush, a tool shutdown) run
 normally; a second signal is logged and counted, not raised, so it cannot cut that flush short; after
 `ABANDON_AFTER_SIGNALS` (3) signals in total the process terminates any running child and exits at once
-with status 130 (`EXIT_INTERRUPTED`). `BaseCommand.run` (`metaquest/cli/base.py`) opens this context
+with status 130 (`EXIT_INTERRUPTED`). `BaseCommand.run` (`prepare/cli/base.py`) opens this context
 around every command's `execute()`, unless a command sets `graceful_shutdown = False`, puts the
 `Termination` on `args._termination`, and on a caught `KeyboardInterrupt` logs, calls
 `SecureSubprocess.terminate_children()`, and returns 130.
@@ -414,22 +414,22 @@ The plugin system enables extensibility:
 - **file_io**: Abstract file operations for reading/writing various file formats
 - **branchwater**: Functionality for working with Branchwater data
 - **metadata**: Functions for downloading and processing metadata
-- **sra** (`metaquest/data/sra/`): A package, not a single module, for downloading and working with
+- **sra** (`prepare/data/sra/`): A package, not a single module, for downloading and working with
   SRA data: `fastq` (finding and reading FASTQ files, verifying a download), `cleanup` (transient
   folder handling), `accession` (running `prefetch`/`fasterq-dump` for one accession), `retry`
   (parallel download with retries), `store_handoff` (linking a download into the shared store),
   `spots` (the expected spot count and the verdict merge rule, described in "Download completeness
   verdicts" below), and `download` (the CLI-facing entry point); the package's `__init__.py` re-exports
-  the public functions other layers import, so `from metaquest.data.sra import download_accession` still
+  the public functions other layers import, so `from prepare.data.sra import download_accession` still
   works
-- **registry**: The project journal (`metaquest_registry.json`); records dataset state and
+- **registry**: The project journal (`prepare_registry.json`); records dataset state and
   re-checks presence against the filesystem
 - **registry_blocks**: Typed dataclasses for every block the registry file holds, described in
   "Project registry" above
 - **registry_timing**: `started`/`seconds` for the download, extraction and assembly blocks
   (`set_download_timing` and its two siblings, `Stopwatch`, and `timing_summary` for `status`), kept
   out of `registry.py`, which is at its size ceiling
-- **sra/space** (`metaquest/data/sra/space.py`): the free-space guard of `download_sra`. `SpaceGuard`
+- **sra/space** (`prepare/data/sra/space.py`): the free-space guard of `download_sra`. `SpaceGuard`
   groups the output, temporary and `.sra` cache folders by filesystem and reserves, per accession,
   10 times its registry run size for output (`FASTQ_EXPANSION` plus `GZIP_EXPANSION`) and 8 times
   for temporary files, or
@@ -453,16 +453,16 @@ The plugin system enables extensibility:
   write model" below); the report, `StoreReconcileReport`, adds `store_unavailable`, `metadata_filled`,
   `verdicts_rechecked` and `assemblies_dropped` (assembly records dated before their extraction record,
   which the apply step removes with `clear_assembly`) to the fields of `ReconcileReport`
-- **store** (`metaquest/store/`): The shared data store package, described in "Shared data store"
+- **store** (`prepare/store/`): The shared data store package, described in "Shared data store"
   below; a project that never runs `store_init` never touches it
 - **run_log**: the per-project run log (`RunRecord`, `note_run`, `note_rows`, `record_run`, `read_runs`,
   `read_detail`, `resolve_run`, `project_for`), described in "Run log" above
-- **sra/run_report** (`metaquest/data/sra/run_report.py`): the per-run summary of `download_sra`:
+- **sra/run_report** (`prepare/data/sra/run_report.py`): the per-run summary of `download_sra`:
   `failure_reason` (one of `network`, `not-found`, `disk-full`, `insufficient-space`, `locked`,
   `interrupted`, `unknown`), `RunOutcomes` (the last outcome and the number of attempts that started a
   download, per accession), the rows of the `--report-file` CSV and the `download_run.json` document,
   and `run_log_entries`, the run-log summary and detail taken from that document. Not re-exported from
-  `metaquest/data/sra/__init__.py`
+  `prepare/data/sra/__init__.py`
 
 #### Processing Components
 
@@ -474,7 +474,7 @@ The plugin system enables extensibility:
   filtering, store link status) from the registry and the filesystem; kept in `processing/` rather
   than `cli/` so it has no dependency on the CLI layer, and returns data that `cli/commands/status/`
   formats for text or JSON output
-- **doctor_report**: the checks of `metaquest doctor` (Python, tools, config file and settings, store,
+- **doctor_report**: the checks of `prepare doctor` (Python, tools, config file and settings, store,
   free space, registry, resources, optionally the network), each a `Check(name, status, detail, data)`;
   `cli/commands/doctor.py` renders them as text or JSON and exits with 3 when one failed
 - **project_funnel**: `funnel(registry, members)`, the number of datasets screened, selected,
@@ -575,7 +575,7 @@ Each plugin provides standard methods like:
 
 The application uses a comprehensive error handling approach:
 
-1. **Exception Hierarchy**: Custom exception hierarchy starting with `MetaQuestError`
+1. **Exception Hierarchy**: Custom exception hierarchy starting with `PrepareError`
 2. **Specific Error Types**: Different exception types for various error categories
 3. **Layered Handling**: Each layer handles errors appropriate to its level
 4. **Numerical Stability**: Proper handling of edge cases in statistical computations
@@ -585,13 +585,13 @@ The application uses a comprehensive error handling approach:
 
 ### Exit-code policy
 
-Each exception class carries the process exit code it gives (`MetaQuestError.exit_code`,
+Each exception class carries the process exit code it gives (`PrepareError.exit_code`,
 `core/exceptions.py`), and `exit_code_for(error)` maps an exception to a code:
 
 | Code | `ExitCode` | Raised as |
 |---|---|---|
 | 0 | `OK` | |
-| 1 | `FAILURE` | `MetaQuestError` and every subclass not below; any other exception |
+| 1 | `FAILURE` | `PrepareError` and every subclass not below; any other exception |
 | 2 | `USAGE` | argparse usage errors; a renamed command (`cli/commands/renamed.py`) |
 | 3 | `CONFIGURATION` | `ConfigurationError` (see below) |
 | 4 | `TRANSIENT` | `TransientError`: `LockTimeoutError`, `NetworkError` (see below) |
@@ -640,8 +640,8 @@ Two modules resolve configuration, with different orders of precedence (see
 
 - **Runtime settings** (`core/settings.py`): `SETTINGS` holds one `SettingSpec` per value a run can be
   tuned with (name, parser, default, environment variable, description, flag `dest`, config key). Each
-  is resolved from the flag (when given), then `METAQUEST_<NAME>` (and any alias such as
-  `NCBI_API_KEY`), then the `[runtime]` table of `$XDG_CONFIG_HOME/metaquest/config.toml`, then the
+  is resolved from the flag (when given), then `PREPARE_<NAME>` (and any alias such as
+  `NCBI_API_KEY`), then the `[runtime]` table of `$XDG_CONFIG_HOME/prepare/config.toml`, then the
   default; `Resolved.source` records which. `main()` calls `settings.activate(args)` once, before
   logging is set up; code reads `settings.active()`, or `setting_for(args, name)` inside a command so a
   flag in a hand-built namespace is honoured. `active()` without `activate()` (library use) resolves
@@ -650,7 +650,7 @@ Two modules resolve configuration, with different orders of precedence (see
   except `doctor`, which runs on the defaults (`activate_defaults`) and reports the error as a failed
   check. Unknown `[runtime]` keys are kept in `RuntimeSettings.warnings` and logged once logging is up.
 - **Store root** (`store/resolve.py`): `resolve_store_root` takes the first of `--data-root`,
-  `METAQUEST_DATA`, the registry's `store.root` and `[store] data_root` in the same file, and requires
+  `PREPARE_DATA`, the registry's `store.root` and `[store] data_root` in the same file, and requires
   the store marker. The registry comes before the per-user file because a project that joined a store
   records it, and every command in that project must find the same store; a runtime setting has no
   project-level record. `store_init --set-default` writes the `[store]` table.

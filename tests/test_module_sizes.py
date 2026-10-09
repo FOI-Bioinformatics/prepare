@@ -1,4 +1,4 @@
-"""Size and maintainability ceilings for every module under ``metaquest/``.
+"""Size and maintainability ceilings for every module under ``prepare/``.
 
 A module longer than ``MAX_LINES`` lines, or with a radon maintainability index below
 ``MIN_MAINTAINABILITY``, fails here. Run ``python tests/test_module_sizes.py --check`` to get
@@ -15,17 +15,17 @@ from typing import Dict, List, Tuple
 
 from radon.metrics import mi_visit
 
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent / "metaquest"
+PACKAGE_ROOT = Path(__file__).resolve().parent.parent / "prepare"
 MAX_LINES = 800
 MIN_MAINTAINABILITY = 20.0
 
 # path relative to the repository -> (line ceiling, maintainability floor), measured 2026-09-25.
-# Follow-up after 0.5.0: split each of these three into a package, as metaquest/data/sra.py was
+# Follow-up after 0.5.0: split each of these three into a package, as prepare/data/sra.py was
 # split in 0.5.0, and drop its entry here once every resulting module meets the ceilings.
 # read_extraction.py was re-measured on 2026-09-30, after its assembly code moved to data/assembly.py.
 KNOWN_EXCEPTIONS: Dict[str, Tuple[int, float]] = {
-    "metaquest/data/read_extraction.py": (964, 29.6),
-    "metaquest/data/registry.py": (1001, MIN_MAINTAINABILITY),
+    "prepare/data/read_extraction.py": (964, 29.6),
+    "prepare/data/registry.py": (1001, MIN_MAINTAINABILITY),
 }
 
 

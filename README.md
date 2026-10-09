@@ -1,6 +1,6 @@
-# MetaQuest
+# PREPARE
 
-**MetaQuest** is a comprehensive command-line bioinformatics toolkit for analyzing metagenomic datasets based on genome containment. The software processes Branchwater CSV files, downloads SRA metadata from NCBI, and provides advanced visualization and analysis capabilities including diversity analysis, interactive plotting, and taxonomic validation.
+**PREPARE** is a comprehensive command-line bioinformatics toolkit for analyzing metagenomic datasets based on genome containment. The software processes Branchwater CSV files, downloads SRA metadata from NCBI, and provides advanced visualization and analysis capabilities including diversity analysis, interactive plotting, and taxonomic validation.
 
 ## Features
 
@@ -18,8 +18,8 @@ Requires Python 3.12 or newer.
 
 ### Quick Start (Recommended)
 ```bash
-git clone https://github.com/FOI-Bioinformatics/MetaQuest.git
-cd MetaQuest
+git clone https://github.com/FOI-Bioinformatics/PREPARE.git
+cd PREPARE
 make dev-install  # Installs every extra plus the development tools
 ```
 
@@ -34,7 +34,7 @@ matplotlib plotting steps. Other features need an extra:
 | `analysis` | scikit-learn, scipy | `diversity_analysis`, PCA, t-SNE and clustered heatmaps in `interactive_plot`, group statistics in `sra_report --groups-file` |
 | `interactive` | plotly, jinja2 | `interactive_plot`, `explore_containment`, the `sra_report` HTML report (not needed with `--no-report`), the `project_report` HTML page (its Markdown and JSON files are written without it) |
 | `maps` | cartopy | geographic sample maps |
-| `sourmash` | sourmash | sketching a genome in `branchwater_search`, and the `sourmash scripts metaquest_*` plugin |
+| `sourmash` | sourmash | sketching a genome in `branchwater_search`, and the `sourmash scripts prepare_*` plugin |
 | `all` | all of the above | everything |
 
 ```bash
@@ -48,7 +48,7 @@ install it into, for example:
 
 ```
 Diversity analysis needs the 'scikit-learn' package. Install it into this interpreter with:
-/path/to/python -m pip install 'metaquest[analysis]'
+/path/to/python -m pip install 'prepare[analysis]'
 ```
 
 `requirements.txt` lists the core packages and `requirements-all.txt` the core plus every extra.
@@ -61,16 +61,16 @@ The conda environment pins Python 3.12, matching `requires-python` in `pyproject
 
 ```bash
 make env            # conda env create -f environment.yml (or update --prune if it exists)
-make env-dev        # pip install -e ".[dev]" into the "metaquest" conda environment
-conda activate metaquest
+make env-dev        # pip install -e ".[dev]" into the "prepare" conda environment
+conda activate prepare
 ```
 
-`make env-dev` runs `conda run -n metaquest pip install -e ".[dev]"`, so it always installs into
-the environment named `metaquest` regardless of what is currently active; `conda activate
-metaquest` is only needed afterward, to use the `metaquest` console script and the interpreter
+`make env-dev` runs `conda run -n prepare pip install -e ".[dev]"`, so it always installs into
+the environment named `prepare` regardless of what is currently active; `conda activate
+prepare` is only needed afterward, to use the `prepare` console script and the interpreter
 day to day. The package should not stay installed (editable or otherwise) in another
-interpreter's site-packages at the same time; `pip uninstall metaquest` from any other
-environment before relying on the `metaquest` console script, so it resolves to the 3.12
+interpreter's site-packages at the same time; `pip uninstall prepare` from any other
+environment before relying on the `prepare` console script, so it resolves to the 3.12
 environment's copy rather than a stale one.
 
 ### External tools
@@ -93,34 +93,34 @@ checks minimap2 and samtools, and megahit with `--assemble`; `genome_download` a
 check `datasets`). A missing tool, one older than the version above, or one that cannot run (it exits
 with an error when asked for its version) stops the command with exit code 3 and a message that lists
 every such tool with the `conda install` command that provides it. The optional tools (`prefetch`,
-`pigz`, `seqkit`) are not checked by the commands, which work without them; `metaquest doctor` (below)
+`pigz`, `seqkit`) are not checked by the commands, which work without them; `prepare doctor` (below)
 reports every tool in the table, and a tool older than its oldest supported version is a failed check
-there. The table lives in `metaquest/utils/tools.py`, and `environment.yml` pins the same versions.
+there. The table lives in `prepare/utils/tools.py`, and `environment.yml` pins the same versions.
 
-`environment.yml` installs all of them together with MetaQuest:
+`environment.yml` installs all of them together with PREPARE:
 
 ```bash
 conda env create -f environment.yml
-conda activate metaquest
+conda activate prepare
 ```
 
 Map plots need the `maps` extra (see the extras table above); `environment.yml` installs every extra.
 
 ### Checking the environment
 
-`doctor` (listed under Environment in `metaquest --help`) reports whether this environment can run
-MetaQuest, without changing anything:
+`doctor` (listed under Environment in `prepare --help`) reports whether this environment can run
+PREPARE, without changing anything:
 
 ```bash
-metaquest doctor                              # every check, one line each
-metaquest doctor --for extract_target_reads   # a tool this command needs is a failure, not a warning
-metaquest doctor --json                       # the same report as one JSON document
-metaquest doctor --network                    # also check that NCBI and Branchwater answer (10 s each)
+prepare doctor                              # every check, one line each
+prepare doctor --for extract_target_reads   # a tool this command needs is a failure, not a warning
+prepare doctor --json                       # the same report as one JSON document
+prepare doctor --network                    # also check that NCBI and Branchwater answer (10 s each)
 ```
 
-It checks the Python and MetaQuest versions; every external tool, with its path, version and the
+It checks the Python and PREPARE versions; every external tool, with its path, version and the
 oldest supported version; that the config file parses, with each runtime setting and where its value
-came from; the shared data store, if one is configured (`--data-root`, `METAQUEST_DATA`, the registry
+came from; the shared data store, if one is configured (`--data-root`, `PREPARE_DATA`, the registry
 or the config file), for its marker, write access and free space; free space at the project folder
 (`--project`, default the working directory), the temporary folder and the `.sra` cache against
 `min_free_gb`; the CPUs available against the node's total, the memory limit and any SLURM job
@@ -134,12 +134,12 @@ and reports the parse error as a failed check. `make doctor` runs it from a chec
 ### Configuration
 
 Run-time settings (tool timeout, free-space floor, lock limits, NCBI email and API key, logging,
-megahit memory, the download worker cap) are taken from a flag, then a `METAQUEST_<NAME>` environment
-variable, then the `[runtime]` table of `~/.config/metaquest/config.toml` (or
-`$XDG_CONFIG_HOME/metaquest/config.toml`), then a built-in default. The shared data store root has its
-own order: `--data-root`, `METAQUEST_DATA`, the project registry, then `[store] data_root` in the same
+megahit memory, the download worker cap) are taken from a flag, then a `PREPARE_<NAME>` environment
+variable, then the `[runtime]` table of `~/.config/prepare/config.toml` (or
+`$XDG_CONFIG_HOME/prepare/config.toml`), then a built-in default. The shared data store root has its
+own order: `--data-root`, `PREPARE_DATA`, the project registry, then `[store] data_root` in the same
 file. [docs/configuration.md](docs/configuration.md) lists every setting with its type, default,
-variable and flag. With an email address set there (`METAQUEST_NCBI_EMAIL` or `ncbi_email`), `--email`
+variable and flag. With an email address set there (`PREPARE_NCBI_EMAIL` or `ncbi_email`), `--email`
 can be left out of `download_metadata`, `sra_info` and `validate_taxonomy`.
 
 ### Development Commands
@@ -162,8 +162,8 @@ accession, species, or genus, but leaves the downloaded `genomes/ncbi_dataset.zi
 does not record anything in the registry:
 
 ```bash
-metaquest genome_prepare --species "Lactobacillus crispatus" --output-dir genomes
-metaquest genome_download --accessions GCF_000006945.2 --output-dir genomes
+prepare genome_prepare --species "Lactobacillus crispatus" --output-dir genomes
+prepare genome_download --accessions GCF_000006945.2 --output-dir genomes
 ```
 
 `genome_search` looks up GTDB accessions without downloading anything (`--species`/`--genus`, `--all`
@@ -172,11 +172,11 @@ for every genome instead of just representatives, `--format list`/`tsv`).
 ### 1. Getting Containment Files from Branchwater
 
 Search the Branchwater index directly from a genome. The command sketches the FASTA with sourmash
-(install the extra with `pip install 'metaquest[sourmash]'`, or use `environment.yml`), queries the
+(install the extra with `pip install 'prepare[sourmash]'`, or use `environment.yml`), queries the
 public search API and writes `branchwater/<genome>.csv` in the layout the next steps read:
 
 ```bash
-metaquest branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1
+prepare branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1
 ```
 
 The CSV carries the accession, containment and cANI, nothing else; the server is sent `--threshold` but
@@ -197,10 +197,10 @@ a cached entry older than N days.
 
 ### 2. Process Branchwater Files
 
-Process the downloaded files to prepare them for the MetaQuest pipeline:
+Process the downloaded files to prepare them for the PREPARE pipeline:
 
 ```bash
-metaquest use_branchwater --branchwater-folder /path/to/branchwater/files --matches-folder matches
+prepare use_branchwater --branchwater-folder /path/to/branchwater/files --matches-folder matches
 ```
 
 * `branchwater-folder`: The directory where Branchwater CSV files are located.
@@ -219,7 +219,7 @@ downloaded from the Branchwater web site carries an `organism` column and simila
 this step does extract:
 
 ```bash
-metaquest extract_branchwater_metadata --branchwater-folder /path/to/branchwater/files --metadata-folder metadata
+prepare extract_branchwater_metadata --branchwater-folder /path/to/branchwater/files --metadata-folder metadata
 ```
 
 > Note: a few Branchwater columns are renamed to canonical names in the output; in
@@ -233,7 +233,7 @@ metaquest extract_branchwater_metadata --branchwater-folder /path/to/branchwater
 After processing the Branchwater files, you can summarize the results:
 
 ```bash
-metaquest parse_containment --matches-folder matches --parsed-containment-file parsed_containment.txt --summary-containment-file summary_containment.txt --step-size 0.05
+prepare parse_containment --matches-folder matches --parsed-containment-file parsed_containment.txt --summary-containment-file summary_containment.txt --step-size 0.05
 ```
 
 *Example output:* parsed_containment.txt (samples x genomes) and summary_containment.txt (counts per
@@ -247,7 +247,7 @@ For more comprehensive metadata, you can download it from NCBI. This writes one 
 step 6 (`parse_metadata`) is what turns those XML files into a table:
 
 ```bash
-metaquest download_metadata --matches-folder matches --metadata-folder metadata --threshold 0.95 --email [EMAIL]
+prepare download_metadata --matches-folder matches --metadata-folder metadata --threshold 0.95 --email [EMAIL]
 ```
 
 * `matches_folder`: Directory containing match files.
@@ -274,7 +274,7 @@ given (see step 8), so naming it something else here means passing that name exp
 command too.
 
 ```bash
-metaquest parse_metadata --metadata-folder metadata --metadata-table-file metadata_table.txt
+prepare parse_metadata --metadata-folder metadata --metadata-table-file metadata_table.txt
 ```
 
 *Example output:* metadata_table.txt
@@ -284,7 +284,7 @@ metaquest parse_metadata --metadata-folder metadata --metadata-table-file metada
 This step helps in understanding the distribution of metadata attributes:
 
 ```bash
-metaquest check_metadata_attributes --file-path metadata_table.txt --output-file metadata_table_overview.txt
+prepare check_metadata_attributes --file-path metadata_table.txt --output-file metadata_table_overview.txt
 ```
 
 *Example output:* metadata_table_overview.txt
@@ -296,7 +296,7 @@ metaquest check_metadata_attributes --file-path metadata_table.txt --output-file
 step 3, so either metadata route works with the defaults:
 
 ```bash
-metaquest count_metadata --metadata-column Sample_Scientific_Name --threshold 0.9 --output-file metadata_counts.txt
+prepare count_metadata --metadata-column Sample_Scientific_Name --threshold 0.9 --output-file metadata_counts.txt
 ```
 
 This writes `metadata_counts.txt` (default output name, one row per value, one column per genome) and
@@ -306,7 +306,7 @@ To instead see the distribution of genomes across datasets grouped by a metadata
 `--summary-file` and `--metadata-file` explicitly:
 
 ```bash
-metaquest count_metadata --summary-file parsed_containment.txt --metadata-file metadata_table.txt --metadata-column Sample_Scientific_Name --threshold 0.95 --output-file genome_counts.txt
+prepare count_metadata --summary-file parsed_containment.txt --metadata-file metadata_table.txt --metadata-column Sample_Scientific_Name --threshold 0.95 --output-file genome_counts.txt
 ```
 
 *Example output:* genome_counts.txt
@@ -316,7 +316,7 @@ metaquest count_metadata --summary-file parsed_containment.txt --metadata-file m
 To analyze a single sample from the summary, you can use the `single_sample` command:
 
 ```bash
-metaquest single_sample --summary-file parsed_containment.txt --metadata-file metadata_table.txt --summary-column <genome column from parsed_containment.txt> --metadata-column Sample_Scientific_Name --threshold 0.95
+prepare single_sample --summary-file parsed_containment.txt --metadata-file metadata_table.txt --summary-column <genome column from parsed_containment.txt> --metadata-column Sample_Scientific_Name --threshold 0.95
 ```
 
 ### 10. Checking What Is Already Available Locally
@@ -325,8 +325,8 @@ Before downloading, use `status` to see which reads, metadata, and genomes are a
 so nothing is fetched twice. Given a wanted list it also reports what is still missing:
 
 ```bash
-metaquest status --accessions-file accessions.txt --list-missing
-metaquest status --parsed-containment parsed_containment.txt --json
+prepare status --accessions-file accessions.txt --list-missing
+prepare status --parsed-containment parsed_containment.txt --json
 ```
 
 The command reconciles against the standard layout (`fastq/<ACC>/`, `metadata/<ACC>_metadata.xml`,
@@ -335,7 +335,7 @@ The command reconciles against the standard layout (`fastq/<ACC>/`, `metadata/<A
 re-download or `--dry-run` to report present-vs-missing without downloading:
 
 ```bash
-metaquest genome_download --accessions GCF_000006945.2 --dry-run
+prepare genome_download --accessions GCF_000006945.2 --dry-run
 ```
 
 `status` also reads the project registry (see "Project state" below): `--stage` lists the accessions
@@ -346,7 +346,7 @@ suggests which command would advance the most datasets.
 
 ### Project state
 
-MetaQuest keeps a journal of every dataset a project touches in `metaquest_registry.json` in the
+PREPARE keeps a journal of every dataset a project touches in `prepare_registry.json` in the
 project root: which genomes it was screened against and with what containment, whether it was
 selected (and by which threshold and filter), whether it is excluded and why, the download outcome
 with file sizes and dates, which analyses ran, and for each target genome the number of mapped reads
@@ -354,14 +354,14 @@ and the assembly statistics. Commands update it as they finish; `status` reads i
 re-checks the disk, so a deleted folder shows up as missing rather than done.
 
 The registry keeps the latest outcome of each step. A command that keeps a run log also adds one record
-per run to `.metaquest/runs/runs.jsonl` beside the registry: the command, its arguments, start and
-finish times in UTC, run time, exit code, MetaQuest version, host, process ID and a short summary of
-what the run did. A run with larger results also writes them to `.metaquest/runs/<run_id>.json`; the
+per run to `.prepare/runs/runs.jsonl` beside the registry: the command, its arguments, start and
+finish times in UTC, run time, exit code, PREPARE version, host, process ID and a short summary of
+what the run did. A run with larger results also writes them to `.prepare/runs/<run_id>.json`; the
 last 10 of these files are kept per command, and an older run keeps its line without one. The NCBI API
 key is replaced by `***` in what is recorded. A line that cannot be read (cut short by an interrupted
 append, or holding a byte that is not UTF-8) is skipped with a warning. Nothing is written in a folder
 without a registry, a run log that cannot be written is reported as a warning without changing the
-command's exit code, and `METAQUEST_RUN_LOG=false` (or `run_log = false` under `[runtime]` in the config
+command's exit code, and `PREPARE_RUN_LOG=false` (or `run_log = false` under `[runtime]` in the config
 file) turns the run log off.
 
 The commands that keep a run log are `download_sra`, `sra_profile`, `sra_report`, `results_table`,
@@ -375,18 +375,18 @@ keeps its failed accessions with reason and attempts and the accessions it downl
 attempts, `sra_profile` and `sra_report` their per-accession figures, `extract_target_reads` the mapped
 reads, breadth and mean depth (for a sample skipped as already extracted, the values recorded earlier
 with `skipped: true`), `store_verify` each dataset's verdict and fix, and `select_datasets` each
-accession's rank. MetaQuest does not add `.metaquest/` to a project's `.gitignore`; add it there if the
+accession's rank. PREPARE does not add `.prepare/` to a project's `.gitignore`; add it there if the
 run log should not be committed with the registry.
 
 ```bash
-metaquest status --init                      # create the registry from an existing project
-metaquest status                             # accession by stage matrix, per genome
-metaquest status --stage extracted --genome GCF_000008025.1
-metaquest status --next                      # which commands would advance the most datasets
-metaquest status --reconcile                 # record files removed by hand, register untracked work
-metaquest status --export-tsv registry       # registry_datasets.tsv and registry_extractions.tsv
-metaquest blacklist --add SRR2517418 --reason "16S amplicon mislabelled as WGS"
-metaquest results_table --output results.tsv
+prepare status --init                      # create the registry from an existing project
+prepare status                             # accession by stage matrix, per genome
+prepare status --stage extracted --genome GCF_000008025.1
+prepare status --next                      # which commands would advance the most datasets
+prepare status --reconcile                 # record files removed by hand, register untracked work
+prepare status --export-tsv registry       # registry_datasets.tsv and registry_extractions.tsv
+prepare blacklist --add SRR2517418 --reason "16S amplicon mislabelled as WGS"
+prepare results_table --output results.tsv
 ```
 
 `results_table` writes one row per screened accession and genome, joining containment, selection,
@@ -457,21 +457,21 @@ accessions still selected under a `select_datasets --no-skip-excluded` run, it i
 `select_datasets ... --skip-excluded` command (reproducing that run's genome, threshold, metadata and
 top-N and run filter criteria) so rerunning it drops the excluded accessions from the selection file first.
 
-Commit `metaquest_registry.json` with your project if you want the decisions to travel with the
+Commit `prepare_registry.json` with your project if you want the decisions to travel with the
 results.
 
 ### Run history
 
 `runs` reads the run log described under "Project state" and records nothing itself. It finds the
-project the same way as `status` (the nearest `metaquest_registry.json`, or `--registry`).
+project the same way as `status` (the nearest `prepare_registry.json`, or `--registry`).
 
 ```bash
-metaquest runs                               # the last 20 runs, newest first (--limit 0 for all)
-metaquest runs --command sra_profile         # only the runs of one command
-metaquest runs --show latest                 # one run: arguments, times, summary and detail
-metaquest runs --diff previous latest        # compare two runs
-metaquest runs --accession SRR11011981       # the values recorded for one accession, run by run
-metaquest runs --diff previous latest --json # one JSON document, for scripts
+prepare runs                               # the last 20 runs, newest first (--limit 0 for all)
+prepare runs --command sra_profile         # only the runs of one command
+prepare runs --show latest                 # one run: arguments, times, summary and detail
+prepare runs --diff previous latest        # compare two runs
+prepare runs --accession SRR11011981       # the values recorded for one accession, run by run
+prepare runs --diff previous latest --json # one JSON document, for scripts
 ```
 
 A run is selected by its ID (`20261001T120501Z-sra_profile-3fa2`), by a prefix that matches only one run, or
@@ -489,16 +489,16 @@ end. `runs` exits 1 when the project has no run log, and also when a selector ma
 ### Project report
 
 `project_report` summarises the whole project in one report, read from the registry and the run log.
-It finds the project the same way as `status` (the nearest `metaquest_registry.json`, or `--registry`)
+It finds the project the same way as `status` (the nearest `prepare_registry.json`, or `--registry`)
 and reads no FASTQ file.
 
 ```bash
-metaquest project_report                         # project_report/project_report.md, .json and .html
-metaquest project_report --output-dir reports --max-rows 50
-metaquest project_report --html never --no-environment
+prepare project_report                         # project_report/project_report.md, .json and .html
+prepare project_report --output-dir reports --max-rows 50
+prepare project_report --html never --no-environment
 ```
 
-The report has ten sections: the project (registry path, last update, registry and MetaQuest versions),
+The report has ten sections: the project (registry path, last update, registry and PREPARE versions),
 the funnel of `status` (datasets screened, selected, downloaded, analysed, extracted and assembled), per
 genome the datasets extracted, assembled and with no mapped reads with the median breadth and depth, the
 extraction rows of `results_table` sorted by genome and then by mapped reads, the download states and
@@ -516,34 +516,34 @@ are cut to `--max-rows` rows (200 by default, 0 for all) and say how many rows t
 only the other two files are written, `--html always` exits 3 without writing anything, and
 `--html never` skips the page. The export is recorded in the registry as `project_report`, and the
 run in the run log, unless `--no-record` is given. Without a project registry the command exits 1 and
-writes nothing; create one with `metaquest status --init`. `--json` prints the written paths as one
+writes nothing; create one with `prepare status --init`. `--json` prints the written paths as one
 JSON document.
 
 ### Shared data store
 
 A second organism project studying the same metagenomes does not need its own copy of the reads.
-`metaquest/store` keeps one gzip-compressed copy of each SRA accession, tracked in a small SQLite
+`prepare/store` keeps one gzip-compressed copy of each SRA accession, tracked in a small SQLite
 catalogue, and links it into every project that uses it.
 
 A store must exist before `download_sra` links a dataset or `store_adopt` runs; without one, every
-command behaves as it does today, with plain per-project folders. MetaQuest finds the store root in
-this order: the `--data-root` flag, then the `METAQUEST_DATA` environment variable, then `store.root`
-recorded in the project registry, then `[store] data_root` in `~/.config/metaquest/config.toml`
+command behaves as it does today, with plain per-project folders. PREPARE finds the store root in
+this order: the `--data-root` flag, then the `PREPARE_DATA` environment variable, then `store.root`
+recorded in the project registry, then `[store] data_root` in `~/.config/prepare/config.toml`
 (honouring `$XDG_CONFIG_HOME`). If the configured root is unreachable, `status` and the analysis
 commands warn and continue without the store; `download_sra` and the `store_*` commands stop.
 
 ```bash
-metaquest store_init --data-root /data/metaquest_store --set-default   # create a store, remember it
-metaquest store_adopt --fastq-folder fastq --dry-run                   # preview folding this project in
-metaquest store_adopt --fastq-folder fastq --move                      # move reads into the store, link back
-metaquest store_adopt --fastq-folder fastq --copy                      # copy into the store, keep the project folder
-metaquest store_status --json                                          # dataset and byte counts
-metaquest store_status --verbose                                       # also list every dataset in the store
-metaquest store_usage --accession SRR11011981                          # which projects used this run
-metaquest store_usage --project my_project                             # every dataset that project has used
-metaquest store_usage --organism GCF_000008025.1                       # every dataset used for that target genome
-metaquest store_usage --unused                                         # datasets in the store with no recorded usage
-metaquest store_gc --dry-run                                           # candidates for removal, nothing deleted
+prepare store_init --data-root /data/prepare_store --set-default   # create a store, remember it
+prepare store_adopt --fastq-folder fastq --dry-run                   # preview folding this project in
+prepare store_adopt --fastq-folder fastq --move                      # move reads into the store, link back
+prepare store_adopt --fastq-folder fastq --copy                      # copy into the store, keep the project folder
+prepare store_status --json                                          # dataset and byte counts
+prepare store_status --verbose                                       # also list every dataset in the store
+prepare store_usage --accession SRR11011981                          # which projects used this run
+prepare store_usage --project my_project                             # every dataset that project has used
+prepare store_usage --organism GCF_000008025.1                       # every dataset used for that target genome
+prepare store_usage --unused                                         # datasets in the store with no recorded usage
+prepare store_gc --dry-run                                           # candidates for removal, nothing deleted
 ```
 
 `store_adopt --move` (the default) removes each accession's project folder and replaces it with a link
@@ -667,7 +667,7 @@ store-linked dataset an earlier reconcile marked missing is recorded as linked f
 its project entry is a symlink into the store.
 
 A download runs `prefetch` before `fasterq-dump`, with `--max-size` taken from the `prefetch_max_size`
-setting (default `100G`; also `METAQUEST_PREFETCH_MAX_SIZE` or `prefetch_max_size` in `[runtime]`); a run
+setting (default `100G`; also `PREPARE_PREFETCH_MAX_SIZE` or `prefetch_max_size` in `[runtime]`); a run
 whose `.sra` archive is larger is not fetched. In the store, if the kept `.sra` archive or a temporary build
 folder grow past 1 GB combined, the download summary warns and names the folder, and
 `store_gc --dry-run` separately lists such leftovers as removal candidates. Without `--temp-folder`,
@@ -690,7 +690,7 @@ target genome meets the threshold, it maps the reads with minimap2 and keeps the
 samtools, writing them to `targeted/<ACC>/`:
 
 ```bash
-metaquest extract_target_reads \
+prepare extract_target_reads \
   --parsed-containment parsed_containment.txt \
   --genome-id GCF_000006945.2 \
   --genome-fasta genomes/GCF_000006945.2.fna \
@@ -712,7 +712,7 @@ WARNING naming every dangling link found, rather than failing silently for each 
 On macOS the assembly defaults to a single thread, because megahit 1.2.9's parallel k-mer sorting step
 is unstable on recent macOS releases (mapping with minimap2/samtools still uses `--threads`). Override
 the assembly thread count explicitly with `--assembly-threads` if your megahit build handles more.
-`--assembly-memory` sets megahit's `--memory`: `auto` (the default; also `METAQUEST_ASSEMBLY_MEMORY` or
+`--assembly-memory` sets megahit's `--memory`: `auto` (the default; also `PREPARE_ASSEMBLY_MEMORY` or
 `assembly_memory` in `[runtime]`) gives 90% of the memory limit detected for the job (a cgroup limit, or
 `SLURM_MEM_PER_NODE` or `SLURM_MEM_PER_CPU`) and leaves megahit's own default when no limit is found, as
 on macOS; a size such as `32G` or `32000M` is passed in bytes; a fraction such as `0.5` is passed as it
@@ -725,7 +725,7 @@ its own scratch folder directly under `--output-folder`, named `.megahit-tmp-<ra
 of the per-accession assembly directories, never inside one, since megahit refuses to run when its `-o`
 directory already exists), and removes it afterwards, even on failure; the random suffix lets two
 concurrent runs sharing one output folder keep separate scratch space. A macOS ExFAT or SMB volume's
-stray `._*` AppleDouble sidecar files are ignored wherever MetaQuest lists a folder's contents, so they
+stray `._*` AppleDouble sidecar files are ignored wherever PREPARE lists a folder's contents, so they
 never look like real FASTQ or genome files.
 
 Mapped reads always drop unmapped, secondary and supplementary alignments; `--min-mapq` additionally discards records
@@ -744,7 +744,7 @@ including samples that mapped zero reads. Pass `--force` to redo extraction and 
 Re-extracting a sample drops its recorded assembly from the registry, since that assembly was built from
 the reads being replaced; the assembly folder itself stays on disk.
 
-With `--assemble`, each assembly folder carries a marker, `.metaquest-assembly.json`, recording what the
+With `--assemble`, each assembly folder carries a marker, `.prepare-assembly.json`, recording what the
 assembly was built from: the extracted read files (names and sizes), their extraction date, the megahit
 preset, the minimum contig length and the k values (the megahit version is kept too, but not compared). The
 registry's assembly record holds the same `inputs`. On a rerun an assembly whose marker matches is reused and
@@ -785,13 +785,13 @@ selected samples' sidecars are read for this check.
 ### Choosing which datasets to download
 
 ```bash
-metaquest select_datasets --threshold 0.9 --output accessions.txt
-metaquest select_datasets --genome-id GCF_000008025.1 --threshold 0.5 \
+prepare select_datasets --threshold 0.9 --output accessions.txt
+prepare select_datasets --genome-id GCF_000008025.1 --threshold 0.5 \
     --metadata-column geo_loc_name_country_calc --metadata-value France --output accessions.txt
-metaquest select_datasets --threshold 0.9 --top-n 20 --output accessions.txt
-metaquest select_datasets --genome-ids GCF_000008025.1 GCF_000006945.2 --require all --threshold 0.5 \
+prepare select_datasets --threshold 0.9 --top-n 20 --output accessions.txt
+prepare select_datasets --genome-ids GCF_000008025.1 GCF_000006945.2 --require all --threshold 0.5 \
     --output accessions.txt
-metaquest select_datasets --threshold 0.5 --max-run-size 2G --min-spots 1000000 --platform ILLUMINA \
+prepare select_datasets --threshold 0.5 --max-run-size 2G --min-spots 1000000 --platform ILLUMINA \
     --output accessions.txt
 ```
 
@@ -834,9 +834,9 @@ cancels downloads that have not started yet, stops the running `prefetch`/`faste
 the ones in progress, and lets the run exit rather than leaving orphaned tool processes behind:
 
 ```bash
-metaquest download_sra --accessions-file accessions.txt --fastq-folder fastq --max-workers 4 --num-threads 4
-metaquest download_sra --accessions-file accessions.txt --dry-run
-metaquest download_sra --accessions-file accessions.txt --report-file download_report.csv
+prepare download_sra --accessions-file accessions.txt --fastq-folder fastq --max-workers 4 --num-threads 4
+prepare download_sra --accessions-file accessions.txt --dry-run
+prepare download_sra --accessions-file accessions.txt --report-file download_report.csv
 ```
 
 `--report-file` writes one row per accession with the status `downloaded`, `failed`, `already_present`,
@@ -874,7 +874,7 @@ sets where prefetch keeps its downloaded `.sra` archives (default `<fastq-folder
 A project without a shared store also takes a per-accession lock (`<fastq-folder>/.locks/<ACCESSION>.lock`,
 same heartbeat and 10-minute takeover as the store's, bounded by `--lock-wait`), so two runs on one
 project download each accession once. Each download is built, verified and compressed under
-`<fastq-folder>/.metaquest-tmp/` and then moved into `<fastq-folder>/<ACCESSION>` with one rename, so
+`<fastq-folder>/.prepare-tmp/` and then moved into `<fastq-folder>/<ACCESSION>` with one rename, so
 another run never sees a partly written folder. Both hidden folders are ignored by `status` and the
 download inventory. A `--sra-cache` folder shared by two projects without a store is not locked.
 `--verify-downloads` (on by default; `--no-verify-downloads` turns it off) compares each download's
@@ -901,17 +901,17 @@ project's own downloads; a copy in the shared store is always judged against its
 partial copy is still refused without `--accept-partial`.
 
 `--temp-folder DIR` sets where `fasterq-dump` writes its scratch files while converting each accession.
-Without it, a plain per-project download writes them to `<fastq-folder>/.metaquest-tmp/<ACCESSION>_fqtmp`,
+Without it, a plain per-project download writes them to `<fastq-folder>/.prepare-tmp/<ACCESSION>_fqtmp`,
 on the project's filesystem, and removes that folder when the accession finishes; a download into a shared
 store (see "Shared data store" above) uses `<store>/tmp/<ACCESSION>_fqtmp` instead. The free-space check
 and `doctor` measure the same location. When the project folder is on a network filesystem, as is common on
-a cluster, set `--temp-folder` or `METAQUEST_TEMP_FOLDER` to local scratch space on the node.
+a cluster, set `--temp-folder` or `PREPARE_TEMP_FOLDER` to local scratch space on the node.
 `extract_target_reads` (see "Targeted Read Extraction Before Assembly" above) accepts the same flag for
 megahit's scratch files.
 
 `--timeout SECONDS` bounds how long `prefetch` or `fasterq-dump` (and, for `extract_target_reads`,
 minimap2, samtools or megahit) is allowed to run before it is stopped; the default, 0, means no limit
-(also settable with the `METAQUEST_TIMEOUT` environment variable or `timeout` in `config.toml`'s
+(also settable with the `PREPARE_TIMEOUT` environment variable or `timeout` in `config.toml`'s
 `[runtime]` table). A stopped tool is reported the same way as a network failure, so `download_sra`
 retries it and, if every accession that failed did so for that reason, exits with status 4 (see "Exit
 codes" below). A `--version` probe used to record a tool's version always uses a fixed 30-second
@@ -920,18 +920,18 @@ timeout, regardless of this setting.
 `--max-workers N` sets how many accessions download at once. Without it the number is the CPUs
 available to this job (the CPU affinity mask, which reflects a SLURM allocation, else
 `SLURM_CPUS_PER_TASK`, else the machine's CPU count) divided by `--num-threads`, at least 1 and at most
-4, since downloads are limited by the network more than by CPUs; `METAQUEST_MAX_WORKERS_CAP` (or
+4, since downloads are limited by the network more than by CPUs; `PREPARE_MAX_WORKERS_CAP` (or
 `max_workers_cap` in `[runtime]`) changes that cap.
 
 Before each accession starts, `download_sra` checks that the filesystems it writes to have room for it:
 the FASTQ folder (or the store's `tmp` folder), the `fasterq-dump` temporary folder and, with prefetch,
 the `.sra` cache. The temporary folder measured is the one `fasterq-dump` writes to: the `--temp-folder`
-given, otherwise `<fastq-folder>/.metaquest-tmp` (or the store's `tmp` folder); `doctor` reports the same
+given, otherwise `<fastq-folder>/.prepare-tmp` (or the store's `tmp` folder); `doctor` reports the same
 location. An accession whose run size is in the registry (from `download_metadata`) needs about
 8 times that size for the temporary files, 10 times for the FASTQ folder (the uncompressed files and
 the gzip files written from them), plus the size itself for the cache; locations on one filesystem add
 up, and downloads already running are counted.
-An accession of unknown size needs `--min-free-gb` (default 10; also `METAQUEST_MIN_FREE_GB` or
+An accession of unknown size needs `--min-free-gb` (default 10; also `PREPARE_MIN_FREE_GB` or
 `min_free_gb` in `[runtime]`) on each filesystem. A download that does not fit while others are running
 waits until they finish and release their space. One that would not fit even with nothing else running
 is not started and fails alone, with an `insufficient-space: not enough free space on ...` message;
@@ -949,14 +949,14 @@ apply blacklist exclusions and does not record anything. Use `blacklist` to reco
 with a reason, keeping `blacklist.txt` and the registry in step:
 
 ```bash
-metaquest blacklist --add SRR2517418 --reason "16S amplicon mislabelled as WGS"
-metaquest blacklist --list
-metaquest blacklist --remove SRR2517418
+prepare blacklist --add SRR2517418 --reason "16S amplicon mislabelled as WGS"
+prepare blacklist --list
+prepare blacklist --remove SRR2517418
 ```
 
 ### Running several instances at once
 
-Two or more `metaquest` processes can work on the same project, or the same shared store, at once, on
+Two or more `prepare` processes can work on the same project, or the same shared store, at once, on
 one machine or on several machines sharing a network filesystem. Every long-running command installs a
 graceful signal handler: the first `SIGINT`, `SIGTERM`, or `SIGHUP` it receives stops cleanly, letting
 whatever unit of work was already in progress (an accession, a sample, a registry write) finish and be
@@ -1020,8 +1020,8 @@ See [docs/hpc.md](docs/hpc.md) for a resubmission loop on code 4 under SLURM.
 ### Logging
 
 Log lines go to stderr; a command's result (tables, JSON) goes to stdout. These options work on every
-command, before or after the command name (`metaquest --quiet download_sra ...` and
-`metaquest download_sra ... --quiet` are the same):
+command, before or after the command name (`prepare --quiet download_sra ...` and
+`prepare download_sra ... --quiet` are the same):
 
 | Option | Effect |
 |---|---|
@@ -1032,9 +1032,9 @@ command, before or after the command name (`metaquest --quiet download_sra ...` 
 | `--progress-every N` | Log a progress summary every N items of a long run (default 50) |
 
 `-q` and `-v` cannot be given together, and either one overrides `--log-level`. `store_status` keeps its
-own `--verbose` (list every dataset), so its log level is raised with `metaquest -v store_status`.
-Each option can also be set with an environment variable (`METAQUEST_LOG_LEVEL`, `METAQUEST_LOG_FILE`,
-`METAQUEST_PROGRESS_EVERY`) or in the `[runtime]` table of `~/.config/metaquest/config.toml`
+own `--verbose` (list every dataset), so its log level is raised with `prepare -v store_status`.
+Each option can also be set with an environment variable (`PREPARE_LOG_LEVEL`, `PREPARE_LOG_FILE`,
+`PREPARE_PROGRESS_EVERY`) or in the `[runtime]` table of `~/.config/prepare/config.toml`
 (`log_level`, `log_file`, `progress_every`); a flag takes precedence over both.
 
 The log file is opened for appending, so several runs on one machine can share one file on a local
@@ -1044,13 +1044,13 @@ It receives every line at INFO or above, also when the console is quiet, and DEB
 console is at DEBUG. Each line names the host and process ID that wrote it:
 
 ```
-2026-09-30 14:02:11 node17[48213] WARNING metaquest.data.sra.retry: Failed to download SRR1234567: ...
+2026-09-30 14:02:11 node17[48213] WARNING prepare.data.sra.retry: Failed to download SRR1234567: ...
 ```
 
 When a command fails, the console shows the error on one line and the log file keeps the full
 traceback; without a log file, rerun with `--log-level DEBUG` (or `-v`) to see it. At DEBUG a run also
-logs the MetaQuest version, its command line (with the `--api-key` value hidden), the host, the process
-ID and, under SLURM, `SLURM_JOB_ID` and `SLURM_ARRAY_TASK_ID`. `METAQUEST_LOG_HOST=true` (or
+logs the PREPARE version, its command line (with the `--api-key` value hidden), the host, the process
+ID and, under SLURM, `SLURM_JOB_ID` and `SLURM_ARRAY_TASK_ID`. `PREPARE_LOG_HOST=true` (or
 `log_host = true` in `[runtime]`) puts the host and process ID on console lines too.
 
 `download_sra`, `download_metadata` and `extract_target_reads` log a progress summary every
@@ -1073,7 +1073,7 @@ free space, a wait for a lock another run holds).
 ### Running on a cluster
 
 [docs/hpc.md](docs/hpc.md) describes running `download_sra` and `extract_target_reads` as SLURM jobs:
-checking a node with `metaquest doctor --for download_sra`, an array job template that splits the
+checking a node with `prepare doctor --for download_sra`, an array job template that splits the
 accession list, what is written when the walltime signal arrives and how a rerun resumes, chaining jobs
 with `--dependency=afterok` and resubmitting on exit code 4, a shared data store on a group
 filesystem, the caveats of NFS (locks, clock skew, temporary files, log files), and megahit's memory
@@ -1087,10 +1087,10 @@ in it; `--accessions-file` and repeated `--accession` flags restrict the run to 
 
 ```bash
 # Every accession folder under fastq/
-metaquest sra_profile --fastq-folder fastq
+prepare sra_profile --fastq-folder fastq
 
 # Selected accessions, printing the path of each profile JSON as it is written
-metaquest sra_profile \
+prepare sra_profile \
     --accessions-file accessions.txt \
     --accession SRR123456 \
     --output-dir quality_profiles \
@@ -1124,10 +1124,10 @@ and their statistical tests (a t-test for two groups, one-way ANOVA for more):
 
 ```bash
 # Quality of a set of datasets
-metaquest sra_report --accessions-file accessions.txt --title "Project SRA Analysis"
+prepare sra_report --accessions-file accessions.txt --title "Project SRA Analysis"
 
 # Treatment against control, reusing the profiles an earlier sra_profile run saved
-metaquest sra_report \
+prepare sra_report \
     --groups-file comparison_groups.json \
     --quality-profiles sra_quality_profiles
 ```
@@ -1180,10 +1180,10 @@ input table (png by default, or the format `--save-format` names), rather than j
 `<input-stem>_<plot-type>_<column>.<format>`:
 
 ```bash
-metaquest plot_containment --file-path parsed_containment.txt --column max_containment --plot-type rank --save-format png --threshold 0.05
+prepare plot_containment --file-path parsed_containment.txt --column max_containment --plot-type rank --save-format png --threshold 0.05
 ```
 
-This writes `parsed_containment_rank_max_containment.png`; `sourmash scripts metaquest_plot` (registered
+This writes `parsed_containment_rank_max_containment.png`; `sourmash scripts prepare_plot` (registered
 by the `sourmash` extra) calls the same `plot_containment` function and writes files with the same
 naming.
 
@@ -1195,7 +1195,7 @@ Visualize the distribution of metadata attributes. Unlike `plot_containment`, `p
 only writes a file when `--save-format` is given; without it, the plot is built but never saved anywhere:
 
 ```bash
-metaquest plot_metadata_counts --file-path metadata_counts.txt --plot-type bar --save-format png
+prepare plot_metadata_counts --file-path metadata_counts.txt --plot-type bar --save-format png
 ```
 
 The bar chart is written in the current working directory as metadata_counts_bar.png.
@@ -1209,7 +1209,7 @@ Calculate comprehensive diversity metrics for your metagenomic datasets:
 
 ```bash
 # Calculate alpha and beta diversity with PERMANOVA
-metaquest diversity_analysis \
+prepare diversity_analysis \
     --abundance-file abundance_matrix.csv \
     --metadata-file sample_metadata.csv \
     --alpha-metrics shannon simpson chao1 \
@@ -1222,7 +1222,7 @@ Create dynamic, browser-based plots for data exploration:
 
 ```bash
 # Interactive PCA plot
-metaquest interactive_plot \
+prepare interactive_plot \
     --data-file abundance_matrix.csv \
     --metadata-file metadata.csv \
     --plot-type pca \
@@ -1230,13 +1230,13 @@ metaquest interactive_plot \
     --output-file pca_plot.html
 
 # Interactive heatmap
-metaquest interactive_plot \
+prepare interactive_plot \
     --data-file abundance_matrix.csv \
     --plot-type heatmap \
     --title "Species Abundance Heatmap"
 
 # Diversity comparison plots  
-metaquest interactive_plot \
+prepare interactive_plot \
     --data-file abundance_matrix.csv \
     --metadata-file metadata.csv \
     --plot-type diversity \
@@ -1248,13 +1248,13 @@ Validate species names against NCBI taxonomy database:
 
 ```bash
 # Validate species from text file
-metaquest validate_taxonomy \
+prepare validate_taxonomy \
     --species-file species_list.txt \
     --email your.email@domain.com \
     --output-file validation_results.csv
 
 # Validate from CSV with specific column
-metaquest validate_taxonomy \
+prepare validate_taxonomy \
     --species-file data.csv \
     --species-column organism_name \
     --email your.email@domain.com
@@ -1267,11 +1267,11 @@ CSV written by `validate_taxonomy`. `enrich_taxonomy --cache` names the GTDB loo
 and appends to (default `taxonomy_cache.tsv`):
 
 ```bash
-metaquest enrich_taxonomy --parsed-containment parsed_containment.txt --output taxonomy.tsv
-metaquest taxonomic_summary --abundance-file parsed_containment.txt --taxonomy-file taxonomy.tsv \
+prepare enrich_taxonomy --parsed-containment parsed_containment.txt --output taxonomy.tsv
+prepare taxonomic_summary --abundance-file parsed_containment.txt --taxonomy-file taxonomy.tsv \
     --levels phylum class order family genus --output-dir taxonomic_summaries
 
-metaquest taxonomic_summary --abundance-file abundance_matrix.csv --taxonomy-file validation_results.csv
+prepare taxonomic_summary --abundance-file abundance_matrix.csv --taxonomy-file validation_results.csv
 ```
 
 ### Genome Search and Containment Exploration
@@ -1306,7 +1306,7 @@ For comprehensive documentation including advanced features and technical detail
 
 ## Development & Testing
 
-MetaQuest follows modern Python development practices with comprehensive testing and quality assurance.
+PREPARE follows modern Python development practices with comprehensive testing and quality assurance.
 
 ### Current Status
 - **Test Coverage**: Comprehensive coverage across core functionality
@@ -1352,9 +1352,9 @@ make help
 A scheduled GitHub Actions workflow (`.github/workflows/smoke.yml`) runs `scripts/smoke_chain.sh`
 against real NCBI/SRA services every night: it downloads the tiny SRR2517620 run, validates and
 profiles it, extracts reads against the bundled test genome, and writes the results table. It is
-the only CI job that touches the network, using the tools the `metaquest` conda environment
+the only CI job that touches the network, using the tools the `prepare` conda environment
 installs (fasterq-dump, prefetch, minimap2, samtools). Run the same chain locally with
-`make test-network` (needs the `metaquest` conda environment; see `make env`).
+`make test-network` (needs the `prepare` conda environment; see `make env`).
 
 ### Testing Structure
 - **Comprehensive Test Suite**: covers CLI, data processing, visualization, and advanced SRA features
@@ -1369,7 +1369,7 @@ installs (fasterq-dump, prefetch, minimap2, samtools). Run the same chain locall
 
 ### Architecture Highlights
 - **Layered Architecture**: CLI, Core, Data, Processing, Visualization layers
-- **Advanced SRA Package**: Specialized module for intelligent SRA operations (`metaquest.sra`)
+- **Advanced SRA Package**: Specialized module for intelligent SRA operations (`prepare.sra`)
 - **Plugin System**: Extensible format handlers and visualizers  
 - **Command Registry**: Modular CLI command architecture
 - **Modern Packaging**: Uses `pyproject.toml` with backward compatibility
@@ -1389,13 +1389,13 @@ bioconda recipe template (submitted, once PyPI publishing works, to the separate
 
 ## Contributing
 
-We welcome contributions to MetaQuest. Whether you want to report a bug, suggest a feature, or contribute code, your input is valuable.
+We welcome contributions to PREPARE. Whether you want to report a bug, suggest a feature, or contribute code, your input is valuable.
 
 ### Quick Start for Contributors
 ```bash
 # 1. Fork and clone the repository
-git clone https://github.com/YOUR-USERNAME/MetaQuest.git
-cd MetaQuest
+git clone https://github.com/YOUR-USERNAME/PREPARE.git
+cd PREPARE
 
 # 2. Set up development environment  
 make dev-install
@@ -1422,7 +1422,7 @@ git push origin feature/my-new-feature
 - **Architecture**: Follow existing patterns (see `CLAUDE.md` for detailed guidance)
 
 ### Current Priority Areas
-Help us improve MetaQuest by contributing to these areas:
+Help us improve PREPARE by contributing to these areas:
 - **Remaining Visualization Modules**: Add tests for `interactive.py`, `reporting.py`, and `plots.py` (currently 0% coverage)
 - **Processing Layer Enhancement**: Optimize containment analysis algorithms and extend diversity analysis features
 - **Plugin Development**: Add new format handlers or visualization plugins beyond bar charts

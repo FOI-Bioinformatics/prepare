@@ -1,5 +1,5 @@
 """
-Tests for metaquest.store.sidecar: the per-dataset JSON sidecar
+Tests for prepare.store.sidecar: the per-dataset JSON sidecar
 ``<root>/sra/<ACC>/<ACC>.json`` that makes the store self-describing.
 """
 
@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from metaquest.core.exceptions import DataAccessError
-from metaquest.store.sidecar import (
+from prepare.core.exceptions import DataAccessError
+from prepare.store.sidecar import (
     SIDECAR_SCHEMA,
     Sidecar,
     build_sidecar,
@@ -371,7 +371,7 @@ def test_old_sidecar_json_round_trips_byte_identical(tmp_path):
 
 
 def test_v070_sidecar_fixture_round_trips_byte_identical(tmp_path):
-    """A sidecar written by MetaQuest 0.7.0 (``tests/fixtures/sidecar_v0.7.0.json``, produced by that
+    """A sidecar written by PREPARE 0.7.0 (``tests/fixtures/sidecar_v0.7.0.json``, produced by that
     release's ``write_sidecar``) is read and rewritten byte for byte, with no ``refetch`` key added."""
     fixture = Path(__file__).parent / "fixtures" / "sidecar_v0.7.0.json"
     original = fixture.read_bytes()

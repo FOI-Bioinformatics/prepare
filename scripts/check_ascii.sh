@@ -26,10 +26,10 @@ non_ascii=$'[^ -~\t]'
 # never passes by checking nothing.
 list_sources() {
     if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-        git ls-files -- 'metaquest/*.py' 'tests/*.py' 'scripts/*' 'Makefile' 'setup.cfg' 'pyproject.toml'
+        git ls-files -- 'prepare/*.py' 'tests/*.py' 'scripts/*' 'Makefile' 'setup.cfg' 'pyproject.toml'
         return
     fi
-    for dir in metaquest tests; do
+    for dir in prepare tests; do
         [ -d "$dir" ] && find "$dir" -name '*.py' -type f
     done
     [ -d scripts ] && find scripts -type f

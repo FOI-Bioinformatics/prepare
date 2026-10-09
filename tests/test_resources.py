@@ -1,4 +1,4 @@
-"""Tests for CPU and memory detection (metaquest.utils.resources) and the megahit memory flag."""
+"""Tests for CPU and memory detection (prepare.utils.resources) and the megahit memory flag."""
 
 import argparse
 from pathlib import Path
@@ -6,11 +6,11 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.cli.commands import extraction_assembly as assembly_cmd
-from metaquest.cli.commands.read_extraction import ExtractTargetReadsCommand
-from metaquest.core.exceptions import ConfigurationError
-from metaquest.data import assembly as assembly_mod
-from metaquest.utils import resources
+from prepare.cli.commands import extraction_assembly as assembly_cmd
+from prepare.cli.commands.read_extraction import ExtractTargetReadsCommand
+from prepare.core.exceptions import ConfigurationError
+from prepare.data import assembly as assembly_mod
+from prepare.utils import resources
 from helpers_extraction import _fake_tools
 
 GIB = 1024**3
@@ -220,7 +220,7 @@ class TestAssemblyMemoryFlag:
         assert self._memory(self._parse("--assembly-memory", "16G")) == 16 * GIB
 
     def test_setting_decides_without_the_flag(self, monkeypatch):
-        monkeypatch.setenv("METAQUEST_ASSEMBLY_MEMORY", "0.5")
+        monkeypatch.setenv("PREPARE_ASSEMBLY_MEMORY", "0.5")
         assert self._memory(self._parse()) == 0.5
 
     def test_auto_without_a_limit_leaves_the_flag_out(self, monkeypatch):

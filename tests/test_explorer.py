@@ -1,4 +1,4 @@
-"""Tests for metaquest/visualization/explorer.py.
+"""Tests for prepare/visualization/explorer.py.
 
 Covers HTML generation, empty-data handling, metadata integration,
 min_containment filtering, and output validation.
@@ -12,8 +12,8 @@ import pandas as pd
 for _module in ("plotly", "jinja2"):
     pytest.importorskip(_module)
 
-from metaquest.core.models import TaxonomyInfo  # noqa: E402
-from metaquest.visualization.explorer import (  # noqa: E402
+from prepare.core.models import TaxonomyInfo  # noqa: E402
+from prepare.visualization.explorer import (  # noqa: E402
     generate_containment_explorer,
     _build_long_dataframe,
     _build_summary_data,

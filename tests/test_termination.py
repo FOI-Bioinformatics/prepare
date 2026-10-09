@@ -1,4 +1,4 @@
-"""Tests for metaquest.utils.termination and the BaseCommand.run wrapper."""
+"""Tests for prepare.utils.termination and the BaseCommand.run wrapper."""
 
 import argparse
 import logging
@@ -9,12 +9,12 @@ from unittest.mock import patch
 
 import pytest
 
-import metaquest.utils.termination as term_mod
-from metaquest.cli.base import BaseCommand, CommandRegistry
-from metaquest.data import registry_blocks as rb
-from metaquest.data.registry import load_registry, record_download
-from metaquest.data.registry_batch import RegistryBatch, registry_batch
-from metaquest.utils.termination import ABANDON_AFTER_SIGNALS, Termination, graceful_termination
+import prepare.utils.termination as term_mod
+from prepare.cli.base import BaseCommand, CommandRegistry
+from prepare.data import registry_blocks as rb
+from prepare.data.registry import load_registry, record_download
+from prepare.data.registry_batch import RegistryBatch, registry_batch
+from prepare.utils.termination import ABANDON_AFTER_SIGNALS, Termination, graceful_termination
 
 HANDLED = [s for s in (signal.SIGINT, signal.SIGTERM, getattr(signal, "SIGHUP", None)) if s is not None]
 
@@ -146,7 +146,7 @@ class TestGracefulTermination:
 
     def test_second_sigint_during_the_final_flush_lets_it_complete(self, tmp_path, caplog):
         """A repeated Ctrl-C while a batch writes on the way out is logged; the outcome still reaches the file."""
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         real_apply_all = RegistryBatch._apply_all
         sent = []
 
@@ -209,7 +209,7 @@ class TestBaseCommandRun:
             raise KeyboardInterrupt
 
         args = argparse.Namespace()
-        with patch("metaquest.cli.base.SecureSubprocess.terminate_children", return_value=0) as terminate:
+        with patch("prepare.cli.base.SecureSubprocess.terminate_children", return_value=0) as terminate:
             with caplog.at_level(logging.ERROR):
                 assert _FakeCommand(action).run(args) == 130
         terminate.assert_called_once_with(stop=args._termination.stop)
@@ -220,7 +220,7 @@ class TestBaseCommandRun:
             os.kill(os.getpid(), signal.SIGTERM)
             return 0
 
-        with patch("metaquest.cli.base.SecureSubprocess.terminate_children", return_value=0):
+        with patch("prepare.cli.base.SecureSubprocess.terminate_children", return_value=0):
             with caplog.at_level(logging.ERROR):
                 assert _FakeCommand(action).run(argparse.Namespace()) == 130
         assert any(r.getMessage() == "Interrupted (SIGTERM)" for r in caplog.records)
@@ -233,7 +233,7 @@ class TestBaseCommandRun:
             raise KeyboardInterrupt
             yield  # pragma: no cover - never reached
 
-        with patch("metaquest.cli.base.graceful_termination", interrupted_install):
+        with patch("prepare.cli.base.graceful_termination", interrupted_install):
             with caplog.at_level(logging.ERROR):
                 assert _FakeCommand(lambda args: 0).run(argparse.Namespace()) == 130
         assert any(r.getMessage() == "Interrupted" for r in caplog.records)
@@ -259,7 +259,7 @@ class TestBaseCommandRun:
 
 
 def test_download_sra_alias_delegates_to_graceful_termination():
-    import metaquest.cli.commands.sra as sra_mod
+    import prepare.cli.commands.sra as sra_mod
 
     with sra_mod._termination_raises_interrupt() as term:
         assert isinstance(term, Termination)
@@ -272,7 +272,7 @@ def test_terminate_children_does_not_deadlock_when_its_own_thread_holds_the_tabl
     import time
     from unittest.mock import MagicMock
 
-    from metaquest.utils.security import SecureSubprocess
+    from prepare.utils.security import SecureSubprocess
 
     child = MagicMock()
     child.poll.return_value = None

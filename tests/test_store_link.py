@@ -1,5 +1,5 @@
 """
-Tests for metaquest.store.link: the symlink a project keeps into the shared store.
+Tests for prepare.store.link: the symlink a project keeps into the shared store.
 """
 
 import os
@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from metaquest.core.exceptions import DataAccessError
-from metaquest.data.registry import scan_downloads
-from metaquest.data.sra import accession_has_fastq
-from metaquest.store.layout import init_store
-from metaquest.store.link import dangling_links, is_store_link, link_dataset, unlink_dataset
+from prepare.core.exceptions import DataAccessError
+from prepare.data.registry import scan_downloads
+from prepare.data.sra import accession_has_fastq
+from prepare.store.layout import init_store
+from prepare.store.link import dangling_links, is_store_link, link_dataset, unlink_dataset
 
 
 @pytest.fixture
@@ -67,7 +67,7 @@ def test_link_dataset_auto_falls_back_to_absolute_without_a_shared_parent(tmp_pa
     """Two paths with no common parent above the filesystem root get an absolute link."""
     _store_dataset(paths)
     project_fastq = tmp_path / "project" / "fastq"
-    monkeypatch.setattr("metaquest.store.link.os.path.commonpath", lambda paths_: os.sep)
+    monkeypatch.setattr("prepare.store.link.os.path.commonpath", lambda paths_: os.sep)
 
     link = link_dataset(project_fastq, "SRR1", paths)
 
@@ -82,7 +82,7 @@ def test_link_dataset_auto_falls_back_to_absolute_on_separate_drives(tmp_path, p
     def _raise(_paths):
         raise ValueError("paths do not share a drive")
 
-    monkeypatch.setattr("metaquest.store.link.os.path.commonpath", _raise)
+    monkeypatch.setattr("prepare.store.link.os.path.commonpath", _raise)
 
     link = link_dataset(project_fastq, "SRR1", paths)
 
@@ -281,7 +281,7 @@ class TestLinkModeAcrossVolumes:
     """Two mounted volumes are not one tree, whatever their paths look like."""
 
     def test_two_volumes_get_an_absolute_link(self):
-        from metaquest.store.link import _shares_a_parent
+        from prepare.store.link import _shares_a_parent
 
         # /Volumes/A and /Volumes/B mount and unmount independently: a relative link between
         # them (../../A/store/...) breaks the moment either moves.
@@ -290,7 +290,7 @@ class TestLinkModeAcrossVolumes:
         assert _shares_a_parent(Path("/media/alex/disk1/store"), Path("/media/alex/disk2/proj")) is False
 
     def test_one_volume_still_gets_a_relative_link(self):
-        from metaquest.store.link import _shares_a_parent
+        from prepare.store.link import _shares_a_parent
 
         assert _shares_a_parent(Path("/Volumes/lab/store"), Path("/Volumes/lab/project/fastq")) is True
 
@@ -304,7 +304,7 @@ def test_link_dataset_copy_mode_interrupted_leaves_no_visible_folder(tmp_path, p
         real_copytree(src, dst, *args, **kwargs)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("metaquest.store.link.shutil.copytree", _interrupted_copytree)
+    monkeypatch.setattr("prepare.store.link.shutil.copytree", _interrupted_copytree)
     with pytest.raises(KeyboardInterrupt):
         link_dataset(project_fastq, "SRR1", paths, mode="copy")
 
@@ -357,7 +357,7 @@ def test_copy_relink_interrupted_during_the_copy_keeps_the_earlier_copy(tmp_path
         real_copytree(src, dst, *args, **kwargs)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("metaquest.store.link.shutil.copytree", _interrupted_copytree)
+    monkeypatch.setattr("prepare.store.link.shutil.copytree", _interrupted_copytree)
     with pytest.raises(KeyboardInterrupt):
         link_dataset(project_fastq, "SRR1", paths, mode="copy")
 
@@ -381,7 +381,7 @@ def test_copy_relink_whose_swap_fails_puts_the_earlier_copy_back(tmp_path, paths
             raise OSError("simulated rename failure")
         return real_replace(src, dst)
 
-    monkeypatch.setattr("metaquest.store.link.os.replace", _failing_swap)
+    monkeypatch.setattr("prepare.store.link.os.replace", _failing_swap)
     with pytest.raises(DataAccessError, match="simulated rename failure"):
         link_dataset(project_fastq, "SRR1", paths, mode="copy")
 
@@ -404,7 +404,7 @@ def test_copy_relink_interrupted_between_aside_and_swap_puts_the_earlier_copy_ba
             raise KeyboardInterrupt
         return real_replace(src, dst)
 
-    monkeypatch.setattr("metaquest.store.link.os.replace", _interrupted_swap)
+    monkeypatch.setattr("prepare.store.link.os.replace", _interrupted_swap)
     with pytest.raises(KeyboardInterrupt):
         link_dataset(project_fastq, "SRR1", paths, mode="copy")
 
@@ -419,7 +419,7 @@ def test_copy_relink_without_room_names_the_accession_and_keeps_the_earlier_copy
     project_fastq = tmp_path / "project" / "fastq"
     link_dataset(project_fastq, "SRR1", paths, mode="copy")
     full = shutil._ntuple_diskusage(1000, 1000, 1)
-    monkeypatch.setattr("metaquest.store.link.shutil.disk_usage", lambda _path: full)
+    monkeypatch.setattr("prepare.store.link.shutil.disk_usage", lambda _path: full)
 
     with pytest.raises(DataAccessError, match=r"Cannot copy SRR1 into .*1 bytes free, the copy needs about \d+"):
         link_dataset(project_fastq, "SRR1", paths, mode="copy")
@@ -435,7 +435,7 @@ def test_copy_link_whose_copy_fails_raises_a_data_access_error_naming_the_access
     def _failing_copytree(src, dst, *args, **kwargs):
         raise shutil.Error([(str(src), str(dst), "No space left on device")])
 
-    monkeypatch.setattr("metaquest.store.link.shutil.copytree", _failing_copytree)
+    monkeypatch.setattr("prepare.store.link.shutil.copytree", _failing_copytree)
     with pytest.raises(DataAccessError, match="Cannot copy SRR1 into"):
         link_dataset(project_fastq, "SRR1", paths, mode="copy")
 
@@ -443,11 +443,11 @@ def test_copy_link_whose_copy_fails_raises_a_data_access_error_naming_the_access
 
 
 def test_room_shortfall_assumes_room_when_the_filesystem_cannot_be_measured(tmp_path, monkeypatch, caplog):
-    from metaquest.store.link import room_shortfall
+    from prepare.store.link import room_shortfall
 
     def _unreadable(_path):
         raise OSError("not mounted")
 
-    monkeypatch.setattr("metaquest.store.link.shutil.disk_usage", _unreadable)
+    monkeypatch.setattr("prepare.store.link.shutil.disk_usage", _unreadable)
     assert room_shortfall(tmp_path, 10**12) is None
     assert "Could not check free space" in caplog.text

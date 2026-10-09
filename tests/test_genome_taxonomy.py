@@ -1,4 +1,4 @@
-"""Tests for metaquest/data/genome_taxonomy.py.
+"""Tests for prepare/data/genome_taxonomy.py.
 
 Covers GTDB taxonomy parsing, API-based enrichment, cache round-trips,
 long-format annotation, taxonomy filtering, and aggregation.
@@ -12,9 +12,9 @@ from unittest.mock import patch, MagicMock
 
 import requests
 
-from metaquest.core.models import TaxonomyInfo
-from metaquest.core.exceptions import DataAccessError
-from metaquest.data.genome_taxonomy import (
+from prepare.core.models import TaxonomyInfo
+from prepare.core.exceptions import DataAccessError
+from prepare.data.genome_taxonomy import (
     parse_gtdb_taxonomy_string,
     _lookup_genome_taxonomy_gtdb,
     _taxonomy_from_record,
@@ -79,7 +79,7 @@ class TestParseGtdbTaxonomyString:
 
 class TestEnrichGenomesWithTaxonomy:
 
-    @patch("metaquest.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
+    @patch("prepare.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
     def test_basic_enrichment(self, mock_lookup):
         mock_lookup.return_value = TaxonomyInfo(genome_id="GCF_001", family="Bacillaceae", genus="Bacillus")
         result = enrich_genomes_with_taxonomy(["GCF_001"])
@@ -87,7 +87,7 @@ class TestEnrichGenomesWithTaxonomy:
         assert result["GCF_001"].family == "Bacillaceae"
         mock_lookup.assert_called_once_with("GCF_001")
 
-    @patch("metaquest.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
+    @patch("prepare.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
     def test_uses_cache(self, mock_lookup, tmp_path):
         cache_file = tmp_path / "cache.tsv"
         tax = {"GCF_A": TaxonomyInfo(genome_id="GCF_A", family="FamA")}
@@ -97,14 +97,14 @@ class TestEnrichGenomesWithTaxonomy:
         assert result["GCF_A"].family == "FamA"
         mock_lookup.assert_not_called()
 
-    @patch("metaquest.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
+    @patch("prepare.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
     def test_api_failure_returns_empty_info(self, mock_lookup):
         mock_lookup.side_effect = DataAccessError("API down")
         result = enrich_genomes_with_taxonomy(["GCF_FAIL"])
         assert "GCF_FAIL" in result
         assert result["GCF_FAIL"].family is None
 
-    @patch("metaquest.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
+    @patch("prepare.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
     def test_none_result_gives_empty_info(self, mock_lookup):
         mock_lookup.return_value = None
         result = enrich_genomes_with_taxonomy(["GCF_NONE"])
@@ -474,7 +474,7 @@ class TestCacheAndEnrichEdges:
         cache = load_taxonomy_cache(cache_file)
         assert list(cache.keys()) == ["GCF_OK"]
 
-    @patch("metaquest.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
+    @patch("prepare.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
     def test_enrich_saves_cache_when_file_given(self, mock_lookup, tmp_path):
         mock_lookup.return_value = TaxonomyInfo(genome_id="GCF_NEW", family="Bacillaceae")
         cache_file = tmp_path / "out_cache.tsv"
@@ -488,7 +488,7 @@ class TestCacheAndEnrichEdges:
 class TestIncrementalCacheWrites:
     """The TSV cache is appended to after every successful lookup, not written once at the end."""
 
-    @patch("metaquest.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
+    @patch("prepare.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
     def test_a_later_failure_does_not_lose_earlier_successes(self, mock_lookup, tmp_path):
         cache_file = tmp_path / "cache.tsv"
         mock_lookup.side_effect = [
@@ -505,7 +505,7 @@ class TestIncrementalCacheWrites:
         on_disk = load_taxonomy_cache(cache_file)
         assert set(on_disk.keys()) == {"GCF_1", "GCF_2"}
 
-    @patch("metaquest.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
+    @patch("prepare.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
     def test_a_genome_with_no_taxonomy_found_is_not_cached(self, mock_lookup, tmp_path):
         cache_file = tmp_path / "cache.tsv"
         mock_lookup.side_effect = [
@@ -518,7 +518,7 @@ class TestIncrementalCacheWrites:
         on_disk = load_taxonomy_cache(cache_file)
         assert set(on_disk.keys()) == {"GCF_1"}
 
-    @patch("metaquest.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
+    @patch("prepare.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
     def test_cache_file_grows_during_the_run_not_only_at_the_end(self, mock_lookup, tmp_path):
         cache_file = tmp_path / "cache.tsv"
         rows_seen_before_each_call = []

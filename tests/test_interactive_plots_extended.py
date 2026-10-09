@@ -15,13 +15,13 @@ from unittest.mock import patch
 for _module in ("plotly", "sklearn", "scipy"):
     pytest.importorskip(_module)
 
-from metaquest.visualization.interactive import (  # noqa: E402
+from prepare.visualization.interactive import (  # noqa: E402
     create_interactive_pca,
     create_interactive_tsne,
     create_interactive_heatmap,
     create_diversity_comparison_plot,
 )
-from metaquest.core.exceptions import VisualizationError  # noqa: E402
+from prepare.core.exceptions import VisualizationError  # noqa: E402
 
 
 @pytest.fixture
@@ -373,6 +373,6 @@ class TestEdgeCasesExtended:
 #   pytest tests/test_interactive_plots_extended.py -v
 #
 # Check coverage:
-#   pytest --cov=metaquest.visualization.interactive --cov-report=term-missing \
+#   pytest --cov=prepare.visualization.interactive --cov-report=term-missing \
 #          tests/test_interactive_plots.py tests/test_interactive_plots_extended.py
 # ============================================================================

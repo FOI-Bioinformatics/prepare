@@ -13,12 +13,12 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.cli.main import create_parser, main
-from metaquest.utils.logging import ConsoleFormatter, setup_logging
+from prepare.cli.main import create_parser, main
+from prepare.utils.logging import ConsoleFormatter, setup_logging
 
 
 def _tagged_handlers():
-    return [h for h in logging.getLogger().handlers if getattr(h, "_metaquest", False)]
+    return [h for h in logging.getLogger().handlers if getattr(h, "_prepare", False)]
 
 
 @pytest.fixture(autouse=True)
@@ -70,9 +70,9 @@ def test_a_foreign_handler_survives():
 def test_the_file_is_appended_across_two_runs_and_its_folder_created(tmp_path):
     path = tmp_path / "logs" / "nested" / "run.log"
     setup_logging(level=logging.INFO, log_file=str(path))
-    logging.getLogger("metaquest.test").info("first run")
+    logging.getLogger("prepare.test").info("first run")
     setup_logging(level=logging.INFO, log_file=str(path))
-    logging.getLogger("metaquest.test").info("second run")
+    logging.getLogger("prepare.test").info("second run")
     lines = path.read_text(encoding="utf-8").splitlines()
     assert [line.endswith("first run") for line in lines] == [True, False]
     assert lines[1].endswith("second run")
@@ -81,25 +81,25 @@ def test_the_file_is_appended_across_two_runs_and_its_folder_created(tmp_path):
 def test_the_file_line_carries_host_and_pid(tmp_path):
     path = tmp_path / "run.log"
     setup_logging(level=logging.INFO, log_file=str(path))
-    logging.getLogger("metaquest.test").info("hello")
+    logging.getLogger("prepare.test").info("hello")
     line = path.read_text(encoding="utf-8").splitlines()[-1]
-    assert f" {socket.gethostname()}[{os.getpid()}] INFO metaquest.test: hello" in line
+    assert f" {socket.gethostname()}[{os.getpid()}] INFO prepare.test: hello" in line
 
 
 def test_the_console_shows_host_and_pid_only_when_asked(tmp_path, capsys):
     setup_logging(level=logging.INFO)
-    logging.getLogger("metaquest.test").info("plain")
+    logging.getLogger("prepare.test").info("plain")
     assert f"[{os.getpid()}]" not in capsys.readouterr().err
     setup_logging(level=logging.INFO, show_host=True)
-    logging.getLogger("metaquest.test").info("with host")
+    logging.getLogger("prepare.test").info("with host")
     assert f"{socket.gethostname()}[{os.getpid()}]" in capsys.readouterr().err
 
 
 def test_a_quiet_console_still_leaves_info_in_the_file(tmp_path, capsys):
     path = tmp_path / "run.log"
     setup_logging(level=logging.WARNING, log_file=str(path))
-    logging.getLogger("metaquest.test").info("progress note")
-    logging.getLogger("metaquest.test").warning("a warning")
+    logging.getLogger("prepare.test").info("progress note")
+    logging.getLogger("prepare.test").warning("a warning")
     err = capsys.readouterr().err
     assert "progress note" not in err and "a warning" in err
     text = path.read_text(encoding="utf-8")
@@ -109,7 +109,7 @@ def test_a_quiet_console_still_leaves_info_in_the_file(tmp_path, capsys):
 def test_the_traceback_goes_to_the_file_and_not_the_console(tmp_path, capsys):
     path = tmp_path / "run.log"
     setup_logging(level=logging.INFO, log_file=str(path))
-    _raise_and_log(logging.getLogger("metaquest.test"))
+    _raise_and_log(logging.getLogger("prepare.test"))
     err = capsys.readouterr().err
     assert "Step failed: the inner failure" in err
     assert "Traceback" not in err
@@ -119,7 +119,7 @@ def test_the_traceback_goes_to_the_file_and_not_the_console(tmp_path, capsys):
 
 def test_the_console_shows_the_traceback_at_debug(capsys):
     setup_logging(level=logging.DEBUG, console_traceback=True)
-    _raise_and_log(logging.getLogger("metaquest.test"))
+    _raise_and_log(logging.getLogger("prepare.test"))
     assert "Traceback (most recent call last)" in capsys.readouterr().err
 
 
@@ -186,15 +186,15 @@ def test_a_negative_progress_interval_is_a_usage_error():
     [(["-q"], logging.WARNING), (["-v"], logging.DEBUG), (["--log-level", "ERROR", "-v"], logging.DEBUG), ([], None)],
 )
 def test_quiet_and_verbose_override_the_log_level(tmp_path, flags, level):
-    with patch("metaquest.cli.main.setup_logging") as setup:
+    with patch("prepare.cli.main.setup_logging") as setup:
         main([*flags, "store_status", "--data-root", str(tmp_path / "none")])
     assert setup.call_args.kwargs["level"] == (level if level is not None else logging.INFO)
 
 
 def test_main_passes_the_log_file_and_host_setting(tmp_path, monkeypatch):
-    monkeypatch.setenv("METAQUEST_LOG_HOST", "yes")
+    monkeypatch.setenv("PREPARE_LOG_HOST", "yes")
     path = tmp_path / "run.log"
-    with patch("metaquest.cli.main.setup_logging") as setup:
+    with patch("prepare.cli.main.setup_logging") as setup:
         main(["--log-file", str(path), "store_status", "--data-root", str(tmp_path / "none")])
     assert setup.call_args.kwargs["log_file"] == str(path)
     assert setup.call_args.kwargs["show_host"] is True
@@ -204,10 +204,10 @@ def test_main_passes_the_log_file_and_host_setting(tmp_path, monkeypatch):
 def test_main_logs_version_argv_host_pid_and_slurm_ids_at_debug(tmp_path, monkeypatch, caplog):
     monkeypatch.setenv("SLURM_JOB_ID", "4242")
     monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "7")
-    with patch("metaquest.cli.main.setup_logging"), caplog.at_level(logging.DEBUG):
+    with patch("prepare.cli.main.setup_logging"), caplog.at_level(logging.DEBUG):
         main(["-v", "store_status", "--data-root", str(tmp_path / "none")])
     text = caplog.text
-    assert "MetaQuest v" in text and "store_status" in text
+    assert "PREPARE v" in text and "store_status" in text
     assert socket.gethostname() in text and str(os.getpid()) in text
     assert "SLURM_JOB_ID=4242" in text and "SLURM_ARRAY_TASK_ID=7" in text
 
@@ -224,7 +224,7 @@ def test_a_failing_command_writes_its_traceback_to_the_file_only(tmp_path, capsy
 
 
 def test_the_logged_arguments_hide_the_api_key(caplog):
-    from metaquest.cli.main import _log_run_header, _masked_argv
+    from prepare.cli.main import _log_run_header, _masked_argv
 
     assert _masked_argv(["--api-key", "SECRET1", "--api-key=SECRET2", "x"]) == [
         "--api-key",
@@ -239,16 +239,16 @@ def test_the_logged_arguments_hide_the_api_key(caplog):
 
 @pytest.mark.parametrize("flag", [["--api-k", "SECRETKEY1"], ["--api=SECRETKEY1"], ["--api-key", "SECRETKEY1"]])
 def test_an_abbreviated_api_key_flag_is_masked_too(tmp_path, caplog, flag):
-    from metaquest.cli.main import main
+    from prepare.cli.main import main
 
-    with patch("metaquest.cli.main.setup_logging"), caplog.at_level(logging.DEBUG):
+    with patch("prepare.cli.main.setup_logging"), caplog.at_level(logging.DEBUG):
         main(["-v", "download_metadata", *flag, "--email", "a@b.c", "--matches-folder", str(tmp_path / "none")])
-    assert "MetaQuest v" in caplog.text
+    assert "PREPARE v" in caplog.text
     assert "SECRETKEY1" not in caplog.text
 
 
 def test_masking_without_a_namespace_covers_abbreviations():
-    from metaquest.cli.main import _masked_argv
+    from prepare.cli.main import _masked_argv
 
     assert _masked_argv(["--api-k", "K1", "--api=K2", "--email", "a@b.c"]) == [
         "--api-k",

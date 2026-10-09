@@ -176,9 +176,9 @@ TESTING_QUICK_START.md
 examples/
 genomes/
 
-# metaquest_registry.json is meant to be committed with a project
-metaquest_registry.json.lock
-metaquest_registry.json.tmp.*
+# prepare_registry.json is meant to be committed with a project
+prepare_registry.json.lock
+prepare_registry.json.tmp.*
 
 # OS specific files
 .DS_Store

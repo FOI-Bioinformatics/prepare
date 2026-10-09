@@ -1,14 +1,14 @@
 # Configuration
 
-MetaQuest reads its run-time settings from command-line flags, environment variables and an optional
+PREPARE reads its run-time settings from command-line flags, environment variables and an optional
 user config file. This page lists every setting, where each one can be given, and the order in which
 the sources are consulted. The settings are defined in one table, `SETTINGS` in
-`metaquest/core/settings.py`; the location of the shared data store is resolved separately, by
-`metaquest/store/resolve.py`.
+`prepare/core/settings.py`; the location of the shared data store is resolved separately, by
+`prepare/store/resolve.py`.
 
 ## The config file
 
-The file is `$XDG_CONFIG_HOME/metaquest/config.toml`, or `~/.config/metaquest/config.toml` when
+The file is `$XDG_CONFIG_HOME/prepare/config.toml`, or `~/.config/prepare/config.toml` when
 `XDG_CONFIG_HOME` is not set. It is optional. It has two tables:
 
 ```toml
@@ -20,13 +20,13 @@ log_host = true
 ncbi_email = "you@example.org"
 
 [store]
-data_root = "/proj/group/metaquest-store"
+data_root = "/proj/group/prepare-store"
 ```
 
 `store_init --set-default` writes the `[store]` table and keeps every other table in the file.
 
 A file that is not valid TOML, a `[runtime]` that is not a table, or a value that does not parse
-stops every command with exit code 3 and a message naming the file and the key. `metaquest doctor` is
+stops every command with exit code 3 and a message naming the file and the key. `prepare doctor` is
 the exception: it still runs and reports the problem as a failed check. A key in `[runtime]` that
 names no setting is reported as a warning and ignored. Other tables are ignored.
 
@@ -40,25 +40,25 @@ and, for most, with a flag. An empty environment variable counts as not set.
 
 | Config key | Type | Default | Environment variable | Flag |
 |---|---|---|---|---|
-| `timeout` | seconds, 0 or more | 0 (no limit) | `METAQUEST_TIMEOUT` | `--timeout` |
-| `max_workers_cap` | whole number, 1 or more | 4 | `METAQUEST_MAX_WORKERS_CAP` | none |
-| `lock_wait` | seconds, 0 or more | 0 (no limit) | `METAQUEST_LOCK_WAIT` | `--lock-wait` |
-| `registry_lock_wait` | seconds, more than 0 | 30 | `METAQUEST_REGISTRY_LOCK_WAIT` | none |
-| `registry_lock_stale` | seconds, more than 0 | 120 | `METAQUEST_REGISTRY_LOCK_STALE` | none |
-| `dataset_lock_stale` | seconds, more than 0 | 600 | `METAQUEST_DATASET_LOCK_STALE` | none |
-| `lock_heartbeat` | seconds, more than 0 | 10 | `METAQUEST_LOCK_HEARTBEAT` | none |
-| `catalog_lock_wait` | seconds, more than 0 | 60 | `METAQUEST_CATALOG_LOCK_WAIT` | none |
-| `ncbi_email` | email address | none | `METAQUEST_NCBI_EMAIL` | `--email` |
-| `ncbi_api_key` | text | none | `METAQUEST_NCBI_API_KEY`, then `NCBI_API_KEY` | `--api-key` |
-| `temp_folder` | path (`~` expanded) | none | `METAQUEST_TEMP_FOLDER` | `--temp-folder` |
-| `log_file` | path (`~` expanded) | none | `METAQUEST_LOG_FILE` | `--log-file` |
-| `log_level` | level name | INFO | `METAQUEST_LOG_LEVEL` | `--log-level`, `-q`, `-v` |
-| `progress_every` | whole number, 0 or more | 50 | `METAQUEST_PROGRESS_EVERY` | `--progress-every` |
-| `log_host` | true or false | false | `METAQUEST_LOG_HOST` | none |
-| `min_free_gb` | number, 0 or more | 10 | `METAQUEST_MIN_FREE_GB` | `--min-free-gb` |
-| `prefetch_max_size` | whole number with optional K, M, G or T suffix | 100G | `METAQUEST_PREFETCH_MAX_SIZE` | none |
-| `assembly_memory` | `auto`, a fraction, or a size | auto | `METAQUEST_ASSEMBLY_MEMORY` | `--assembly-memory` |
-| `run_log` | true or false | true | `METAQUEST_RUN_LOG` | none |
+| `timeout` | seconds, 0 or more | 0 (no limit) | `PREPARE_TIMEOUT` | `--timeout` |
+| `max_workers_cap` | whole number, 1 or more | 4 | `PREPARE_MAX_WORKERS_CAP` | none |
+| `lock_wait` | seconds, 0 or more | 0 (no limit) | `PREPARE_LOCK_WAIT` | `--lock-wait` |
+| `registry_lock_wait` | seconds, more than 0 | 30 | `PREPARE_REGISTRY_LOCK_WAIT` | none |
+| `registry_lock_stale` | seconds, more than 0 | 120 | `PREPARE_REGISTRY_LOCK_STALE` | none |
+| `dataset_lock_stale` | seconds, more than 0 | 600 | `PREPARE_DATASET_LOCK_STALE` | none |
+| `lock_heartbeat` | seconds, more than 0 | 10 | `PREPARE_LOCK_HEARTBEAT` | none |
+| `catalog_lock_wait` | seconds, more than 0 | 60 | `PREPARE_CATALOG_LOCK_WAIT` | none |
+| `ncbi_email` | email address | none | `PREPARE_NCBI_EMAIL` | `--email` |
+| `ncbi_api_key` | text | none | `PREPARE_NCBI_API_KEY`, then `NCBI_API_KEY` | `--api-key` |
+| `temp_folder` | path (`~` expanded) | none | `PREPARE_TEMP_FOLDER` | `--temp-folder` |
+| `log_file` | path (`~` expanded) | none | `PREPARE_LOG_FILE` | `--log-file` |
+| `log_level` | level name | INFO | `PREPARE_LOG_LEVEL` | `--log-level`, `-q`, `-v` |
+| `progress_every` | whole number, 0 or more | 50 | `PREPARE_PROGRESS_EVERY` | `--progress-every` |
+| `log_host` | true or false | false | `PREPARE_LOG_HOST` | none |
+| `min_free_gb` | number, 0 or more | 10 | `PREPARE_MIN_FREE_GB` | `--min-free-gb` |
+| `prefetch_max_size` | whole number with optional K, M, G or T suffix | 100G | `PREPARE_PREFETCH_MAX_SIZE` | none |
+| `assembly_memory` | `auto`, a fraction, or a size | auto | `PREPARE_ASSEMBLY_MEMORY` | `--assembly-memory` |
+| `run_log` | true or false | true | `PREPARE_RUN_LOG` | none |
 
 The flags exist on these commands:
 
@@ -94,7 +94,7 @@ What each setting does:
   it is shown as `(set)`.
 - `temp_folder`: where `fasterq-dump` writes its temporary files, and where `extract_target_reads`
   writes its intermediate alignments. When it is not set, `download_sra` gives each accession a scratch
-  folder of its own beside the download: `fastq/.metaquest-tmp/<accession>_fqtmp` in a project without a
+  folder of its own beside the download: `fastq/.prepare-tmp/<accession>_fqtmp` in a project without a
   store, `<data-root>/tmp/<accession>_fqtmp` with one. Set it to a local disk when the project or store
   is on a network filesystem and the node has local scratch space.
 - `log_file`, `log_level`, `progress_every`, `log_host`: see "Logging" in the README.
@@ -109,7 +109,7 @@ What each setting does:
   number of bytes (at least 1M) is passed in bytes. A fraction such as `0.5` is passed as it is; megahit
   applies it to the whole node's memory, so under a scheduler give a size or `auto` instead.
 - `run_log`: whether a command that keeps a run log adds a record of each run to
-  `<project>/.metaquest/runs/` (see "Project state" in the README). Nothing is written in a folder
+  `<project>/.prepare/runs/` (see "Project state" in the README). Nothing is written in a folder
   without a project registry, and a run log that cannot be written is reported as a warning without
   changing the command's exit code. false turns the run log off.
 
@@ -118,7 +118,7 @@ What each setting does:
 A runtime setting is taken from the first of these that gives a value:
 
 1. the flag, when the command has one and it was given;
-2. the environment variable (`METAQUEST_<NAME>`; for the API key, `METAQUEST_NCBI_API_KEY` and then
+2. the environment variable (`PREPARE_<NAME>`; for the API key, `PREPARE_NCBI_API_KEY` and then
    `NCBI_API_KEY`);
 3. the `[runtime]` table of the config file;
 4. the built-in default.
@@ -126,11 +126,11 @@ A runtime setting is taken from the first of these that gives a value:
 The root of the shared data store is taken from the first of these that names one:
 
 1. `--data-root`;
-2. the `METAQUEST_DATA` environment variable;
-3. `store.root` in the project registry (`metaquest_registry.json`);
+2. the `PREPARE_DATA` environment variable;
+3. `store.root` in the project registry (`prepare_registry.json`);
 4. `data_root` in the `[store]` table of the config file.
 
-A root found this way must hold the store marker (`metaquest_store.json`), or the command stops with a
+A root found this way must hold the store marker (`prepare_store.json`), or the command stops with a
 message naming the rule that produced the root. When none of the four names a root, the project works
 without a store.
 
@@ -139,15 +139,15 @@ project has no record of its own for it, so the per-user config file is the last
 default. The store root describes where a project's data are, and a project that has joined a store
 records that store in its registry; the registry therefore comes before the per-user config file, so
 every command run in the project finds the store the project uses even when the user's default store is
-a different one. The flag and `METAQUEST_DATA` still come first, so a store that has been moved or is
+a different one. The flag and `PREPARE_DATA` still come first, so a store that has been moved or is
 mounted at another path can be named without editing the registry.
 
 ## Seeing the values in use
 
-`metaquest doctor` lists every runtime setting with its value and the source it came from (a flag, a
+`prepare doctor` lists every runtime setting with its value and the source it came from (a flag, a
 variable, `config [runtime] <key>`, or `default`), with the API key shown as `(set)`, and the store
 root it resolved; the rule that produced the root is logged at INFO (`Resolved store root from
-METAQUEST_DATA: ...`). A command run at DEBUG (`-v` or `--log-level DEBUG`) logs the same list
+PREPARE_DATA: ...`). A command run at DEBUG (`-v` or `--log-level DEBUG`) logs the same list
 at its start:
 
 ```
@@ -164,7 +164,7 @@ The names in this list are the setting names of `SETTINGS`; they equal the confi
 
 ## Adding a setting
 
-A new setting is one entry in `_SPECS` in `metaquest/core/settings.py` (name, parser, default,
+A new setting is one entry in `_SPECS` in `prepare/core/settings.py` (name, parser, default,
 environment variable, description, and the flag's `dest` when a command has one) and one field in
 `RuntimeSettings`. Code reads it with `settings.active().<name>`, or with `setting_for(args, name)`
 inside a command so a flag in a hand-built namespace is still honoured. This page and the table above

@@ -3,11 +3,11 @@
 import pytest
 
 from helpers_project_report import FAILED_MESSAGE, build_project
-from metaquest.data.registry import load_registry
-from metaquest.processing import project_report as pr
-from metaquest.processing.doctor_report import Check
-from metaquest.processing.project_funnel import funnel
-from metaquest.processing.project_report_markdown import escape_cell, render_markdown
+from prepare.data.registry import load_registry
+from prepare.processing import project_report as pr
+from prepare.processing.doctor_report import Check
+from prepare.processing.project_funnel import funnel
+from prepare.processing.project_report_markdown import escape_cell, render_markdown
 
 
 @pytest.fixture
@@ -60,12 +60,12 @@ def test_report_has_every_section_in_order(registry, no_checks):
 
 def test_project_section_names_registry_and_versions(registry, tmp_path, no_checks):
     project = _report(registry)["project"]
-    assert project["registry"] == str(tmp_path / "metaquest_registry.json")
+    assert project["registry"] == str(tmp_path / "prepare_registry.json")
     assert project["root"] == str(tmp_path.resolve())
     assert project["registry_version"] == registry.version
     assert project["updated"] == registry.updated
     assert project["datasets"] == 6
-    assert project["metaquest_version"]
+    assert project["prepare_version"]
 
 
 def test_funnel_section_is_the_status_funnel(registry, no_checks):
@@ -127,7 +127,7 @@ def test_downloads_section_counts_verdicts_and_lists(registry, no_checks):
 def test_downloads_lists_and_counts_cover_the_same_downloaded_datasets(registry, no_checks):
     # The Task 25 review's reproduction: SRR3 given a truncated verdict, then SRR2 (truncated)
     # recorded as missing. The verdict table counts SRR3 only, so the list must name SRR3 too.
-    from metaquest.data.registry import record_download, set_download_verdict
+    from prepare.data.registry import record_download, set_download_verdict
 
     set_download_verdict(registry, "SRR3", {"method": "spots", "verdict": "truncated", "ratio": 0.4})
     record_download(registry, "SRR2", "missing", registry.path.parent / "fastq")
@@ -139,7 +139,7 @@ def test_downloads_lists_and_counts_cover_the_same_downloaded_datasets(registry,
 
 
 def test_downloads_list_cut_by_max_rows_carries_its_total_and_a_note(registry, no_checks):
-    from metaquest.data.registry import set_download_verdict
+    from prepare.data.registry import set_download_verdict
 
     set_download_verdict(registry, "SRR1", {"method": "spots", "verdict": "truncated", "ratio": 0.4})
     downloads = _report(registry, max_rows=1)["downloads"]
@@ -278,7 +278,7 @@ def test_markdown_has_a_heading_per_section(registry, no_checks):
     text = render_markdown(_report(registry))
     for title in pr.SECTION_TITLES.values():
         assert f"\n## {title}\n" in text
-    assert text.startswith("# MetaQuest project report")
+    assert text.startswith("# PREPARE project report")
     assert text.isascii()
 
 
@@ -294,7 +294,7 @@ def test_markdown_table_rows_keep_their_columns_with_pipes_in_cells(registry, no
 
 def test_markdown_truncation_note(registry, no_checks):
     text = render_markdown(_report(registry, max_rows=1))
-    assert "1 of 4" in text and "metaquest results_table" in text
+    assert "1 of 4" in text and "prepare results_table" in text
 
 
 def test_markdown_failures_name_attempts_over_all_runs(registry, no_checks):
@@ -313,7 +313,7 @@ def test_markdown_environment_not_included(registry, no_checks):
 def test_html_has_every_section_id_and_escapes_text(registry, no_checks):
     pytest.importorskip("plotly")
     pytest.importorskip("jinja2")
-    from metaquest.visualization.project_report import render_html
+    from prepare.visualization.project_report import render_html
 
     report = _report(registry)
     report["failures"]["rows"][0]["message"] = "<script>alert(1)</script>"

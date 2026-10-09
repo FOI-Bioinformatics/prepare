@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch, mock_open
 
 import pytest
 
-from metaquest.cli.commands.sra_enhanced import SRAInfoCommand, SRAValidateCommand
+from prepare.cli.commands.sra_enhanced import SRAInfoCommand, SRAValidateCommand
 
 
 class TestSRAInfoCommand:
@@ -65,9 +65,9 @@ class TestSRAInfoCommand:
         assert args.output_report == "custom_report.csv"
         assert args.bandwidth_mbps == 250.5
 
-    @patch("metaquest.cli.commands.sra_enhanced.save_metadata_report")
-    @patch("metaquest.cli.commands.sra_enhanced.create_download_preview")
-    @patch("metaquest.cli.commands.sra_enhanced.SRAMetadataClient")
+    @patch("prepare.cli.commands.sra_enhanced.save_metadata_report")
+    @patch("prepare.cli.commands.sra_enhanced.create_download_preview")
+    @patch("prepare.cli.commands.sra_enhanced.SRAMetadataClient")
     def test_execute_success(self, mock_client_class, mock_create_preview, mock_save_report, tmp_path, capsys):
         """Test successful execution."""
         command = SRAInfoCommand()
@@ -122,8 +122,8 @@ class TestSRAInfoCommand:
         assert result == 1
         assert "No accessions found in file" in caplog.text
 
-    @patch("metaquest.cli.commands.sra_enhanced.create_download_preview")
-    @patch("metaquest.cli.commands.sra_enhanced.SRAMetadataClient")
+    @patch("prepare.cli.commands.sra_enhanced.create_download_preview")
+    @patch("prepare.cli.commands.sra_enhanced.SRAMetadataClient")
     def test_execute_no_metadata(self, mock_client_class, mock_create_preview, caplog):
         """Test execution when no metadata can be fetched."""
         command = SRAInfoCommand()
@@ -160,16 +160,16 @@ class TestSRAInfoCommand:
         assert result == 1
         assert "SRA info command failed" in caplog.text
 
-    @patch("metaquest.cli.commands.sra_enhanced.create_download_preview")
-    @patch("metaquest.cli.commands.sra_enhanced.SRAMetadataClient")
+    @patch("prepare.cli.commands.sra_enhanced.create_download_preview")
+    @patch("prepare.cli.commands.sra_enhanced.SRAMetadataClient")
     def test_execute_network_error_exits_4(self, mock_client_class, mock_create_preview):
         """A NetworkError from the metadata client reaches ``self.fail`` with exit code 4, not 1.
 
         Regression test for the broad ``except Exception`` this command used to have, which
-        turned a retryable NCBI failure (``NetworkError``, ``metaquest.core.exceptions``) into
+        turned a retryable NCBI failure (``NetworkError``, ``prepare.core.exceptions``) into
         the same exit code 1 as any other failure.
         """
-        from metaquest.core.exceptions import NetworkError
+        from prepare.core.exceptions import NetworkError
 
         command = SRAInfoCommand()
         args = argparse.Namespace(
@@ -192,7 +192,7 @@ class TestSRAInfoCommand:
         Unlike ``test_execute_network_error_exits_4`` above, ``SRAMetadataClient`` and
         ``create_download_preview`` are not mocked: ``tests/fake_http.py`` fakes the connection
         pool a persistently-503 NCBI would present, so the real retrying session
-        (``metaquest.utils.http.retrying_session``), ``SRAMetadataClient._make_request`` and
+        (``prepare.utils.http.retrying_session``), ``SRAMetadataClient._make_request`` and
         ``SRAMetadataClient.get_sra_metadata``'s batch loop are all exercised, confirming a
         ``NetworkError`` actually propagates out of ``get_sra_metadata`` (it is a
         ``DataAccessError`` subclass, which that loop otherwise catches and continues past) all
@@ -389,8 +389,8 @@ class TestSRAValidateCommand:
         assert "mate files differ (2 vs 1)" in result["issues"]
         assert "mate_counts" in result["checks"]
 
-    @patch("metaquest.cli.commands.sra_enhanced.cached_stats")
-    @patch("metaquest.cli.commands.sra_enhanced.count_fastq_reads")
+    @patch("prepare.cli.commands.sra_enhanced.cached_stats")
+    @patch("prepare.cli.commands.sra_enhanced.count_fastq_reads")
     def test_validate_directory_mate_count_uses_cached_stats(self, mock_count, mock_cached, tmp_path):
         """When a cached stats record is available, mate counts come from its
         ``reads_per_file`` rather than a fresh ``count_fastq_reads`` pass."""
@@ -482,7 +482,7 @@ class TestSRAValidateCommand:
         (acc_dir / "SRR123_1.fastq").write_text("@read1\nACGT\n+\nIIII\n")
         (acc_dir / "SRR123_2.fastq").write_text("@read1\nACGT\n+\nIIII\n")
 
-        with patch("metaquest.cli.commands.sra_enhanced.cached_stats") as mock_cached:
+        with patch("prepare.cli.commands.sra_enhanced.cached_stats") as mock_cached:
             command._validate_directory(acc_dir)
             mock_cached.assert_not_called()
 
@@ -517,7 +517,7 @@ class TestSRAValidateCommand:
         # A large file (many valid-looking records) but a broken first header.
         fastq_file.write_text("not-a-header\n" + ("@r\nACGT\n+\nIIII\n" * 50000))
 
-        with patch("metaquest.cli.commands.sra_enhanced.count_fastq_reads") as mock_count:
+        with patch("prepare.cli.commands.sra_enhanced.count_fastq_reads") as mock_count:
             result = command._validate_directory(acc_dir)
 
         assert result["status"] == "FAILED"
@@ -527,7 +527,7 @@ class TestSRAValidateCommand:
     def test_validate_directory_partial_sidecar_reports_spots(self, tmp_path):
         """A store-linked accession whose sidecar records a partial download is failed with
         the reads-on-disk-vs-spots-at-NCBI message."""
-        from metaquest.store.sidecar import Sidecar, write_sidecar
+        from prepare.store.sidecar import Sidecar, write_sidecar
 
         store_acc_dir = tmp_path / "store" / "sra" / "SRR123"
         store_acc_dir.mkdir(parents=True)
@@ -564,7 +564,7 @@ class TestSRAValidateCommand:
         A "failed" sidecar with no recorded error falls back to pointing at store_verify,
         since there is nothing more specific to tell the reader.
         """
-        from metaquest.store.sidecar import Sidecar, write_sidecar
+        from prepare.store.sidecar import Sidecar, write_sidecar
 
         store_acc_dir = tmp_path / "store" / "sra" / "SRR123"
         store_acc_dir.mkdir(parents=True)
@@ -584,7 +584,7 @@ class TestSRAValidateCommand:
     def test_validate_directory_failed_sidecar_reports_its_own_error(self, tmp_path):
         """When the sidecar recorded why the download failed, that reason is surfaced instead
         of the generic 'see store_verify' fallback."""
-        from metaquest.store.sidecar import Sidecar, write_sidecar
+        from prepare.store.sidecar import Sidecar, write_sidecar
 
         store_acc_dir = tmp_path / "store" / "sra" / "SRR123"
         store_acc_dir.mkdir(parents=True)
@@ -605,7 +605,7 @@ class TestSRAValidateCommand:
         assert "store state failed: connection reset by NCBI" in result["issues"]
 
     def test_validate_directory_passes_a_complete_sidecar(self, tmp_path):
-        from metaquest.store.sidecar import Sidecar, write_sidecar
+        from prepare.store.sidecar import Sidecar, write_sidecar
 
         store_acc_dir = tmp_path / "store" / "sra" / "SRR123"
         store_acc_dir.mkdir(parents=True)
@@ -622,7 +622,7 @@ class TestSRAValidateCommand:
     def test_validate_directory_registry_verdict_truncated_reports_spots(self, tmp_path):
         """A plain project directory (no store sidecar) falls back to the registry's own
         download verdict for the same completeness check."""
-        from metaquest.data.registry import Registry
+        from prepare.data.registry import Registry
 
         acc_dir = tmp_path / "SRR123"
         acc_dir.mkdir()
@@ -641,7 +641,7 @@ class TestSRAValidateCommand:
 
     def test_validate_directory_md5_mismatch(self, tmp_path):
         """--md5 fails a file whose content no longer matches the sidecar's recorded md5."""
-        from metaquest.store.sidecar import Sidecar, write_sidecar
+        from prepare.store.sidecar import Sidecar, write_sidecar
 
         store_acc_dir = tmp_path / "store" / "sra" / "SRR123"
         store_acc_dir.mkdir(parents=True)
@@ -669,7 +669,7 @@ class TestSRAValidateCommand:
 
     def test_validate_directory_md5_match_passes(self, tmp_path):
         """--md5 passes when the file's md5 matches the sidecar's recorded value."""
-        from metaquest.store.sidecar import Sidecar, md5_file, write_sidecar
+        from prepare.store.sidecar import Sidecar, md5_file, write_sidecar
 
         store_acc_dir = tmp_path / "store" / "sra" / "SRR123"
         store_acc_dir.mkdir(parents=True)
@@ -744,7 +744,7 @@ class TestSRAValidateCommand:
             fastq_folder=str(fastq_folder),
             accession=None,
             check_pairs=False,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
@@ -764,7 +764,7 @@ class TestSRAValidateCommand:
 
     def test_execute_registry_lock_timeout_exits_4(self, tmp_path):
         """A registry lock wait that gave up is retryable: exit 4, not the broad catch's 1."""
-        from metaquest.core.exceptions import LockTimeoutError
+        from prepare.core.exceptions import LockTimeoutError
 
         command = SRAValidateCommand()
         fastq_folder = tmp_path / "fastq"
@@ -774,10 +774,10 @@ class TestSRAValidateCommand:
             fastq_folder=str(fastq_folder),
             accession=None,
             check_pairs=False,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
-        with patch("metaquest.cli.commands.sra_enhanced.registry_batch", side_effect=LockTimeoutError("registry lock")):
+        with patch("prepare.cli.commands.sra_enhanced.registry_batch", side_effect=LockTimeoutError("registry lock")):
             assert command.execute(args) == 4
 
     def test_execute_records_analyses_in_registry(self, tmp_path):
@@ -789,7 +789,7 @@ class TestSRAValidateCommand:
         acc_dir = fastq_folder / "SRR123"
         acc_dir.mkdir()
         (acc_dir / "test.fastq").write_text("@r\nACGT\n+\n!!!!\n")
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
 
         args = argparse.Namespace(
             fastq_folder=str(fastq_folder),
@@ -820,9 +820,9 @@ class TestSRAValidateCommand:
 
     def test_execute_records_usage_in_store_catalogue(self, tmp_path):
         """A validated accession is also recorded as 'analysed' usage in the store catalogue."""
-        from metaquest.data.registry import load_registry as _load, save_registry as _save
-        from metaquest.store.catalog import Catalog
-        from metaquest.store.layout import init_store, store_paths
+        from prepare.data.registry import load_registry as _load, save_registry as _save
+        from prepare.store.catalog import Catalog
+        from prepare.store.layout import init_store, store_paths
 
         command = SRAValidateCommand()
 
@@ -831,7 +831,7 @@ class TestSRAValidateCommand:
         acc_dir = fastq_folder / "SRR123"
         acc_dir.mkdir()
         (acc_dir / "test.fastq").write_text("@r\nACGT\n+\n!!!!\n")
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
         store_root = tmp_path / "store"
         init_store(store_root)
 
@@ -865,8 +865,8 @@ class TestSRAValidateCommand:
 
     def test_catalog_failure_leaves_validate_outcome_unchanged(self, tmp_path):
         """A broken catalogue write never changes validate's registry outcome or exit code."""
-        from metaquest.data.registry import load_registry as _load, save_registry as _save
-        from metaquest.store.layout import init_store
+        from prepare.data.registry import load_registry as _load, save_registry as _save
+        from prepare.store.layout import init_store
 
         command = SRAValidateCommand()
 
@@ -875,7 +875,7 @@ class TestSRAValidateCommand:
         acc_dir = fastq_folder / "SRR123"
         acc_dir.mkdir()
         (acc_dir / "test.fastq").write_text("@r\nACGT\n+\n!!!!\n")
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
         store_root = tmp_path / "store"
         init_store(store_root)
 
@@ -898,7 +898,7 @@ class TestSRAValidateCommand:
                 "issues": "None",
                 "num_files": 1,
             }
-            with patch("metaquest.store.usage.catalog_write", side_effect=RuntimeError("locked")):
+            with patch("prepare.store.usage.catalog_write", side_effect=RuntimeError("locked")):
                 result = command.execute(args)
 
         assert result == 0
@@ -919,7 +919,7 @@ class TestSRAValidateCommand:
         acc_dir = fastq_folder / "SRR123"
         acc_dir.mkdir()
         (acc_dir / "test.fastq").touch()  # empty file: fails the "empty_files" check
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
 
         args = argparse.Namespace(
             fastq_folder=str(fastq_folder),
@@ -964,7 +964,7 @@ class TestSRAValidateCommand:
         assert result == 1
         assert "No accession directories found" in caplog.text
 
-    @patch("metaquest.cli.commands.sra_enhanced.logger")
+    @patch("prepare.cli.commands.sra_enhanced.logger")
     def test_execute_exception_handling(self, mock_logger, tmp_path):
         """Test exception handling during execution."""
         command = SRAValidateCommand()
@@ -978,7 +978,7 @@ class TestSRAValidateCommand:
             fastq_folder=str(fastq_folder),
             accession=None,
             check_pairs=False,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
@@ -1003,11 +1003,11 @@ def test_validate_restricts_to_the_accessions_file_and_flags(tmp_path):
         accessions_file=str(accessions_file),
         accession=["SRR3"],
         check_pairs=False,
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
         data_root=None,
     )
 
     assert SRAValidateCommand().execute(args) == 0
 
-    registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    registry = json.loads((tmp_path / "prepare_registry.json").read_text())
     assert set(registry["datasets"]) == {"SRR1", "SRR3"}

@@ -1,6 +1,6 @@
 """Tests for the `store_gc` CLI command.
 
-Every test runs under tmp_path and monkeypatches HOME/XDG_CONFIG_HOME/METAQUEST_DATA so
+Every test runs under tmp_path and monkeypatches HOME/XDG_CONFIG_HOME/PREPARE_DATA so
 nothing here reads or writes the real user config, matching the isolation pattern used in
 tests/test_cli_store.py and tests/test_store_resolve.py.
 """
@@ -12,20 +12,20 @@ import threading
 
 import pytest
 
-from metaquest.cli.commands.store import (
+from prepare.cli.commands.store import (
     StoreAdoptCommand,
     StoreGcCommand,
     StoreInitCommand,
     StoreLinkCommand,
     StoreReindexCommand,
 )
-from metaquest.core.constants import STORE_ENV
-from metaquest.core.exceptions import DataAccessError
-from metaquest.data.registry import load_registry
-from metaquest.store.catalog import REBUILT_WITHOUT_PROJECTS, Catalog, catalog_write
-from metaquest.store.layout import init_store, sidecar_path, sra_dir, store_paths
-from metaquest.store.locks import dataset_lock, touch_dataset_use
-from metaquest.store.sidecar import Sidecar, write_sidecar
+from prepare.core.constants import STORE_ENV
+from prepare.core.exceptions import DataAccessError
+from prepare.data.registry import load_registry
+from prepare.store.catalog import REBUILT_WITHOUT_PROJECTS, Catalog, catalog_write
+from prepare.store.layout import init_store, sidecar_path, sra_dir, store_paths
+from prepare.store.locks import dataset_lock, touch_dataset_use
+from prepare.store.sidecar import Sidecar, write_sidecar
 
 
 @pytest.fixture(autouse=True)
@@ -81,7 +81,7 @@ def _init_args(root, project_dir, **overrides):
         data_root=str(root),
         project_name=None,
         set_default=False,
-        registry=str(project_dir / "metaquest_registry.json"),
+        registry=str(project_dir / "prepare_registry.json"),
     )
     base.update(overrides)
     return argparse.Namespace(**base)
@@ -126,7 +126,7 @@ class TestStoreGcCommand:
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
 
-        rc = StoreGcCommand().execute(_gc_args(registry=str(project_dir / "metaquest_registry.json")))
+        rc = StoreGcCommand().execute(_gc_args(registry=str(project_dir / "prepare_registry.json")))
         assert rc == 1
 
     def test_no_store_configured_with_json_prints_json_error(self, tmp_path, monkeypatch, capsys):
@@ -136,7 +136,7 @@ class TestStoreGcCommand:
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
 
-        rc = StoreGcCommand().execute(_gc_args(json=True, registry=str(project_dir / "metaquest_registry.json")))
+        rc = StoreGcCommand().execute(_gc_args(json=True, registry=str(project_dir / "prepare_registry.json")))
         payload = json.loads(capsys.readouterr().out)
 
         assert rc == 1
@@ -200,7 +200,7 @@ class TestStoreGcCommand:
         paths = init_store(root)
         _write_dataset_dir(paths, "SRR1")
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1"))
 
         rc = StoreGcCommand().execute(_gc_args(data_root=str(root), json=True))
@@ -218,7 +218,7 @@ class TestStoreGcCommand:
         stale_dir = tmp_path / "stale_proj"
         stale_dir.mkdir()
         with catalog_write(paths) as cat:
-            cat.upsert_project("stale1", "OldProject", str(stale_dir), str(stale_dir / "metaquest_registry.json"))
+            cat.upsert_project("stale1", "OldProject", str(stale_dir), str(stale_dir / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1"))
             cat.record_usage("SRR1", "stale1", "wMel", "downloaded")
 
@@ -247,7 +247,7 @@ class TestStoreGcCommand:
         _write_dataset_dir(paths, "SRR1")
         live_dir = tmp_path / "live_proj"
         live_dir.mkdir()
-        registry_file = live_dir / "metaquest_registry.json"
+        registry_file = live_dir / "prepare_registry.json"
         registry_file.write_text(json.dumps({"project": {"id": "live1"}}))
         with catalog_write(paths) as cat:
             cat.upsert_project("live1", "LiveProject", str(live_dir), str(registry_file))
@@ -265,7 +265,7 @@ class TestStoreGcCommand:
         paths = init_store(root)
         _write_dataset_dir(paths, "SRR1")
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1", state="partial"))
 
         rc = StoreGcCommand().execute(_gc_args(data_root=str(root), keep_partial=True, json=True))
@@ -286,7 +286,7 @@ class TestStoreGcCommand:
 
         recent = datetime.now(timezone.utc).isoformat()
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1", downloaded=recent))
 
         rc = StoreGcCommand().execute(_gc_args(data_root=str(root), older_than=30, json=True))
@@ -329,7 +329,7 @@ class TestStoreGcCommand:
         (paths.tmp / "SRR9_temp").mkdir(parents=True)
         (paths.tmp / "SRR9_temp" / "f").write_bytes(b"x" * 10)
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1"))
 
         rc = StoreGcCommand().execute(_gc_args(data_root=str(root)))
@@ -347,7 +347,7 @@ class TestStoreGcCommand:
         (paths.tmp / "SRR9_temp").mkdir(parents=True)
         (paths.tmp / "SRR9_temp" / "f").write_bytes(b"x" * 10)
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1"))
 
         rc = StoreGcCommand().execute(_gc_args(data_root=str(root), dry_run=False, yes=True, json=True))
@@ -385,7 +385,7 @@ class TestStoreGcCommand:
         project_dir = tmp_path / "live_proj"
         (project_dir / "fastq").mkdir(parents=True)
         (project_dir / "fastq" / "SRR1").symlink_to(acc_dir, target_is_directory=True)
-        registry_file = project_dir / "metaquest_registry.json"
+        registry_file = project_dir / "prepare_registry.json"
         registry_file.write_text(json.dumps({"project": {"id": "live1"}}))
 
         with catalog_write(paths) as cat:
@@ -415,7 +415,7 @@ class TestStoreGcCommand:
         paths = init_store(root)
         stale_dir = tmp_path / "stale_proj"
         stale_dir.mkdir()
-        missing_registry = stale_dir / "metaquest_registry.json"
+        missing_registry = stale_dir / "prepare_registry.json"
         with catalog_write(paths) as cat:
             cat.upsert_project("stale1", "OldProject", str(stale_dir), str(missing_registry))
 
@@ -460,7 +460,7 @@ class TestStoreGcCommand:
         entry = project1_dir / "fastq" / "SRR1"
         entry.mkdir(parents=True)
         (entry / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
-        registry1_path = project1_dir / "metaquest_registry.json"
+        registry1_path = project1_dir / "prepare_registry.json"
         monkeypatch.chdir(project1_dir)
         assert StoreInitCommand().execute(_init_args(root, project1_dir, registry=str(registry1_path))) == 0
         assert (
@@ -469,7 +469,7 @@ class TestStoreGcCommand:
 
         project2_dir = tmp_path / "project2"
         project2_dir.mkdir()
-        registry2_path = project2_dir / "metaquest_registry.json"
+        registry2_path = project2_dir / "prepare_registry.json"
         monkeypatch.chdir(project2_dir)
         assert StoreInitCommand().execute(_init_args(root, project2_dir, registry=str(registry2_path))) == 0
         assert StoreLinkCommand().execute(_link_args(["SRR1"], data_root=str(root), registry=str(registry2_path))) == 0
@@ -504,7 +504,7 @@ class TestStoreGcRespectsLocksAndPlaceholders:
     def _hold(paths, accession):
         import json as json_module
 
-        from metaquest.store.layout import lock_path
+        from prepare.store.layout import lock_path
 
         lock = lock_path(paths, accession)
         lock.parent.mkdir(parents=True, exist_ok=True)
@@ -516,7 +516,7 @@ class TestStoreGcRespectsLocksAndPlaceholders:
         paths = init_store(root)
         _write_dataset_dir(paths, "SRR1")
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1"))
         self._hold(paths, "SRR1")
 
@@ -653,7 +653,7 @@ class TestStoreGcRespectsLocksAndPlaceholders:
         proj = tmp_path / "proj"
         proj.mkdir()
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(proj), str(proj / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(proj), str(proj / "prepare_registry.json"))
             cat.record_usage("SRR-PLACEHOLDER", "p1", "wMel", "linked")
 
         rc = StoreGcCommand().execute(_gc_args(data_root=str(root), json=True))
@@ -668,7 +668,7 @@ class TestStoreGcRespectsLocksAndPlaceholders:
         gone = tmp_path / "gone"
         gone.mkdir()
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Gone", str(gone), str(gone / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Gone", str(gone), str(gone / "prepare_registry.json"))
 
         rc = StoreGcCommand().execute(_gc_args(data_root=str(root), json=True))
         report = json.loads(capsys.readouterr().out)
@@ -700,7 +700,7 @@ class TestStoreGcAfterARebuildWithoutProjects:
         proj = tmp_path / project_id
         proj.mkdir(exist_ok=True)
         with catalog_write(paths) as cat:
-            cat.upsert_project(project_id, project_id, str(proj), str(proj / "metaquest_registry.json"))
+            cat.upsert_project(project_id, project_id, str(proj), str(proj / "prepare_registry.json"))
 
     def test_reindex_without_a_journal_sets_the_flag(self, tmp_path, caplog):
         import logging
@@ -830,7 +830,7 @@ class TestStoreGcRemovalUnderTheLock:
         paths = init_store(root)
         _write_dataset_dir(paths, "SRR1")
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1"))
 
         classified = threading.Event()
@@ -876,7 +876,7 @@ class TestStoreGcRemovalUnderTheLock:
         paths = init_store(root)
         _write_dataset_dir(paths, "SRR1")
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1"))
         touch_dataset_use(paths, "SRR1")
 
@@ -907,7 +907,7 @@ class TestStoreGcRemovalUnderTheLock:
         paths = init_store(root)
         _write_dataset_dir(paths, "SRR1")
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1"))
         touch_dataset_use(paths, "SRR1")
         marker = paths.locks / "SRR1.used"
@@ -929,13 +929,13 @@ class TestStoreGcRemovalUnderTheLock:
         paths = init_store(root)
         acc_dir = _write_dataset_dir(paths, "SRR1")
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1"))
 
         def _boom(paths):
             raise DataAccessError("catalogue exploded")
 
-        monkeypatch.setattr("metaquest.cli.commands.store.gc.catalog_write", _boom)
+        monkeypatch.setattr("prepare.cli.commands.store.gc.catalog_write", _boom)
 
         with caplog.at_level(logging.ERROR):
             rc = StoreGcCommand().execute(_gc_args(data_root=str(root), yes=True))
@@ -956,7 +956,7 @@ class TestStoreGcRemovalUnderTheLock:
         _write_dataset_dir(paths, "SRR1")
         _write_dataset_dir(paths, "SRR2")
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1"))
             cat.upsert_dataset(_sidecar("SRR2"))
         original = StoreGcCommand._remove_one_dataset

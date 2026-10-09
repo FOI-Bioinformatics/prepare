@@ -5,9 +5,9 @@ import re
 
 import pytest
 
-from metaquest.data import registry as reg
-from metaquest.data import registry_blocks as rb
-from metaquest.data.registry_timing import (
+from prepare.data import registry as reg
+from prepare.data import registry_blocks as rb
+from prepare.data.registry_timing import (
     Stopwatch,
     set_assembly_timing,
     set_download_timing,
@@ -19,7 +19,7 @@ ISO_SECONDS = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$")
 
 
 def _registry(tmp_path):
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     (tmp_path / "fastq" / "SRR1").mkdir(parents=True)
     (tmp_path / "fastq" / "SRR1" / "SRR1_1.fastq").write_text("@r\nA\n+\nI\n")
     reg.record_download(r, "SRR1", "downloaded", tmp_path / "fastq", "ok")
@@ -83,7 +83,7 @@ def test_set_extraction_and_assembly_timing(tmp_path):
 
 
 def test_timing_setters_leave_unrecorded_blocks_alone(tmp_path):
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     set_download_timing(r, "SRR9", "2026-10-01T10:00:00+00:00", 1.0)
     set_extraction_timing(r, "SRR9", "GCF_A", "2026-10-01T10:00:00+00:00", 1.0)
     set_assembly_timing(r, "SRR9", "GCF_A", "2026-10-01T10:00:00+00:00", 1.0)
@@ -95,7 +95,7 @@ def test_timing_setters_leave_unrecorded_blocks_alone(tmp_path):
 
 def test_stopwatch_laps(monkeypatch):
     ticks = iter([100.0, 102.5, 102.5, 110.0, 110.0])
-    monkeypatch.setattr("metaquest.data.registry_timing.monotonic", lambda: next(ticks))
+    monkeypatch.setattr("prepare.data.registry_timing.monotonic", lambda: next(ticks))
     watch = Stopwatch()
     started, seconds = watch.lap()
     assert ISO_SECONDS.match(started) and seconds == 2.5
@@ -120,7 +120,7 @@ def test_empty_totals_are_floats(tmp_path):
 
 
 def test_record_skip_clears_an_earlier_attempt_time(tmp_path):
-    from metaquest.cli.commands.sra import DownloadSraCommand
+    from prepare.cli.commands.sra import DownloadSraCommand
 
     r = _registry(tmp_path)
     reg.record_download(r, "SRR2", "failed", tmp_path / "fastq", "x")

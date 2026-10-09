@@ -1,5 +1,5 @@
 """
-SIMPLIFIED INTEGRATION TESTS for MetaQuest
+SIMPLIFIED INTEGRATION TESTS for PREPARE
 
 Tests complete end-to-end workflows using components we've validated:
 - SRA metadata workflow
@@ -19,15 +19,15 @@ import matplotlib
 
 matplotlib.use("Agg")  # Use non-GUI backend for testing
 
-from metaquest.data.sra_metadata import (  # noqa: E402
+from prepare.data.sra_metadata import (  # noqa: E402
     SRAMetadataClient,
     SRADatasetInfo,
     detect_sequencing_technology,
     save_metadata_report,
     create_download_preview,
 )
-from metaquest.cli.commands.sra_profile import SRAProfileCommand  # noqa: E402
-from metaquest.plugins.visualizers.bar import BarChartPlugin  # noqa: E402
+from prepare.cli.commands.sra_profile import SRAProfileCommand  # noqa: E402
+from prepare.plugins.visualizers.bar import BarChartPlugin  # noqa: E402
 
 
 def run_sra_profile(fastq_dir, output_report):
@@ -46,7 +46,7 @@ def run_sra_profile(fastq_dir, output_report):
             "--output-dir",
             str(work / "profiles"),
             "--registry",
-            str(work / "metaquest_registry.json"),
+            str(work / "prepare_registry.json"),
         ]
     )
     return SRAProfileCommand().execute(args)

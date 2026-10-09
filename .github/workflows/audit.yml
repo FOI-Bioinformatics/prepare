@@ -27,5 +27,5 @@ jobs:
         run: |
           # Audit the project path (not the installed environment) so pip-audit resolves
           # dependencies from pyproject.toml instead of trying to look up the local,
-          # unpublished "metaquest" package itself on PyPI.
+          # unpublished "prepare" package itself on PyPI.
           pip-audit --strict .

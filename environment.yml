@@ -1,4 +1,4 @@
-name: metaquest
+name: prepare
 channels:
   - conda-forge
   - bioconda

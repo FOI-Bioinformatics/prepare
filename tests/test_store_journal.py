@@ -3,10 +3,10 @@ import sqlite3
 
 import pytest
 
-from metaquest.core.exceptions import DataAccessError
-from metaquest.store.catalog import Catalog, catalog_write
-from metaquest.store.layout import init_store
-from metaquest.store import journal
+from prepare.core.exceptions import DataAccessError
+from prepare.store.catalog import Catalog, catalog_write
+from prepare.store.layout import init_store
+from prepare.store import journal
 
 
 def test_upsert_project_and_usage_are_journaled(tmp_path):

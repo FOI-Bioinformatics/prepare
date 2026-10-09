@@ -16,26 +16,26 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from metaquest.cli.commands.branchwater import (
+from prepare.cli.commands.branchwater import (
     UseBranchwaterCommand,
     ExtractBranchwaterMetadataCommand,
 )
-from metaquest.cli.commands.containment import ParseContainmentCommand, PlotContainmentCommand
-from metaquest.cli.commands.metadata import (
+from prepare.cli.commands.containment import ParseContainmentCommand, PlotContainmentCommand
+from prepare.cli.commands.metadata import (
     DownloadMetadataCommand,
     ParseMetadataCommand,
     CountMetadataCommand,
     PlotMetadataCountsCommand,
     _metadata_fields,
 )
-from metaquest.cli.commands.sra import DownloadSraCommand
-from metaquest.cli.commands.samples import SingleSampleCommand
-from metaquest.cli.commands.test_data import DownloadTestGenomeCommand
-from metaquest.core.constants import DEFAULT_REGISTRY_MAX_SCREENED, FAILED_ACCESSIONS_FILE
-from metaquest.core.exceptions import MetaQuestError
-from metaquest.core.models import ContainmentSummary
-from metaquest.data import registry_blocks as rb
-from metaquest.data.registry import load_registry, record_download, record_exclusion, record_metadata, save_registry
+from prepare.cli.commands.sra import DownloadSraCommand
+from prepare.cli.commands.samples import SingleSampleCommand
+from prepare.cli.commands.test_data import DownloadTestGenomeCommand
+from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED, FAILED_ACCESSIONS_FILE
+from prepare.core.exceptions import PrepareError
+from prepare.core.models import ContainmentSummary
+from prepare.data import registry_blocks as rb
+from prepare.data.registry import load_registry, record_download, record_exclusion, record_metadata, save_registry
 
 
 class TestUseBranchwaterCommand:
@@ -72,7 +72,7 @@ class TestUseBranchwaterCommand:
         with pytest.raises(SystemExit):
             parser.parse_args([])  # Missing required --branchwater-folder
 
-    @patch("metaquest.cli.commands.branchwater.process_branchwater_files")
+    @patch("prepare.cli.commands.branchwater.process_branchwater_files")
     def test_execute_success(self, mock_command):
         """Test successful command execution."""
         mock_command.return_value = {"file1": Path("test")}
@@ -84,10 +84,10 @@ class TestUseBranchwaterCommand:
         assert result == 0
         mock_command.assert_called_once_with("test_folder", "matches", errors=[])
 
-    @patch("metaquest.cli.commands.branchwater.process_branchwater_files")
+    @patch("prepare.cli.commands.branchwater.process_branchwater_files")
     def test_execute_failure(self, mock_command):
         """Test command execution failure."""
-        mock_command.side_effect = MetaQuestError("Test error")
+        mock_command.side_effect = PrepareError("Test error")
         command = UseBranchwaterCommand()
 
         args = argparse.Namespace(branchwater_folder="test_folder", matches_folder="matches")
@@ -103,7 +103,7 @@ class TestUseBranchwaterCommand:
         args = argparse.Namespace(branchwater_folder=str(source), matches_folder=str(tmp_path / "m"))
         assert UseBranchwaterCommand().execute(args) == 1
 
-    @patch("metaquest.cli.commands.branchwater.process_branchwater_files")
+    @patch("prepare.cli.commands.branchwater.process_branchwater_files")
     def test_execute_logs_a_next_hint(self, mock_command, caplog):
         """On success, point at the next pipeline step (parse_containment)."""
         mock_command.return_value = {"file1": Path("test")}
@@ -139,7 +139,7 @@ class TestExtractBranchwaterMetadataCommand:
         assert args.branchwater_folder == "test_folder"
         assert args.metadata_folder == "metadata"
 
-    @patch("metaquest.cli.commands.branchwater.extract_metadata_from_branchwater")
+    @patch("prepare.cli.commands.branchwater.extract_metadata_from_branchwater")
     @patch("pathlib.Path.mkdir")
     def test_execute(self, mock_mkdir, mock_command):
         """Test command execution."""
@@ -207,7 +207,7 @@ class TestParseContainmentCommand:
         assert args.step_size == 0.1
         assert args.details_file == "custom_details.tsv"
 
-    @patch("metaquest.cli.commands.containment.parse_containment_data")
+    @patch("prepare.cli.commands.containment.parse_containment_data")
     def test_execute(self, mock_command, tmp_path):
         """Test command execution."""
         mock_command.return_value = None
@@ -219,7 +219,7 @@ class TestParseContainmentCommand:
             summary_containment_file="summary.txt",
             step_size=0.05,
             details_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
         )
 
@@ -242,26 +242,26 @@ class TestParseContainmentCommand:
             summary_containment_file=str(tmp_path / "summary.txt"),
             step_size=0.1,
             details_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
         )
 
         result = command.execute(args)
         assert result == 0
 
-        data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        data = json.loads((tmp_path / "prepare_registry.json").read_text())
         for acc in ("SRR1", "SRR2"):
             screening = data["datasets"][acc]["screening"]
             assert "GCF_A" in screening["genomes"]
             assert screening["genomes"]["GCF_A"]["source"] == "matches"
 
-    @patch("metaquest.cli.commands.containment.parse_containment_data", return_value=None)
+    @patch("prepare.cli.commands.containment.parse_containment_data", return_value=None)
     def test_a_table_read_from_disk_is_read_outside_the_registry_lock(self, _parse, tmp_path):
         """With no table in the summary, the written file is read before the registry lock is taken."""
         parsed = tmp_path / "parsed.txt"
         parsed.write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\n")
-        lock = tmp_path / "metaquest_registry.json.lock"
-        import metaquest.data.screening_table as table_module
+        lock = tmp_path / "prepare_registry.json.lock"
+        import prepare.data.screening_table as table_module
 
         real_read = table_module.pd.read_csv
         lock_held_while_reading = []
@@ -276,13 +276,13 @@ class TestParseContainmentCommand:
             summary_containment_file=str(tmp_path / "summary.txt"),
             step_size=0.1,
             details_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
         )
         with patch.object(table_module.pd, "read_csv", side_effect=spy_read):
             assert ParseContainmentCommand().execute(args) == 0
         assert lock_held_while_reading == [False]
-        data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        data = json.loads((tmp_path / "prepare_registry.json").read_text())
         assert "GCF_A" in data["datasets"]["SRR1"]["screening"]["genomes"]
 
     def test_execute_writes_details_file_default_path(self, tmp_path):
@@ -299,7 +299,7 @@ class TestParseContainmentCommand:
             summary_containment_file=str(tmp_path / "summary.txt"),
             step_size=0.1,
             details_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
         )
 
@@ -324,7 +324,7 @@ class TestParseContainmentCommand:
             summary_containment_file=str(tmp_path / "summary.txt"),
             step_size=0.1,
             details_file=str(custom_details),
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
         )
 
@@ -347,7 +347,7 @@ class TestParseContainmentCommand:
             summary_containment_file=str(tmp_path / "summary.txt"),
             step_size=0.1,
             details_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
         )
 
@@ -360,7 +360,7 @@ class TestParseContainmentCommand:
         assert "select_datasets" in caplog.text
         assert "GCF_A" in caplog.text
 
-    @patch("metaquest.cli.commands.containment.parse_containment_data")
+    @patch("prepare.cli.commands.containment.parse_containment_data")
     def test_execute_next_hint_names_the_first_genome_column_sorted(self, mock_command, tmp_path, caplog):
         """With several genome columns, the hint's --genome-id must name the alphabetically
         first one, not whichever happened to be inserted first into genome_to_samples."""
@@ -375,7 +375,7 @@ class TestParseContainmentCommand:
             summary_containment_file="summary.txt",
             step_size=0.1,
             details_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
         )
 
@@ -414,7 +414,7 @@ class TestDownloadMetadataCommand:
         assert args.api_key is None
         assert args.batch_size == 200
 
-    @patch("metaquest.cli.commands.metadata.download_metadata", return_value={})
+    @patch("prepare.cli.commands.metadata.download_metadata", return_value={})
     def test_api_key_defaults_from_environment(self, mock_download, monkeypatch):
         """Without --api-key, the NCBI_API_KEY environment variable reaches download_metadata."""
         monkeypatch.setenv("NCBI_API_KEY", "env-key")
@@ -456,7 +456,7 @@ class TestDownloadMetadataCommand:
         assert args.api_key == "cli-key"
         assert args.batch_size == 50
 
-    @patch("metaquest.cli.commands.metadata.download_metadata")
+    @patch("prepare.cli.commands.metadata.download_metadata")
     def test_execute(self, mock_command, tmp_path):
         """Test command execution."""
         mock_command.return_value = {}
@@ -471,7 +471,7 @@ class TestDownloadMetadataCommand:
             accessions_file=None,
             api_key=None,
             batch_size=200,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         result = command.execute(args)
@@ -503,7 +503,7 @@ class TestDownloadMetadataCommand:
             accessions_file=str(accessions_file),
             api_key=None,
             batch_size=200,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         def fake_batch(batch, metadata_path, email, api_key):
@@ -514,11 +514,11 @@ class TestDownloadMetadataCommand:
                 successes[accession] = xml_path
             return successes, {}
 
-        with patch("metaquest.data.metadata._download_batch_metadata", side_effect=fake_batch):
+        with patch("prepare.data.metadata._download_batch_metadata", side_effect=fake_batch):
             result = command.execute(args)
 
         assert result == 0
-        registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        registry = json.loads((tmp_path / "prepare_registry.json").read_text())
         for acc in ("SRR1", "SRR2"):
             assert registry["datasets"][acc]["metadata"]["xml"].endswith(f"{acc}_metadata.xml")
 
@@ -537,12 +537,12 @@ class TestDownloadMetadataCommand:
             accessions_file=str(accessions_file),
             api_key=None,
             batch_size=200,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         result = command.execute(args)
         assert result == 0
-        assert not (tmp_path / "metaquest_registry.json").exists()
+        assert not (tmp_path / "prepare_registry.json").exists()
 
     def test_execute_records_parsed_metadata_fields(self, tmp_path):
         """Downloaded metadata records include parsed fields (run_total_spots, run_md5, etc)."""
@@ -595,16 +595,16 @@ class TestDownloadMetadataCommand:
             accessions_file=None,
             api_key=None,
             batch_size=200,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
         mock_downloaded = {"SRR123": xml_path}
-        with patch("metaquest.cli.commands.metadata.download_metadata", return_value=mock_downloaded):
+        with patch("prepare.cli.commands.metadata.download_metadata", return_value=mock_downloaded):
             result = command.execute(args)
 
         assert result == 0
-        registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        registry = json.loads((tmp_path / "prepare_registry.json").read_text())
         assert "SRR123" in registry["datasets"]
         metadata_record = registry["datasets"]["SRR123"]["metadata"]
 
@@ -669,16 +669,16 @@ class TestDownloadMetadataCommand:
             accessions_file=None,
             api_key=None,
             batch_size=200,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
         mock_downloaded = {"SRR123": xml_path_bad, "SRR456": xml_path_good}
-        with patch("metaquest.cli.commands.metadata.download_metadata", return_value=mock_downloaded):
+        with patch("prepare.cli.commands.metadata.download_metadata", return_value=mock_downloaded):
             result = command.execute(args)
 
         assert result == 0
-        registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        registry = json.loads((tmp_path / "prepare_registry.json").read_text())
 
         # Malformed XML: only xml path should be recorded
         assert "SRR123" in registry["datasets"]
@@ -750,29 +750,29 @@ class TestDownloadMetadataCommand:
             accessions_file=None,
             api_key=None,
             batch_size=200,
-            registry=str(tmp_path / "metaquest_registry_download.json"),
+            registry=str(tmp_path / "prepare_registry_download.json"),
             data_root=None,
         )
 
         mock_downloaded = {"SRR999": xml_path}
         download_command = DownloadMetadataCommand()
-        with patch("metaquest.cli.commands.metadata.download_metadata", return_value=mock_downloaded):
+        with patch("prepare.cli.commands.metadata.download_metadata", return_value=mock_downloaded):
             assert download_command.execute(download_args) == 0
 
-        download_registry = json.loads((tmp_path / "metaquest_registry_download.json").read_text())
+        download_registry = json.loads((tmp_path / "prepare_registry_download.json").read_text())
         download_metadata_rec = download_registry["datasets"]["SRR999"]["metadata"]
 
         # Test ParseMetadataCommand on the same XML file
         parse_args = argparse.Namespace(
             metadata_folder=str(metadata_folder),
             metadata_table_file=str(tmp_path / "metadata_table.txt"),
-            registry=str(tmp_path / "metaquest_registry_parse.json"),
+            registry=str(tmp_path / "prepare_registry_parse.json"),
         )
 
         parse_command = ParseMetadataCommand()
         assert parse_command.execute(parse_args) == 0
 
-        parse_registry = json.loads((tmp_path / "metaquest_registry_parse.json").read_text())
+        parse_registry = json.loads((tmp_path / "prepare_registry_parse.json").read_text())
         parse_metadata_rec = parse_registry["datasets"]["SRR999"]["metadata"]
 
         # Verify both commands record identical fields except date and xml. field_keys is
@@ -824,7 +824,7 @@ class TestDownloadTestGenomeCommand:
         args = parser.parse_args(["--output-folder", "custom_genomes"])
         assert args.output_folder == "custom_genomes"
 
-    @patch("metaquest.cli.commands.test_data.download_test_genome")
+    @patch("prepare.cli.commands.test_data.download_test_genome")
     def test_execute(self, mock_command):
         """Test command execution."""
         mock_command.return_value = None
@@ -946,8 +946,8 @@ class TestDownloadSraCommand:
         assert args.dry_run is True
         assert args.force is True
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_execute(self, mock_command, _which, tmp_path):
         """Test command execution."""
         mock_command.return_value = {
@@ -972,7 +972,7 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
@@ -1006,11 +1006,11 @@ class TestDownloadSraCommand:
             "compress": True,
             "lock_wait": 0.0,
             "run_sizes": {},
-            "min_free_gb": 0.0,  # METAQUEST_MIN_FREE_GB=0 from conftest
+            "min_free_gb": 0.0,  # PREPARE_MIN_FREE_GB=0 from conftest
         }
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_execute_forwards_prefetch_and_compress_flags(self, mock_command, _which, tmp_path):
         """--sra-cache, --keep-sra, --no-prefetch and --no-compress reach download_sra unchanged."""
         mock_command.return_value = {
@@ -1035,7 +1035,7 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
             sra_cache="/tmp/custom-cache",
             use_prefetch=False,
@@ -1051,8 +1051,8 @@ class TestDownloadSraCommand:
         assert call_kwargs["keep_sra"] is True
         assert call_kwargs["compress"] is False
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_execute_computes_default_max_workers_from_cpu_count(self, mock_command, _which, tmp_path):
         """When --max-workers is not given, it is computed from the CPU count and thread count."""
         mock_command.return_value = {
@@ -1077,18 +1077,18 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
-        with patch("metaquest.utils.resources.available_cpus", return_value=8):
+        with patch("prepare.utils.resources.available_cpus", return_value=8):
             result = command.execute(args)
 
         assert result == 0
         assert mock_command.call_args.kwargs["max_workers"] == 2
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_execute_warns_when_workers_oversubscribe_cpu(self, mock_command, _which, tmp_path, caplog):
         """An explicit --max-workers x --num-threads exceeding the CPU count logs a warning."""
         mock_command.return_value = {
@@ -1113,19 +1113,19 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
-        with patch("metaquest.utils.resources.available_cpus", return_value=4):
+        with patch("prepare.utils.resources.available_cpus", return_value=4):
             with caplog.at_level("WARNING"):
                 result = command.execute(args)
 
         assert result == 0
         assert "exceeds" in caplog.text
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_execute_does_not_warn_about_the_derived_default(self, mock_command, _which, tmp_path, caplog):
         """The CPU-derived default is this tool's own choice; only an explicit --max-workers is warned about."""
         mock_command.return_value = {
@@ -1150,13 +1150,13 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
         # One worker is already the floor of the derived default, so on a 2-CPU machine a
         # single 4-thread download oversubscribes and there is nothing the user could change.
-        with patch("metaquest.utils.resources.available_cpus", return_value=2):
+        with patch("prepare.utils.resources.available_cpus", return_value=2):
             with caplog.at_level("WARNING"):
                 result = command.execute(args)
 
@@ -1164,7 +1164,7 @@ class TestDownloadSraCommand:
         assert mock_command.call_args.kwargs["max_workers"] == 1
         assert "exceeds" not in caplog.text
 
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_execute_dry_run(self, mock_command, tmp_path):
         """Dry-run logs the plan (incl. blacklisted and max-downloads branches) and returns 0."""
         mock_command.return_value = {
@@ -1188,20 +1188,20 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=["bl.txt"],
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
         result = command.execute(args)
         assert result == 0
-        assert not (tmp_path / "metaquest_registry.json").exists()
+        assert not (tmp_path / "prepare_registry.json").exists()
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_execute_with_failures_writes_failed_file(self, mock_command, _which, tmp_path, caplog):
         """Failed downloads return 1; the retry hint is logged and the CLI itself writes no file.
 
-        The "Some downloads failed..." warning is the data layer's own (metaquest.data.sra's
+        The "Some downloads failed..." warning is the data layer's own (prepare.data.sra's
         download_sra logs it once already); with download_sra mocked out here, as it is in
         this test, the CLI must not log a second copy of that line itself."""
         failed_file = tmp_path / "fastq" / FAILED_ACCESSIONS_FILE
@@ -1231,7 +1231,7 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
@@ -1247,8 +1247,8 @@ class TestDownloadSraCommand:
         # ran; the CLI must not print a second copy of that line itself.
         assert caplog.text.count("Some downloads failed") == 0
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_execute_reports_disk_full_abort(self, mock_command, _which, tmp_path, caplog):
         """A disk-full abort logs the reason distinctly and returns 1, even though outcomes are recorded."""
 
@@ -1279,7 +1279,7 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
@@ -1289,11 +1289,11 @@ class TestDownloadSraCommand:
         assert result == 1
         assert "disk-full" in caplog.text
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
-    def test_execute_metaquest_error(self, mock_command, _which, tmp_path):
-        """A MetaQuestError from the backend is caught and returns 1."""
-        mock_command.side_effect = MetaQuestError("backend boom")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
+    def test_execute_prepare_error(self, mock_command, _which, tmp_path):
+        """A PrepareError from the backend is caught and returns 1."""
+        mock_command.side_effect = PrepareError("backend boom")
         command = DownloadSraCommand()
         args = argparse.Namespace(
             accessions_file="accessions.txt",
@@ -1307,15 +1307,15 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
         result = command.execute(args)
         assert result == 1
 
-    @patch("metaquest.utils.tools.shutil.which", return_value=None)
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.utils.tools.shutil.which", return_value=None)
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_missing_fasterq_dump_exits_3(self, mock_download, _which, tmp_path, caplog):
         acc = tmp_path / "acc.txt"
         acc.write_text("SRR1\n")
@@ -1331,15 +1331,15 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
         assert DownloadSraCommand().execute(args) == 3
         mock_download.assert_not_called()
         assert "fasterq-dump not found on PATH" in caplog.text and "sra-tools" in caplog.text
 
-    @patch("metaquest.utils.tools.shutil.which", return_value=None)
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.utils.tools.shutil.which", return_value=None)
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_dry_run_skips_tool_check(self, mock_download, _which, tmp_path):
         mock_download.return_value = {
             "total": 1,
@@ -1363,13 +1363,13 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
         assert DownloadSraCommand().execute(args) == 0
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra", side_effect=KeyboardInterrupt)
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra", side_effect=KeyboardInterrupt)
     def test_keyboard_interrupt_returns_130(self, _download, _which, tmp_path, caplog):
         args = argparse.Namespace(
             fastq_folder=str(tmp_path / "fastq"),
@@ -1383,15 +1383,15 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
         with caplog.at_level(logging.ERROR):
             assert DownloadSraCommand().execute(args) == 130
         assert "Download interrupted by the user" in caplog.text
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_report_file_lists_every_status(self, mock_download, _which, tmp_path):
         def fake_download_sra(**kwargs):
             kwargs["timings"]["SRR1"] = ("2026-10-01T10:00:00+00:00", 12.5)
@@ -1423,7 +1423,7 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=str(report),
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
         DownloadSraCommand().execute(args)
@@ -1437,8 +1437,8 @@ class TestDownloadSraCommand:
             "SRR4,blacklisted,,,,0",
         ]
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_recorder_writes_download_timing(self, mock_download, _which, tmp_path):
         """A download's start and seconds reach the registry; a failed attempt is timed too."""
         fastq_folder = tmp_path / "fastq"
@@ -1459,7 +1459,7 @@ class TestDownloadSraCommand:
             }
 
         mock_download.side_effect = fake_download_sra
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         args = argparse.Namespace(
             accessions_file=str(tmp_path / "acc.txt"),
             fastq_folder=str(fastq_folder),
@@ -1481,11 +1481,11 @@ class TestDownloadSraCommand:
         assert datasets["SRR1"]["download"]["seconds"] == 12.5
         assert datasets["SRR2"]["download"]["seconds"] == 3.0
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_recorder_clears_download_timing_for_a_store_link(self, mock_download, _which, tmp_path):
         """A dataset linked from the store was not downloaded by this run, so an earlier time is removed."""
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         paths = init_store(store_root)
@@ -1495,7 +1495,7 @@ class TestDownloadSraCommand:
         fastq_folder = tmp_path / "fastq"
         fastq_folder.mkdir()
         os.symlink(acc_dir, fastq_folder / "SRR1")
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         seeded = load_registry(registry_file)
         record_download(seeded, "SRR1", "downloaded", fastq_folder)
         seeded.datasets["SRR1"]["download"].update(started="2026-09-01T10:00:00+00:00", seconds=99.0)
@@ -1530,14 +1530,14 @@ class TestDownloadSraCommand:
         assert "started" not in download and "seconds" not in download
         assert report.read_text().splitlines()[1] == f'SRR1,downloaded,"{message}",,,0'
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_execute_records_outcomes_in_registry(self, mock_download, _which, tmp_path):
         """Every accession's outcome ends up in the registry; the CLI never touches failed_accessions.txt."""
         fastq_folder = tmp_path / "fastq"
         (fastq_folder / "SRR1").mkdir(parents=True)
         (fastq_folder / "SRR1" / "SRR1_1.fastq").write_text("@r\nA\n+\nI\n")
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
         failed_file = fastq_folder / FAILED_ACCESSIONS_FILE
 
         def fake_download_sra(**kwargs):
@@ -1606,12 +1606,12 @@ class TestDownloadSraCommand:
         # data layer) is untouched by the CLI.
         assert failed_file.read_text() == "SRR2\n"
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_verdict_from_message_is_recorded_in_registry(self, mock_download, _which, tmp_path):
         """The verdict encoded in on_result's message ends up as download.complete in the registry."""
         fastq_folder = tmp_path / "fastq"
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
 
         def fake_download_sra(**kwargs):
             kwargs["on_result"]("SRR1", True, "Downloaded 1 files, truncated (300000 of 48000000 spots)")
@@ -1649,11 +1649,11 @@ class TestDownloadSraCommand:
         assert datasets["SRR1"]["download"]["complete"]["reads_r1"] == 300000
         assert datasets["SRR1"]["download"]["complete"]["expected_spots"] == 48000000
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_expected_spots_read_from_registry_metadata(self, mock_download, _which, tmp_path):
         """--verify-downloads (the default) reads run_total_spots from the registry into expected_spots."""
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
         seeded = load_registry(registry_path)
         record_metadata(seeded, "SRR1", tmp_path / "SRR1.xml", {"run_total_spots": 12345})
         save_registry(seeded)
@@ -1688,10 +1688,10 @@ class TestDownloadSraCommand:
         DownloadSraCommand().execute(args)
         assert mock_download.call_args.kwargs["expected_spots"] == {"SRR1": 12345}
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_no_verify_downloads_passes_no_expected_spots(self, mock_download, _which, tmp_path):
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
         seeded = load_registry(registry_path)
         record_metadata(seeded, "SRR1", tmp_path / "SRR1.xml", {"run_total_spots": 12345})
         save_registry(seeded)
@@ -1726,10 +1726,10 @@ class TestDownloadSraCommand:
         DownloadSraCommand().execute(args)
         assert mock_download.call_args.kwargs["expected_spots"] is None
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_redownload_truncated_computes_set_from_registry_verdicts(self, mock_download, _which, tmp_path):
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
         seeded = load_registry(registry_path)
         record_download(seeded, "SRR1", "downloaded", tmp_path / "fastq")
         seeded.datasets["SRR1"]["download"]["complete"] = {"verdict": "truncated"}
@@ -1768,14 +1768,14 @@ class TestDownloadSraCommand:
         assert mock_download.call_args.kwargs["truncated_accessions"] == {"SRR1"}
         assert mock_download.call_args.kwargs["redownload_truncated"] is True
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_blacklisted_accession_keeps_its_downloaded_record(self, mock_download, _which, tmp_path):
         """An accession downloaded earlier and blacklisted later keeps its files and sizes."""
         fastq_folder = tmp_path / "fastq"
         (fastq_folder / "SRR1").mkdir(parents=True)
         (fastq_folder / "SRR1" / "SRR1_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
 
         seeded = load_registry(registry_path)
         record_download(seeded, "SRR1", "downloaded", fastq_folder)
@@ -1816,16 +1816,16 @@ class TestDownloadSraCommand:
         assert after["files"] == before["files"]
         assert after["bytes_total"] == before["bytes_total"] > 0
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_concurrent_registry_edit_survives_the_run(self, mock_download, _which, tmp_path):
         """An exclusion written by another process mid-run is not reverted by the download's writes."""
         fastq_folder = tmp_path / "fastq"
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
 
         def fake_download_sra(**kwargs):
             kwargs["on_result"]("SRR1", True, "Downloaded 1 file")
-            # Stand in for a second terminal running `metaquest blacklist --add SRR9`.
+            # Stand in for a second terminal running `prepare blacklist --add SRR9`.
             other = load_registry(registry_path)
             record_exclusion(other, "SRR9", "16S amplicon")
             save_registry(other)
@@ -1864,10 +1864,10 @@ class TestDownloadSraCommand:
         assert datasets["SRR1"]["download"]["state"] == "downloaded"
         assert datasets["SRR2"]["download"]["state"] == "downloaded"
 
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_dry_run_resolves_and_logs_data_root(self, mock_download, tmp_path, caplog):
         """--dry-run --data-root resolves the store root (no fasterq-dump check needed) and logs it."""
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         init_store(store_root)
@@ -1892,7 +1892,7 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=str(store_root),
         )
 
@@ -1921,10 +1921,10 @@ class TestDownloadSraCommand:
         assert args.accept_partial is True
         assert args.resume_partial is False
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_store_paths_and_link_options_reach_download_sra(self, mock_download, _which, tmp_path):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         init_store(store_root)
@@ -1950,7 +1950,7 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=str(store_root),
             link_mode="relative",
             accept_partial=True,
@@ -1967,11 +1967,11 @@ class TestDownloadSraCommand:
         assert Path(kwargs["store_metadata"][0]) == tmp_path / "metadata"
         assert Path(kwargs["store_metadata"][1]) == store_root.resolve() / "metadata"
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_no_store_leaves_the_download_call_unchanged(self, mock_download, _which, tmp_path, monkeypatch):
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        monkeypatch.delenv("METAQUEST_DATA", raising=False)
+        monkeypatch.delenv("PREPARE_DATA", raising=False)
         mock_download.return_value = {
             "total": 1,
             "to_download": 1,
@@ -1994,7 +1994,7 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
@@ -2005,12 +2005,12 @@ class TestDownloadSraCommand:
         "message,attempts",
         [("linked from store, 1 files", 0), ("Downloaded 1 files, complete (1 of 1 spots); stored", 1)],
     )
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_store_backed_results_record_source_and_linked_list(
         self, mock_download, _which, tmp_path, message, attempts
     ):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         paths = init_store(store_root)
@@ -2035,7 +2035,7 @@ class TestDownloadSraCommand:
             }
 
         mock_download.side_effect = fake_download_sra
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         args = argparse.Namespace(
             accessions_file=str(tmp_path / "acc.txt"),
             fastq_folder=str(fastq_folder),
@@ -2090,8 +2090,8 @@ class TestDownloadSraCommand:
         ],
         ids=["complete-to-complete", "truncated-to-complete", "complete-to-truncated"],
     )
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_relink_carries_read_count_only_between_equal_verdicts(
         self, mock_download, _which, tmp_path, previous, sidecar_verdict, sidecar_ratio, expected
     ):
@@ -2099,8 +2099,8 @@ class TestDownloadSraCommand:
         count of its own keeps the registry's previous count only when the previous verdict
         equals the new one; ratio and expected_spots are never carried over, so a relink never
         mixes two downloads' verdict blocks."""
-        from metaquest.store.layout import init_store, sidecar_path
-        from metaquest.store.sidecar import Sidecar, write_sidecar
+        from prepare.store.layout import init_store, sidecar_path
+        from prepare.store.sidecar import Sidecar, write_sidecar
 
         store_root = tmp_path / "store"
         paths = init_store(store_root)
@@ -2121,7 +2121,7 @@ class TestDownloadSraCommand:
         fastq_folder.mkdir()
         os.symlink(acc_dir, fastq_folder / "SRR1")
 
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         seeded = load_registry(registry_file)
         record_download(seeded, "SRR1", "downloaded", fastq_folder)
         seeded.datasets["SRR1"]["download"]["complete"] = dict(previous)
@@ -2166,10 +2166,10 @@ class TestDownloadSraCommand:
         complete = written["datasets"]["SRR1"]["download"]["complete"]
         assert {key: complete.get(key) for key in expected} == expected
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_a_plain_download_is_not_recorded_as_store_backed(self, mock_download, _which, tmp_path):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         init_store(store_root)
@@ -2191,7 +2191,7 @@ class TestDownloadSraCommand:
             }
 
         mock_download.side_effect = fake_download_sra
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         args = argparse.Namespace(
             accessions_file=str(tmp_path / "acc.txt"),
             fastq_folder=str(fastq_folder),
@@ -2214,11 +2214,11 @@ class TestDownloadSraCommand:
         assert "source" not in written["datasets"]["SRR1"]["download"]
         assert written["store"].get("linked", []) == []
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_an_already_linked_dataset_is_recorded_as_store_backed(self, mock_download, _which, tmp_path):
         """A link left by an earlier run is recorded with its source, not as a plain download."""
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         paths = init_store(store_root)
@@ -2240,7 +2240,7 @@ class TestDownloadSraCommand:
             "results": {},
             "already_downloaded_accessions": ["SRR1"],
         }
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         args = argparse.Namespace(
             accessions_file=str(tmp_path / "acc.txt"),
             fastq_folder=str(fastq_folder),
@@ -2267,7 +2267,7 @@ class TestDownloadSraCommand:
 
     @staticmethod
     def _seed_project(registry_path, project_id="proj1"):
-        from metaquest.data.registry import load_registry as _load, save_registry as _save
+        from prepare.data.registry import load_registry as _load, save_registry as _save
 
         registry = _load(registry_path)
         registry.project = {"id": project_id, "name": "demo", "path": str(registry_path.parent), "created": "now"}
@@ -2275,8 +2275,8 @@ class TestDownloadSraCommand:
 
     @staticmethod
     def _usage_rows(store_root):
-        from metaquest.store.catalog import Catalog
-        from metaquest.store.layout import store_paths
+        from prepare.store.catalog import Catalog
+        from prepare.store.layout import store_paths
 
         with Catalog(store_paths(store_root)) as catalog:
             catalog.migrate()
@@ -2285,14 +2285,14 @@ class TestDownloadSraCommand:
                 for r in catalog.conn.execute("SELECT accession, project_id, genome_id, stage FROM usage").fetchall()
             ]
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_fresh_store_download_records_usage_stage_downloaded(self, mock_download, _which, tmp_path):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         init_store(store_root)
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         self._seed_project(registry_file)
         message = "Downloaded 1 files, complete (1 of 1 spots); stored"
 
@@ -2330,14 +2330,14 @@ class TestDownloadSraCommand:
         rows = self._usage_rows(store_root)
         assert rows == [{"accession": "SRR1", "project_id": "proj1", "genome_id": "", "stage": "downloaded"}]
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_linked_from_store_records_usage_stage_linked(self, mock_download, _which, tmp_path):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         init_store(store_root)
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         self._seed_project(registry_file)
         message = "linked from store, 1 files"
 
@@ -2375,10 +2375,10 @@ class TestDownloadSraCommand:
         rows = self._usage_rows(store_root)
         assert rows == [{"accession": "SRR1", "project_id": "proj1", "genome_id": "", "stage": "linked"}]
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_already_downloaded_store_backed_records_usage_stage_linked(self, mock_download, _which, tmp_path):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         paths = init_store(store_root)
@@ -2389,7 +2389,7 @@ class TestDownloadSraCommand:
         fastq_folder.mkdir()
         os.symlink(acc_dir, fastq_folder / "SRR1")
 
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         self._seed_project(registry_file)
 
         mock_download.return_value = {
@@ -2424,15 +2424,15 @@ class TestDownloadSraCommand:
         rows = self._usage_rows(store_root)
         assert rows == [{"accession": "SRR1", "project_id": "proj1", "genome_id": "", "stage": "linked"}]
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_catalog_failure_leaves_download_outcome_unchanged(self, mock_download, _which, tmp_path):
         """A broken catalogue write never changes the download's exit code or registry record."""
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         init_store(store_root)
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         self._seed_project(registry_file)
         message = "Downloaded 1 files, complete (1 of 1 spots); stored"
 
@@ -2465,7 +2465,7 @@ class TestDownloadSraCommand:
             data_root=str(store_root),
         )
 
-        with patch("metaquest.store.usage.catalog_write", side_effect=RuntimeError("catalogue is locked")):
+        with patch("prepare.store.usage.catalog_write", side_effect=RuntimeError("catalogue is locked")):
             result = DownloadSraCommand().execute(args)
 
         assert result == 0
@@ -2478,8 +2478,8 @@ class TestDownloadSraCommand:
 
     # ------------------------------------------------------- download summary logging
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_cli_logs_no_second_download_summary(self, mock_download, _which, tmp_path, caplog):
         """The data layer prints the run summary; the CLI must not print a second block whose
         "Successfully downloaded" line counted store links as downloads (audit S5-6)."""
@@ -2507,7 +2507,7 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
@@ -2519,11 +2519,11 @@ class TestDownloadSraCommand:
 
     # ------------------------------------------------------- transient bytes warning
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_warns_when_transient_bytes_exceed_threshold(self, mock_download, _which, tmp_path, caplog, monkeypatch):
         """A kept .sra-cache bigger than the (patched, small) threshold is named in a warning."""
-        monkeypatch.setattr("metaquest.cli.commands.sra.TRANSIENT_BYTES_WARN_THRESHOLD", 10)
+        monkeypatch.setattr("prepare.cli.commands.sra.TRANSIENT_BYTES_WARN_THRESHOLD", 10)
         mock_download.return_value = {
             "total": 1,
             "already_downloaded": 0,
@@ -2549,7 +2549,7 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
@@ -2559,8 +2559,8 @@ class TestDownloadSraCommand:
         assert str(fastq_folder) in caplog.text
         assert "100 bytes" in caplog.text
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_no_warning_when_transient_bytes_under_threshold(self, mock_download, _which, tmp_path, caplog):
         """The default 1 GB threshold is not tripped by a small leftover cache file."""
         mock_download.return_value = {
@@ -2588,7 +2588,7 @@ class TestDownloadSraCommand:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
@@ -2652,8 +2652,8 @@ class TestSingleSampleCommand:
         assert args.threshold == 0.5
         assert args.top_n == 50
 
-    @patch("metaquest.cli.commands.samples.resolve_metadata_table")
-    @patch("metaquest.cli.commands.samples.count_single_sample")
+    @patch("prepare.cli.commands.samples.resolve_metadata_table")
+    @patch("prepare.cli.commands.samples.count_single_sample")
     def test_execute(self, mock_command, mock_resolve):
         """Test command execution."""
         mock_command.return_value = {"organism1": 5, "organism2": 3}
@@ -2708,7 +2708,7 @@ class TestParseMetadataCommand:
         assert args.metadata_folder == "custom_metadata"
         assert args.metadata_table_file == "custom_table.txt"
 
-    @patch("metaquest.cli.commands.metadata.parse_metadata")
+    @patch("prepare.cli.commands.metadata.parse_metadata")
     def test_execute(self, mock_command, tmp_path):
         """Test command execution."""
         mock_command.return_value = pd.DataFrame()
@@ -2717,23 +2717,23 @@ class TestParseMetadataCommand:
         args = argparse.Namespace(
             metadata_folder="metadata",
             metadata_table_file="metadata_table.txt",
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         result = command.execute(args)
         assert result == 0
         mock_command.assert_called_once_with("metadata", "metadata_table.txt")
 
-    @patch("metaquest.cli.commands.metadata.parse_metadata")
+    @patch("prepare.cli.commands.metadata.parse_metadata")
     def test_execute_resolves_the_project_root_once(self, mock_parse, tmp_path):
         """record_metadata gets the root from the command, not one project_root call per row."""
-        import metaquest.data.registry as registry_mod
+        import prepare.data.registry as registry_mod
 
         mock_parse.return_value = pd.DataFrame({"Run_ID": [f"SRR{i}" for i in range(50)]})
         args = argparse.Namespace(
             metadata_folder=str(tmp_path / "metadata"),
             metadata_table_file=str(tmp_path / "metadata_table.txt"),
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
         )
         with patch.object(registry_mod, "project_root", wraps=registry_mod.project_root) as spy:
             assert ParseMetadataCommand().execute(args) == 0
@@ -2773,13 +2773,13 @@ class TestParseMetadataCommand:
         args = argparse.Namespace(
             metadata_folder=str(metadata_folder),
             metadata_table_file=str(tmp_path / "metadata_table.txt"),
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         result = command.execute(args)
         assert result == 0
 
-        registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        registry = json.loads((tmp_path / "prepare_registry.json").read_text())
         metadata = registry["datasets"]["SRR123"]["metadata"]
         assert metadata["run_size"] == "12345"
         assert metadata["run_md5"] == "abcdef0123456789"
@@ -2830,13 +2830,13 @@ class TestParseMetadataCommand:
         args = argparse.Namespace(
             metadata_folder=str(metadata_folder),
             metadata_table_file=str(tmp_path / "metadata_table.txt"),
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         result = command.execute(args)
         assert result == 0
 
-        registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        registry = json.loads((tmp_path / "prepare_registry.json").read_text())
         metadata = registry["datasets"]["SRR1"]["metadata"]
         assert metadata["run_total_spots"] == 47964651
         assert metadata["run_total_bases"] == 14389395300
@@ -2898,8 +2898,8 @@ class TestCountMetadataCommand:
         assert args.output_file == "custom_counts.txt"
         assert args.stat_file == "statistics.txt"
 
-    @patch("metaquest.cli.commands.metadata.resolve_metadata_table")
-    @patch("metaquest.cli.commands.metadata.count_metadata")
+    @patch("prepare.cli.commands.metadata.resolve_metadata_table")
+    @patch("prepare.cli.commands.metadata.count_metadata")
     def test_execute(self, mock_command, mock_resolve):
         """Test command execution."""
         mock_command.return_value = None
@@ -2987,7 +2987,7 @@ class TestPlotContainmentCommand:
         assert args.threshold == 0.5
         assert args.show_title is True
 
-    @patch("metaquest.cli.commands.containment.viz_plot_containment")
+    @patch("prepare.cli.commands.containment.viz_plot_containment")
     def test_execute(self, mock_command):
         """Test command execution."""
         import matplotlib.pyplot as plt
@@ -3019,7 +3019,7 @@ class TestPlotContainmentCommand:
             plot_type="rank",
         )
 
-    @patch("metaquest.cli.commands.containment.viz_plot_containment")
+    @patch("prepare.cli.commands.containment.viz_plot_containment")
     def test_execute_logs_the_saved_path_and_a_next_hint(self, mock_command, caplog):
         """The saved path the command logs must be the one _save_plot_if_needed actually
         writes to; both are built from the shared plot_output_path helper so there is one
@@ -3102,7 +3102,7 @@ class TestPlotMetadataCountsCommand:
         assert args.save_format == "pdf"
         assert args.show_title is True
 
-    @patch("metaquest.cli.commands.metadata.plot_metadata_counts")
+    @patch("prepare.cli.commands.metadata.plot_metadata_counts")
     def test_execute(self, mock_command):
         """Test command execution."""
         import matplotlib.pyplot as plt
@@ -3126,25 +3126,25 @@ class TestDownloadSraMintsAProjectIdentity:
 
     @staticmethod
     def _usage_rows(store_root):
-        from metaquest.store.catalog import Catalog
-        from metaquest.store.layout import store_paths
+        from prepare.store.catalog import Catalog
+        from prepare.store.layout import store_paths
 
         with Catalog(store_paths(store_root)) as catalog:
             catalog.migrate()
             return [dict(r) for r in catalog.conn.execute("SELECT accession, project_id, stage FROM usage").fetchall()]
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_a_project_without_store_init_still_records_usage(self, mock_download, _which, tmp_path, monkeypatch):
-        from metaquest.data.registry import load_registry
-        from metaquest.store.layout import init_store
+        from prepare.data.registry import load_registry
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         init_store(store_root)
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_file = project_dir / "metaquest_registry.json"
+        registry_file = project_dir / "prepare_registry.json"
         message = "Downloaded 1 files, complete (1 of 1 spots); stored"
 
         def fake_download_sra(**kwargs):
@@ -3198,12 +3198,12 @@ class TestDownloadMetadataSharesWithTheStore:
             accessions_file=None,
             api_key=None,
             batch_size=200,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=str(store_root) if store_root else None,
         )
 
     def test_fetched_xml_is_copied_into_the_store(self, tmp_path):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
         paths = init_store(store_root)
@@ -3212,7 +3212,7 @@ class TestDownloadMetadataSharesWithTheStore:
         xml = metadata_dir / "SRR1_metadata.xml"
         xml.write_text('<RunSet><RUN total_spots="10"/></RunSet>')
 
-        with patch("metaquest.cli.commands.metadata.download_metadata", return_value={"SRR1": xml}):
+        with patch("prepare.cli.commands.metadata.download_metadata", return_value={"SRR1": xml}):
             rc = DownloadMetadataCommand().execute(self._args(tmp_path, store_root))
 
         assert rc == 0
@@ -3226,7 +3226,7 @@ class TestDownloadMetadataSharesWithTheStore:
         xml = metadata_dir / "SRR1_metadata.xml"
         xml.write_text('<RunSet><RUN total_spots="10"/></RunSet>')
 
-        with patch("metaquest.cli.commands.metadata.download_metadata", return_value={"SRR1": xml}):
+        with patch("prepare.cli.commands.metadata.download_metadata", return_value={"SRR1": xml}):
             assert DownloadMetadataCommand().execute(self._args(tmp_path)) == 0
 
 
@@ -3247,12 +3247,12 @@ class TestDownloadSraRegistryWrites:
             temp_folder=None,
             blacklist=None,
             report_file=None,
-            registry=str(tmp_path / "metaquest_registry.json"),
+            registry=str(tmp_path / "prepare_registry.json"),
             data_root=None,
         )
 
     def test_run_outcomes_write_the_registry_once(self, tmp_path):
-        import metaquest.data.registry as registry_mod
+        import prepare.data.registry as registry_mod
 
         args = self._args(tmp_path)
         fastq_dir = tmp_path / "fastq"
@@ -3276,12 +3276,12 @@ class TestDownloadSraRegistryWrites:
 
     def test_store_sidecars_are_read_outside_the_registry_lock(self, tmp_path):
         """Sidecar verdicts for store-linked accessions are read before the one registry write takes its lock."""
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         args = self._args(tmp_path)
         fastq_dir = tmp_path / "fastq"
         store = init_store(tmp_path / "store")
-        lock = tmp_path / "metaquest_registry.json.lock"
+        lock = tmp_path / "prepare_registry.json.lock"
         reads_under_lock = []
 
         def sidecar(_store, accession):
@@ -3290,9 +3290,9 @@ class TestDownloadSraRegistryWrites:
 
         accessions = [f"SRR{i}" for i in range(5)]
         with (
-            patch("metaquest.cli.commands.sra.is_store_link", return_value=True),
+            patch("prepare.cli.commands.sra.is_store_link", return_value=True),
             patch.object(DownloadSraCommand, "_sidecar_completeness", staticmethod(sidecar)),
-            patch("metaquest.cli.commands.sra.record_usage_many"),
+            patch("prepare.cli.commands.sra.record_usage_many"),
         ):
             DownloadSraCommand()._record_run_outcomes(
                 args, {"already_downloaded_accessions": accessions}, fastq_dir, store=store
@@ -3302,10 +3302,10 @@ class TestDownloadSraRegistryWrites:
         assert rb.download_block(registry, "SRR4").complete.verdict == "complete"
         assert rb.download_block(registry, "SRR4").source == "store"
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_download_results_are_batched(self, mock_download, _which, tmp_path):
-        import metaquest.data.registry as registry_mod
+        import prepare.data.registry as registry_mod
 
         def fake_download_sra(**kwargs):
             for index in range(20):
@@ -3320,8 +3320,8 @@ class TestDownloadSraRegistryWrites:
         registry = load_registry(args.registry)
         assert all(rb.download_block(registry, f"SRR{i}").state == "failed" for i in range(20))
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_result_recorder_flushes_on_interrupt(self, mock_download, _which, tmp_path):
         """A result recorded before Ctrl-C is in the registry file after the run returns 130."""
         (tmp_path / "fastq" / "SRR1").mkdir(parents=True)
@@ -3335,13 +3335,13 @@ class TestDownloadSraRegistryWrites:
         args = self._args(tmp_path)
         assert DownloadSraCommand().execute(args) == 130
         assert rb.download_block(load_registry(args.registry), "SRR1").state == "downloaded"
-        assert not (tmp_path / "metaquest_registry.json.lock").exists()
+        assert not (tmp_path / "prepare_registry.json.lock").exists()
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_already_exists_after_waiting_is_not_an_attempt(self, mock_download, _which, tmp_path):
         """A run that waited for another run's download and found the files counts no attempt."""
-        from metaquest.data.registry import record_download, registry_transaction
+        from prepare.data.registry import record_download, registry_transaction
 
         args = self._args(tmp_path)
         (tmp_path / "fastq" / "SRR1").mkdir(parents=True)
@@ -3370,8 +3370,8 @@ class TestDownloadSraTerminationAndFinalFlush:
     @staticmethod
     def _failing_transactions(monkeypatch, failures):
         """Make the first ``failures`` registry-batch transactions raise DataAccessError."""
-        import metaquest.data.registry_batch as batch_mod
-        from metaquest.core.exceptions import DataAccessError
+        import prepare.data.registry_batch as batch_mod
+        from prepare.core.exceptions import DataAccessError
 
         real = batch_mod.registry_transaction
         calls = []
@@ -3383,7 +3383,7 @@ class TestDownloadSraTerminationAndFinalFlush:
             return real(path)
 
         monkeypatch.setattr(batch_mod, "registry_transaction", flaky)
-        monkeypatch.setattr("metaquest.cli.commands.sra.FINAL_FLUSH_RETRY_SECONDS", 0)
+        monkeypatch.setattr("prepare.cli.commands.sra.FINAL_FLUSH_RETRY_SECONDS", 0)
         return calls
 
     @staticmethod
@@ -3392,8 +3392,8 @@ class TestDownloadSraTerminationAndFinalFlush:
             kwargs["on_result"](f"SRR{index}", False, "Download failed: t")
         return {"total": 3, "successful": 0, "failed": 0, "failed_accessions": [], "skipped_accessions": ["SRR9"]}
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_handlers_are_installed_for_the_batch_and_restored(self, mock_download, _which, tmp_path):
         import signal
 
@@ -3415,8 +3415,8 @@ class TestDownloadSraTerminationAndFinalFlush:
         assert all(c[1] is before[c[0]] for c in calls[3:])
         assert {s: signal.getsignal(s) for s in before} == before
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_sigterm_during_the_run_flushes_and_returns_130(self, mock_download, _which, tmp_path, caplog):
         import signal
 
@@ -3444,7 +3444,7 @@ class TestDownloadSraTerminationAndFinalFlush:
         import signal
         import threading
 
-        import metaquest.cli.commands.sra as sra_mod
+        import prepare.cli.commands.sra as sra_mod
 
         errors = []
 
@@ -3462,8 +3462,8 @@ class TestDownloadSraTerminationAndFinalFlush:
         worker.join()
         assert errors == []
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_final_flush_failing_once_is_retried(self, mock_download, _which, tmp_path, monkeypatch):
         calls = self._failing_transactions(monkeypatch, failures=1)
         mock_download.side_effect = self._three_failed_results
@@ -3475,8 +3475,8 @@ class TestDownloadSraTerminationAndFinalFlush:
         assert rb.download_block(registry, "SRR9").message == "--max-downloads"
         assert len(calls) == 3
 
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_final_flush_failing_twice_logs_the_queued_accessions(
         self, mock_download, _which, tmp_path, monkeypatch, caplog
     ):

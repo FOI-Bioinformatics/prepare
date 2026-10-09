@@ -1,6 +1,6 @@
 # Advanced Branchwater Workflows
 
-This guide covers advanced workflows and decision points for using MetaQuest with Branchwater containment data. For basic usage, see the main [README](../README.md).
+This guide covers advanced workflows and decision points for using PREPARE with Branchwater containment data. For basic usage, see the main [README](../README.md).
 
 ## Workflow Decision Points
 
@@ -12,7 +12,7 @@ Choose your metadata approach based on analysis requirements:
 Use metadata already present in Branchwater CSV files. Suitable for rapid analysis with basic sample information:
 
 ```bash
-metaquest extract_branchwater_metadata --branchwater-folder branchwater_files --metadata-folder metadata
+prepare extract_branchwater_metadata --branchwater-folder branchwater_files --metadata-folder metadata
 ```
 
 **Advantages:**
@@ -28,8 +28,8 @@ metaquest extract_branchwater_metadata --branchwater-folder branchwater_files --
 Download complete metadata records from NCBI for detailed analysis:
 
 ```bash
-metaquest download_metadata --matches-folder matches --metadata-folder metadata --threshold 0.95 --email your@email.com
-metaquest parse_metadata --metadata-folder metadata --metadata-table-file parsed_metadata.txt
+prepare download_metadata --matches-folder matches --metadata-folder metadata --threshold 0.95 --email your@email.com
+prepare parse_metadata --metadata-folder metadata --metadata-table-file parsed_metadata.txt
 ```
 
 **Advantages:**
@@ -47,8 +47,8 @@ metaquest parse_metadata --metadata-folder metadata --metadata-table-file parsed
 `branchwater_search` replaces the manual download. It needs the sourmash extra and network access:
 
 ```bash
-metaquest branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1 --branchwater-folder branchwater
-metaquest use_branchwater --branchwater-folder branchwater --matches-folder matches
+prepare branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1 --branchwater-folder branchwater
+prepare use_branchwater --branchwater-folder branchwater --matches-folder matches
 ```
 
 A run that returns zero matches is reported as a warning, not an error; verify the index with a genome
@@ -63,10 +63,10 @@ keyed by the genome, containment threshold, sourmash parameters and server URL, 
 search reads the cache instead of querying again:
 
 ```bash
-metaquest branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1   # caches
-metaquest branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1   # reads the cache
-metaquest branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1 --refresh  # forces a new query
-metaquest branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1 --no-cache  # never reads or writes the cache
+prepare branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1   # caches
+prepare branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1   # reads the cache
+prepare branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1 --refresh  # forces a new query
+prepare branchwater_search --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1 --no-cache  # never reads or writes the cache
 ```
 
 `--max-cache-age-days N` treats a cached entry older than N days as absent. There is no default
@@ -81,9 +81,9 @@ file is deleted by hand.
 each containment step. Choose the step size for the summary and apply thresholds downstream:
 
 ```bash
-metaquest parse_containment --matches-folder matches --step-size 0.05
-metaquest select_datasets --threshold 0.9 --output accessions.txt
-metaquest count_metadata --metadata-column Sample_Scientific_Name --threshold 0.9
+prepare parse_containment --matches-folder matches --step-size 0.05
+prepare select_datasets --threshold 0.9 --output accessions.txt
+prepare count_metadata --metadata-column Sample_Scientific_Name --threshold 0.9
 ```
 
 ### The details table
@@ -106,7 +106,7 @@ the samples-by-genomes matrix the rest of the pipeline reads.
 
 ## What the registry records
 
-Most commands in this workflow update the project registry (`metaquest_registry.json`) as they run;
+Most commands in this workflow update the project registry (`prepare_registry.json`) as they run;
 `status` reads it back. One line per command:
 
 - `branchwater_search` / `parse_containment`: screening, the containment per genome
@@ -117,7 +117,7 @@ Most commands in this workflow update the project registry (`metaquest_registry.
 - `sra_validate` / `sra_profile` / `sra_report`: analyses (`validate`, `profile`, `report`)
 - `extract_target_reads`: extraction and assembly, per target genome
 
-See the README's "Project state" section and `metaquest status --help` for the full set of flags.
+See the README's "Project state" section and `prepare status --help` for the full set of flags.
 
 ## Troubleshooting Common Issues
 

@@ -2,8 +2,8 @@
 
 import pytest
 
-from metaquest.core.exceptions import ProcessingError
-from metaquest.processing.selection import select_accessions, select_accessions_ranked
+from prepare.core.exceptions import ProcessingError
+from prepare.processing.selection import select_accessions, select_accessions_ranked
 
 
 @pytest.fixture
@@ -203,21 +203,21 @@ def run_tables(tmp_path):
     ],
 )
 def test_parse_size_accepts_decimal_suffixes(text, expected):
-    from metaquest.processing.selection import parse_size
+    from prepare.processing.selection import parse_size
 
     assert parse_size(text) == expected
 
 
 @pytest.mark.parametrize("text", ["abc", "", "G", "-1G", "1X", "1.5.2G", "nan"])
 def test_parse_size_rejects_garbage(text):
-    from metaquest.processing.selection import parse_size
+    from prepare.processing.selection import parse_size
 
     with pytest.raises(ProcessingError):
         parse_size(text)
 
 
 def test_run_filters_active():
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     assert not RunFilters().active()
     assert RunFilters(min_spots=0).active()
@@ -225,7 +225,7 @@ def test_run_filters_active():
 
 
 def test_max_run_size_drops_larger_and_unknown_runs(run_tables, caplog):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, meta = run_tables
     with caplog.at_level("INFO"):
@@ -238,7 +238,7 @@ def test_max_run_size_drops_larger_and_unknown_runs(run_tables, caplog):
 
 
 def test_min_and_max_spots_bound_the_selection(run_tables, caplog):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, meta = run_tables
     with caplog.at_level("INFO"):
@@ -254,7 +254,7 @@ def test_min_and_max_spots_bound_the_selection(run_tables, caplog):
 
 
 def test_platform_filter_is_case_insensitive(run_tables, caplog):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, meta = run_tables
     with caplog.at_level("INFO"):
@@ -266,7 +266,7 @@ def test_platform_filter_is_case_insensitive(run_tables, caplog):
 
 
 def test_run_filters_require_a_metadata_file(run_tables):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, _ = run_tables
     with pytest.raises(ProcessingError, match="metadata_file"):
@@ -274,7 +274,7 @@ def test_run_filters_require_a_metadata_file(run_tables):
 
 
 def test_inactive_run_filters_do_not_require_a_metadata_file(run_tables):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, _ = run_tables
     assert select_accessions(cont, threshold=0.5, run_filters=RunFilters()) == ["SRR1", "SRR2", "SRR4"]
@@ -290,7 +290,7 @@ def test_inactive_run_filters_do_not_require_a_metadata_file(run_tables):
     ],
 )
 def test_missing_run_column_is_an_error(tables, filters, flag, column):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, meta = tables
     expected = (
@@ -311,7 +311,7 @@ def test_missing_run_column_is_an_error(tables, filters, flag, column):
     ],
 )
 def test_run_filter_warns_when_no_candidate_has_a_value(tables, caplog, filters, flag, column):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, _ = tables
     meta = cont.parent / "metadata_table.txt"
@@ -328,7 +328,7 @@ def test_run_filter_warns_when_no_candidate_has_a_value(tables, caplog, filters,
 
 
 def test_run_filter_does_not_warn_when_some_candidates_have_a_value(run_tables, caplog):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, meta = run_tables
     with caplog.at_level("INFO"):
@@ -338,7 +338,7 @@ def test_run_filter_does_not_warn_when_some_candidates_have_a_value(run_tables, 
 
 
 def test_run_filters_apply_before_top_n(run_tables):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, meta = run_tables
     result = select_accessions(
@@ -348,7 +348,7 @@ def test_run_filters_apply_before_top_n(run_tables):
 
 
 def test_run_filters_apply_after_metadata_equality_filter(run_tables):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, meta = run_tables
     result = select_accessions(
@@ -363,7 +363,7 @@ def test_run_filters_apply_after_metadata_equality_filter(run_tables):
 
 
 def test_min_spots_greater_than_max_spots_raises(run_tables):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, meta = run_tables
     with pytest.raises(ProcessingError, match=r"--min-spots \(10\) is greater than --max-spots \(5\)"):
@@ -371,7 +371,7 @@ def test_min_spots_greater_than_max_spots_raises(run_tables):
 
 
 def test_selected_volume_is_logged_after_top_n(run_tables, caplog):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont, meta = run_tables
     with caplog.at_level("INFO"):
@@ -383,7 +383,7 @@ def test_selected_volume_is_logged_after_top_n(run_tables, caplog):
 
 
 def test_repeated_run_id_rows_warn_and_use_the_first_row(tmp_path, caplog):
-    from metaquest.processing.selection import RunFilters
+    from prepare.processing.selection import RunFilters
 
     cont = tmp_path / "parsed_containment.txt"
     cont.write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.8\t0.8\n")

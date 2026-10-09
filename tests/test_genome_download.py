@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from metaquest.core.exceptions import DataAccessError
-from metaquest.data.genome_download import (
+from prepare.core.exceptions import DataAccessError
+from prepare.data.genome_download import (
     _validate_genome_accession,
     download_genomes,
     extract_and_organize,
@@ -44,7 +44,7 @@ class TestValidateGenomeAccession:
 
 
 class TestDownloadGenomes:
-    @patch("metaquest.data.genome_download.SecureSubprocess.run_secure")
+    @patch("prepare.data.genome_download.SecureSubprocess.run_secure")
     def test_single_accession(self, mock_run, tmp_path):
         # Create the zip file that would be produced by the command
         zip_path = tmp_path / "ncbi_dataset.zip"
@@ -62,7 +62,7 @@ class TestDownloadGenomes:
         assert "--include" in call_args[1]
         assert "genome" in call_args[1]
 
-    @patch("metaquest.data.genome_download.SecureSubprocess.run_secure")
+    @patch("prepare.data.genome_download.SecureSubprocess.run_secure")
     def test_multiple_accessions(self, mock_run, tmp_path):
         zip_path = tmp_path / "ncbi_dataset.zip"
         zip_path.touch()
@@ -77,7 +77,7 @@ class TestDownloadGenomes:
         assert "GCF_000005845.2" in call_args
         assert "GCA_000001405.1" in call_args
 
-    @patch("metaquest.data.genome_download.SecureSubprocess.run_secure")
+    @patch("prepare.data.genome_download.SecureSubprocess.run_secure")
     def test_with_assembly_level(self, mock_run, tmp_path):
         zip_path = tmp_path / "ncbi_dataset.zip"
         zip_path.touch()
@@ -98,13 +98,13 @@ class TestDownloadGenomes:
         with pytest.raises(DataAccessError, match="Invalid genome accession"):
             download_genomes(["INVALID_123"], tmp_path)
 
-    @patch("metaquest.data.genome_download.SecureSubprocess.run_secure")
+    @patch("prepare.data.genome_download.SecureSubprocess.run_secure")
     def test_download_failure(self, mock_run, tmp_path):
         mock_run.side_effect = subprocess.CalledProcessError(1, "datasets", stderr="Connection failed")
         with pytest.raises(DataAccessError, match="Failed to download genomes"):
             download_genomes(["GCF_000005845.2"], tmp_path)
 
-    @patch("metaquest.data.genome_download.SecureSubprocess.run_secure")
+    @patch("prepare.data.genome_download.SecureSubprocess.run_secure")
     def test_zip_not_created(self, mock_run, tmp_path):
         # Simulate command success but no zip produced
         mock_run.return_value = MagicMock(returncode=0)

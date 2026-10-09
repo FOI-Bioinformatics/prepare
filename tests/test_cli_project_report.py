@@ -1,4 +1,4 @@
-"""Tests for the ``project_report`` command (``metaquest/cli/commands/project_report.py``)."""
+"""Tests for the ``project_report`` command (``prepare/cli/commands/project_report.py``)."""
 
 import builtins
 import gzip
@@ -11,11 +11,11 @@ import sys
 import pytest
 
 from helpers_project_report import build_project
-from metaquest.cli.commands.project_report import ProjectReportCommand
-from metaquest.cli.main import create_parser, main
-from metaquest.data.registry import load_registry
-from metaquest.processing import project_report as pr
-from metaquest.processing.doctor_report import Check, run_checks
+from prepare.cli.commands.project_report import ProjectReportCommand
+from prepare.cli.main import create_parser, main
+from prepare.data.registry import load_registry
+from prepare.processing import project_report as pr
+from prepare.processing.doctor_report import Check, run_checks
 
 FILES = ("project_report.md", "project_report.json", "project_report.html")
 
@@ -44,7 +44,7 @@ def _block(monkeypatch, *modules):
 
 
 def _exports(folder):
-    return load_registry(folder / "metaquest_registry.json").project.get("exports", {})
+    return load_registry(folder / "prepare_registry.json").project.get("exports", {})
 
 
 def test_project_report_is_listed_in_environment_group(capsys):
@@ -60,7 +60,7 @@ def test_without_a_registry_exits_1_pointing_to_status_init(tmp_path, monkeypatc
     assert _run("--html", "never") == 1
     assert "status --init" in caplog.text
     assert not (tmp_path / "project_report").exists()
-    assert not (tmp_path / "metaquest_registry.json").exists()
+    assert not (tmp_path / "prepare_registry.json").exists()
 
 
 def test_writes_markdown_and_json_and_records_the_export(project):
@@ -78,16 +78,16 @@ def test_writes_markdown_and_json_and_records_the_export(project):
 
 
 def test_no_record_leaves_the_registry_alone(project):
-    before = (project / "metaquest_registry.json").read_text()
+    before = (project / "prepare_registry.json").read_text()
     assert _run("--html", "never", "--no-record") == 0
-    assert (project / "metaquest_registry.json").read_text() == before
+    assert (project / "prepare_registry.json").read_text() == before
 
 
 def test_output_dir_and_registry_flags(project, tmp_path, monkeypatch):
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
-    registry = str(project / "metaquest_registry.json")
+    registry = str(project / "prepare_registry.json")
     assert _run("--html", "never", "--registry", registry, "--output-dir", "out") == 0
     assert (elsewhere / "out" / "project_report.md").is_file()
 
@@ -98,7 +98,7 @@ def test_max_rows_cuts_the_tables(project):
     report = json.loads((out / "project_report.json").read_text())
     assert len(report["extractions"]["rows"]) == 1
     assert report["extractions"]["rows_total"] == 4
-    assert "metaquest results_table" in (out / "project_report.md").read_text()
+    assert "prepare results_table" in (out / "project_report.md").read_text()
 
 
 def test_max_rows_rejects_a_negative_number(project, capsys):
@@ -141,18 +141,18 @@ def test_auto_without_jinja2_writes_markdown_and_json_only(project, monkeypatch,
     assert _run() == 0
     out = project / "project_report"
     assert sorted(p.name for p in out.iterdir()) == ["project_report.json", "project_report.md"]
-    skipped = [r for r in caplog.records if "metaquest[interactive]" in r.getMessage()]
+    skipped = [r for r in caplog.records if "prepare[interactive]" in r.getMessage()]
     assert len(skipped) == 1 and skipped[0].levelno == logging.INFO
     assert _exports(project)["project_report"]["summary"]["html"] is False
 
 
 def test_always_without_jinja2_exits_3_and_writes_nothing(project, monkeypatch, caplog):
     _block(monkeypatch, "jinja2")
-    before = (project / "metaquest_registry.json").read_text()
+    before = (project / "prepare_registry.json").read_text()
     assert _run("--html", "always") == 3
-    assert "metaquest[interactive]" in caplog.text
+    assert "prepare[interactive]" in caplog.text
     assert not (project / "project_report").exists()
-    assert (project / "metaquest_registry.json").read_text() == before
+    assert (project / "prepare_registry.json").read_text() == before
 
 
 def test_always_without_plotly_exits_3(project, monkeypatch):
@@ -195,7 +195,7 @@ def test_no_fastq_file_is_opened(project, monkeypatch):
     assert _run() == 0
     assert opened, "the watch saw no file at all"
     assert not [path for path in opened if ".fastq" in path or path.endswith((".fq", ".fq.gz"))]
-    assert any(path.endswith("project_report.json") or "metaquest_registry.json" in path for path in opened)
+    assert any(path.endswith("project_report.json") or "prepare_registry.json" in path for path in opened)
 
 
 def test_no_fastq_folder_is_listed(project, monkeypatch):
@@ -223,7 +223,7 @@ def test_no_fastq_folder_is_listed(project, monkeypatch):
 
 
 def test_a_byte_that_is_not_utf8_in_the_run_log_still_gives_a_report(project, caplog):
-    log = project / ".metaquest" / "runs" / "runs.jsonl"
+    log = project / ".prepare" / "runs" / "runs.jsonl"
     assert log.is_file()
     with open(log, "ab") as handle:
         handle.write(b"\xff damaged line\n")

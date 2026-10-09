@@ -1,4 +1,4 @@
-name: MetaQuest Release
+name: PREPARE Release
 
 on:
   push:

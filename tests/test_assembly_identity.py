@@ -1,4 +1,4 @@
-"""Assembly identity marker and staged megahit output (``metaquest.data.assembly_identity``).
+"""Assembly identity marker and staged megahit output (``prepare.data.assembly_identity``).
 
 megahit is replaced by the fake from ``tests/helpers_extraction.py``; no real tool runs.
 """
@@ -12,11 +12,11 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.core.exceptions import ProcessingError
-from metaquest.data import assembly_identity as ident
-from metaquest.data import registry as reg
-from metaquest.data.assembly import assemble_extracted_reads
-from metaquest.data.assembly_identity import (
+from prepare.core.exceptions import ProcessingError
+from prepare.data import assembly_identity as ident
+from prepare.data import registry as reg
+from prepare.data.assembly import assemble_extracted_reads
+from prepare.data.assembly_identity import (
     MARKER_NAME,
     AssemblyInputs,
     assembly_inputs,
@@ -28,7 +28,7 @@ from metaquest.data.assembly_identity import (
 )
 from helpers_extraction import _fake_tools
 
-RUN = "metaquest.data.assembly.SecureSubprocess.run_secure"
+RUN = "prepare.data.assembly.SecureSubprocess.run_secure"
 
 
 def _reads(tmp_path, sizes=(10, 12)):

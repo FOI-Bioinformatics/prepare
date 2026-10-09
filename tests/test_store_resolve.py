@@ -1,29 +1,29 @@
 """
-Tests for metaquest.store.resolve: store root discovery and user config.
+Tests for prepare.store.resolve: store root discovery and user config.
 
 Every test runs under tmp_path and monkeypatches HOME, XDG_CONFIG_HOME and
-METAQUEST_DATA so nothing here reads or writes the real user config.
+PREPARE_DATA so nothing here reads or writes the real user config.
 """
 
 import os
 
 import pytest
 
-from metaquest.core.constants import CONFIG_DIRNAME, CONFIG_FILENAME, STORE_ENV
-from metaquest.core.exceptions import DataAccessError
-from metaquest.store.layout import init_store
-from metaquest.store.resolve import (
+from prepare.core.constants import CONFIG_DIRNAME, CONFIG_FILENAME, STORE_ENV
+from prepare.core.exceptions import DataAccessError
+from prepare.store.layout import init_store
+from prepare.store.resolve import (
     config_path,
     read_config,
     resolve_store_root,
     write_config_data_root,
 )
-from metaquest.utils.security import SecureSubprocess
+from prepare.utils.security import SecureSubprocess
 
 
 @pytest.fixture(autouse=True)
 def isolated_env(tmp_path, monkeypatch):
-    """Point HOME/XDG_CONFIG_HOME at tmp_path and clear METAQUEST_DATA."""
+    """Point HOME/XDG_CONFIG_HOME at tmp_path and clear PREPARE_DATA."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.delenv(STORE_ENV, raising=False)
@@ -150,7 +150,7 @@ def test_resolve_uses_env_over_registry_and_config(tmp_path, monkeypatch):
 
 
 def test_resolve_treats_empty_env_as_unset(tmp_path, monkeypatch):
-    # An empty METAQUEST_DATA (e.g. exported but never assigned) must not
+    # An empty PREPARE_DATA (e.g. exported but never assigned) must not
     # win over a real registry or config root, and must not itself raise.
     monkeypatch.setenv(STORE_ENV, "")
 

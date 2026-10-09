@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from metaquest.cli.commands.status import StatusCommand
-from metaquest.cli.commands.status.render_text import selection_detail
-from metaquest.cli.commands.status.suggest import download_next_steps, reselect_command
-from metaquest.data.registry import (
+from prepare.cli.commands.status import StatusCommand
+from prepare.cli.commands.status.render_text import selection_detail
+from prepare.cli.commands.status.suggest import download_next_steps, reselect_command
+from prepare.data.registry import (
     Registry,
     SCHEMA_VERSION,
     load_registry,
@@ -24,7 +24,7 @@ from metaquest.data.registry import (
     save_registry,
     upsert_dataset,
 )
-from metaquest.processing.status_report import inventory_report
+from prepare.processing.status_report import inventory_report
 
 # A minimal single-run NCBI metadata XML, modeled on the fixture in
 # tests/test_registry_reconcile_reverify.py: {accession} and {spots} are filled in per test.
@@ -96,7 +96,7 @@ class TestStatusCommand:
             root = _make_tree(tmp)
             result = cmd.execute(
                 _args(
-                    root / "metaquest_registry.json",
+                    root / "prepare_registry.json",
                     fastq_folder=str(root / "fastq"),
                     metadata_folder=str(root / "metadata"),
                     genomes_folder=str(root / "genomes"),
@@ -116,7 +116,7 @@ class TestStatusCommand:
             accs.write_text("SRR1\nSRR2\n")
             result = cmd.execute(
                 _args(
-                    root / "metaquest_registry.json",
+                    root / "prepare_registry.json",
                     fastq_folder=str(root / "fastq"),
                     metadata_folder=str(root / "metadata"),
                     genomes_folder=str(root / "genomes"),
@@ -138,7 +138,7 @@ class TestStatusCommand:
             accs.write_text("SRR1\nSRR2\n")
             result = cmd.execute(
                 _args(
-                    root / "metaquest_registry.json",
+                    root / "prepare_registry.json",
                     fastq_folder=str(root / "fastq"),
                     metadata_folder=str(root / "metadata"),
                     genomes_folder=str(root / "genomes"),
@@ -161,7 +161,7 @@ class TestStatusCommand:
             (root / "fastq" / "SRR2_temp" / "SRR2_temp_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
             result = cmd.execute(
                 _args(
-                    root / "metaquest_registry.json",
+                    root / "prepare_registry.json",
                     fastq_folder=str(root / "fastq"),
                     metadata_folder=str(root / "metadata"),
                     genomes_folder=str(root / "genomes"),
@@ -180,7 +180,7 @@ class TestStatusCommand:
             table.write_text("accession\tGCF_x\nSRR1\t0.9\nSRR2\t0.4\n")
             result = cmd.execute(
                 _args(
-                    root / "metaquest_registry.json",
+                    root / "prepare_registry.json",
                     fastq_folder=str(root / "fastq"),
                     metadata_folder=str(root / "metadata"),
                     genomes_folder=str(root / "genomes"),
@@ -194,7 +194,7 @@ class TestStatusCommand:
 
     def test_missing_accessions_file_errors(self, tmp_path):
         cmd = StatusCommand()
-        result = cmd.execute(_args(tmp_path / "metaquest_registry.json", accessions_file="/nonexistent/accs.txt"))
+        result = cmd.execute(_args(tmp_path / "prepare_registry.json", accessions_file="/nonexistent/accs.txt"))
         assert result == 1
 
 
@@ -205,7 +205,7 @@ def _status_args(root, **overrides):
         genomes_folder=str(root / "genomes"),
         targeted_folder=str(root / "targeted"),
         matches_folder=str(root / "matches"),
-        registry=str(root / "metaquest_registry.json"),
+        registry=str(root / "prepare_registry.json"),
         data_root=None,
         accessions_file=None,
         parsed_containment=None,
@@ -256,22 +256,22 @@ class TestStatusWithRegistry:
         assert out["registry"]["exists"] is False
         assert out["stages"]["screened"]["count"] == 3 and out["stages"]["downloaded"]["count"] == 2
         assert out["wanted"]["total"] == 3 and out["on_disk"]["fastq_accessions"] == 2
-        assert not (tmp_path / "metaquest_registry.json").exists()
+        assert not (tmp_path / "prepare_registry.json").exists()
 
     def test_init_persists_bootstrap(self, tmp_path, capsys):
         _project_tree(tmp_path)
         rc = StatusCommand().execute(
             _status_args(tmp_path, init=True, accessions_file=str(tmp_path / "accessions.txt"))
         )
-        assert rc == 0 and (tmp_path / "metaquest_registry.json").exists()
-        data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        assert rc == 0 and (tmp_path / "prepare_registry.json").exists()
+        data = json.loads((tmp_path / "prepare_registry.json").read_text())
         assert data["datasets"]["SRR1"]["download"]["inferred"] is True
 
     def test_second_init_refuses_to_overwrite(self, tmp_path, capsys):
         _project_tree(tmp_path)
         StatusCommand().execute(_status_args(tmp_path, init=True, accessions_file=str(tmp_path / "accessions.txt")))
         capsys.readouterr()
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
         before = registry_path.read_text()
         rc = StatusCommand().execute(_status_args(tmp_path, init=True))
         assert rc == 1
@@ -292,7 +292,7 @@ class TestStatusWithRegistry:
         StatusCommand().execute(_status_args(tmp_path, next=True))
         out = json.loads(capsys.readouterr().out)
         commands = [n["command"] for n in out["next"]]
-        assert any(c.startswith("metaquest download_sra") for c in commands)  # SRR3 selected, not downloaded
+        assert any(c.startswith("prepare download_sra") for c in commands)  # SRR3 selected, not downloaded
         assert any(
             "extract_target_reads" in c and "GCF_1" in c for c in commands
         )  # SRR1/SRR2 downloaded, not extracted
@@ -310,7 +310,7 @@ class TestStatusWithRegistry:
         _project_tree(root)
         monkeypatch.chdir(root)
         StatusCommand().execute(_status_args(root, init=True))
-        with registry_transaction(str(root / "metaquest_registry.json")) as reg:
+        with registry_transaction(str(root / "prepare_registry.json")) as reg:
             record_exclusion(reg, "SRR2", "isolate")
             record_selection(
                 reg,
@@ -318,9 +318,9 @@ class TestStatusWithRegistry:
                 {"skip_excluded": False, "column": "GCF_A", "threshold": 0.5},
                 "sel_noskip.txt",
             )
-        steps = download_next_steps(load_registry(str(root / "metaquest_registry.json")))
+        steps = download_next_steps(load_registry(str(root / "prepare_registry.json")))
         commands = [s["command"] for s in steps]
-        download_commands = [c for c in commands if c.startswith("metaquest download_sra")]
+        download_commands = [c for c in commands if c.startswith("prepare download_sra")]
         # sel_noskip.txt is never downloaded directly; it is only the --output of the
         # runnable reselect command (checked in test_reselect_suggestion_is_runnable).
         assert not any("sel_noskip.txt" in c for c in download_commands)
@@ -340,7 +340,7 @@ class TestStatusWithRegistry:
         _project_tree(root)
         monkeypatch.chdir(root)
         StatusCommand().execute(_status_args(root, init=True))
-        with registry_transaction(str(root / "metaquest_registry.json")) as reg:
+        with registry_transaction(str(root / "prepare_registry.json")) as reg:
             record_selection(
                 reg, ["SRR3"], {"skip_excluded": True, "column": "GCF_A", "threshold": 0.5}, "sel_normal.txt"
             )
@@ -350,11 +350,11 @@ class TestStatusWithRegistry:
                 "criteria": {"skip_excluded": False, "column": "GCF_B", "threshold": 0.3},
                 "output": "sel_noskip.txt",
             }
-        steps = download_next_steps(load_registry(str(root / "metaquest_registry.json")))
+        steps = download_next_steps(load_registry(str(root / "prepare_registry.json")))
         commands = [s["command"] for s in steps]
 
-        download_commands = [c for c in commands if c.startswith("metaquest download_sra")]
-        reselect_commands = [c for c in commands if c.startswith("metaquest select_datasets")]
+        download_commands = [c for c in commands if c.startswith("prepare download_sra")]
+        reselect_commands = [c for c in commands if c.startswith("prepare select_datasets")]
 
         assert any("sel_normal.txt" in c for c in download_commands)
         assert len(reselect_commands) == 1
@@ -368,7 +368,7 @@ class TestStatusWithRegistry:
         _project_tree(root)
         monkeypatch.chdir(root)
         StatusCommand().execute(_status_args(root, init=True))
-        with registry_transaction(str(root / "metaquest_registry.json")) as reg:
+        with registry_transaction(str(root / "prepare_registry.json")) as reg:
             record_exclusion(reg, "SRR2", "isolate")
             record_selection(
                 reg,
@@ -376,11 +376,11 @@ class TestStatusWithRegistry:
                 {"skip_excluded": False, "column": "GCF_A", "threshold": 0.5},
                 "sel_noskip.txt",
             )
-        steps = download_next_steps(load_registry(str(root / "metaquest_registry.json")))
+        steps = download_next_steps(load_registry(str(root / "prepare_registry.json")))
         commands = [s["command"] for s in steps]
-        reselect = next(c for c in commands if c.startswith("metaquest select_datasets"))
+        reselect = next(c for c in commands if c.startswith("prepare select_datasets"))
         assert reselect == (
-            "metaquest select_datasets --genome-id GCF_A --threshold 0.5 --skip-excluded --output sel_noskip.txt"
+            "prepare select_datasets --genome-id GCF_A --threshold 0.5 --skip-excluded --output sel_noskip.txt"
         )
 
     def test_reselect_suggestion_uses_genome_ids_when_recorded(self, tmp_path, monkeypatch):
@@ -389,18 +389,18 @@ class TestStatusWithRegistry:
         _project_tree(root)
         monkeypatch.chdir(root)
         StatusCommand().execute(_status_args(root, init=True))
-        with registry_transaction(str(root / "metaquest_registry.json")) as reg:
+        with registry_transaction(str(root / "prepare_registry.json")) as reg:
             record_selection(
                 reg,
                 ["SRR1", "SRR2", "SRR3"],
                 {"skip_excluded": False, "genome_ids": ["GCF_A", "GCF_B"], "require": "all", "threshold": 0.3},
                 "sel_noskip.txt",
             )
-        steps = download_next_steps(load_registry(str(root / "metaquest_registry.json")))
+        steps = download_next_steps(load_registry(str(root / "prepare_registry.json")))
         commands = [s["command"] for s in steps]
-        reselect = next(c for c in commands if c.startswith("metaquest select_datasets"))
+        reselect = next(c for c in commands if c.startswith("prepare select_datasets"))
         assert reselect == (
-            "metaquest select_datasets --genome-ids GCF_A GCF_B --require all "
+            "prepare select_datasets --genome-ids GCF_A GCF_B --require all "
             "--threshold 0.3 --skip-excluded --output sel_noskip.txt"
         )
 
@@ -412,7 +412,7 @@ class TestStatusWithRegistry:
         _project_tree(root)
         monkeypatch.chdir(root)
         StatusCommand().execute(_status_args(root, init=True))
-        with registry_transaction(str(root / "metaquest_registry.json")) as reg:
+        with registry_transaction(str(root / "prepare_registry.json")) as reg:
             record_selection(
                 reg,
                 ["SRR1", "SRR2", "SRR3"],
@@ -425,11 +425,11 @@ class TestStatusWithRegistry:
                 },
                 "sel_noskip.txt",
             )
-        steps = download_next_steps(load_registry(str(root / "metaquest_registry.json")))
-        reselect = next(s["command"] for s in steps if s["command"].startswith("metaquest select_datasets"))
+        steps = download_next_steps(load_registry(str(root / "prepare_registry.json")))
+        reselect = next(s["command"] for s in steps if s["command"].startswith("prepare select_datasets"))
         assert "pwned" not in reselect
         assert reselect == (
-            "metaquest select_datasets --genome-ids GCF_A GCF_B --skip-excluded --output sel_noskip.txt"
+            "prepare select_datasets --genome-ids GCF_A GCF_B --skip-excluded --output sel_noskip.txt"
         )
 
     def test_reselect_command_warns_on_malformed_threshold(self, caplog):
@@ -462,7 +462,7 @@ class TestStatusWithRegistry:
         monkeypatch.chdir(root)
         StatusCommand().execute(_status_args(root, init=True))
         meta_path = str(root / "my meta.txt")
-        with registry_transaction(str(root / "metaquest_registry.json")) as reg:
+        with registry_transaction(str(root / "prepare_registry.json")) as reg:
             record_selection(
                 reg,
                 ["SRR1", "SRR2", "SRR3"],
@@ -476,16 +476,16 @@ class TestStatusWithRegistry:
                 },
                 "sel_noskip.txt",
             )
-        steps = download_next_steps(load_registry(str(root / "metaquest_registry.json")))
+        steps = download_next_steps(load_registry(str(root / "prepare_registry.json")))
         commands = [s["command"] for s in steps]
-        reselect = next(c for c in commands if c.startswith("metaquest select_datasets"))
+        reselect = next(c for c in commands if c.startswith("prepare select_datasets"))
         assert f"--metadata-file {shlex.quote(meta_path)}" in reselect
         assert "--metadata-column country --metadata-value Sweden" in reselect
 
     def test_reselect_suggestion_coerces_numeric_strings(self):
         command = reselect_command({"column": "GCF_A", "threshold": "0.25", "top_n": "7", "require": "any"}, "out.txt")
         assert command == (
-            "metaquest select_datasets --genome-id GCF_A --threshold 0.25 --skip-excluded --output out.txt --top-n 7"
+            "prepare select_datasets --genome-id GCF_A --threshold 0.25 --skip-excluded --output out.txt --top-n 7"
         )
 
     def test_reselect_suggestion_reproduces_run_filters(self):
@@ -503,7 +503,7 @@ class TestStatusWithRegistry:
             "out.txt",
         )
         assert command == (
-            "metaquest select_datasets --genome-id GCF_A --threshold 0.5 --skip-excluded --output out.txt"
+            "prepare select_datasets --genome-id GCF_A --threshold 0.5 --skip-excluded --output out.txt"
             " --max-run-size 500000000 --min-spots 1000 --max-spots 2000000 --platform 'OXFORD NANOPORE'"
         )
         assert shlex.split(command)[-2:] == ["--platform", "OXFORD NANOPORE"]
@@ -528,7 +528,7 @@ class TestStatusWithRegistry:
         _project_tree(root)
         monkeypatch.chdir(root)
         StatusCommand().execute(_status_args(root, init=True))
-        with registry_transaction(str(root / "metaquest_registry.json")) as reg:
+        with registry_transaction(str(root / "prepare_registry.json")) as reg:
             record_selection(
                 reg,
                 ["SRR1", "SRR2", "SRR3"],
@@ -543,11 +543,11 @@ class TestStatusWithRegistry:
                 },
                 "sel_noskip.txt",
             )
-        steps = download_next_steps(load_registry(str(root / "metaquest_registry.json")))
+        steps = download_next_steps(load_registry(str(root / "prepare_registry.json")))
         commands = [s["command"] for s in steps]
-        reselect = next(c for c in commands if c.startswith("metaquest select_datasets"))
+        reselect = next(c for c in commands if c.startswith("prepare select_datasets"))
         assert reselect == (
-            "metaquest select_datasets --genome-id GCF_A --threshold 0.5 --skip-excluded "
+            "prepare select_datasets --genome-id GCF_A --threshold 0.5 --skip-excluded "
             "--output sel_noskip.txt --metadata-column country --metadata-value Sweden "
             "--top-n 10 --parsed-containment custom_containment.txt"
         )
@@ -559,18 +559,18 @@ class TestStatusWithRegistry:
         _project_tree(root)
         monkeypatch.chdir(root)
         StatusCommand().execute(_status_args(root, init=True))
-        with registry_transaction(str(root / "metaquest_registry.json")) as reg:
+        with registry_transaction(str(root / "prepare_registry.json")) as reg:
             record_selection(
                 reg,
                 ["SRR1", "SRR2", "SRR3"],
                 {"skip_excluded": False, "column": "GCF_A", "threshold": 0.5, "table": "parsed_containment.txt"},
                 "sel_noskip.txt",
             )
-        steps = download_next_steps(load_registry(str(root / "metaquest_registry.json")))
+        steps = download_next_steps(load_registry(str(root / "prepare_registry.json")))
         commands = [s["command"] for s in steps]
-        reselect = next(c for c in commands if c.startswith("metaquest select_datasets"))
+        reselect = next(c for c in commands if c.startswith("prepare select_datasets"))
         assert reselect == (
-            "metaquest select_datasets --genome-id GCF_A --threshold 0.5 --skip-excluded --output sel_noskip.txt"
+            "prepare select_datasets --genome-id GCF_A --threshold 0.5 --skip-excluded --output sel_noskip.txt"
         )
 
     def test_reselect_suggestion_quotes_values_with_spaces(self, tmp_path, monkeypatch):
@@ -580,7 +580,7 @@ class TestStatusWithRegistry:
         _project_tree(root)
         monkeypatch.chdir(root)
         StatusCommand().execute(_status_args(root, init=True))
-        with registry_transaction(str(root / "metaquest_registry.json")) as reg:
+        with registry_transaction(str(root / "prepare_registry.json")) as reg:
             record_selection(
                 reg,
                 ["SRR1", "SRR2", "SRR3"],
@@ -593,13 +593,13 @@ class TestStatusWithRegistry:
                 },
                 "sel_noskip.txt",
             )
-        steps = download_next_steps(load_registry(str(root / "metaquest_registry.json")))
+        steps = download_next_steps(load_registry(str(root / "prepare_registry.json")))
         commands = [s["command"] for s in steps]
-        reselect = next(c for c in commands if c.startswith("metaquest select_datasets"))
+        reselect = next(c for c in commands if c.startswith("prepare select_datasets"))
 
         assert "--metadata-value 'New York'" in reselect
         assert shlex.split(reselect) == [
-            "metaquest",
+            "prepare",
             "select_datasets",
             "--genome-id",
             "GCF_A",
@@ -623,7 +623,7 @@ class TestStatusWithRegistry:
         table.parent.mkdir()
         table.write_text("\tGCF_1\nSRR1\t0.9\nSRR2\t0.4\n")
         StatusCommand().execute(_status_args(tmp_path, init=True))
-        seeded = load_registry(tmp_path / "metaquest_registry.json")
+        seeded = load_registry(tmp_path / "prepare_registry.json")
         record_selection(seeded, ["SRR1", "SRR2"], {"column": "GCF_1", "table": str(table)}, tmp_path / "acc.txt")
         save_registry(seeded)
         capsys.readouterr()
@@ -637,7 +637,7 @@ class TestStatusWithRegistry:
     def test_next_uses_the_recorded_genome_fasta(self, tmp_path, capsys):
         _project_tree(tmp_path)
         StatusCommand().execute(_status_args(tmp_path, init=True))
-        seeded = load_registry(tmp_path / "metaquest_registry.json")
+        seeded = load_registry(tmp_path / "prepare_registry.json")
         record_genome(seeded, "GCF_1", tmp_path / "refs" / "wMel.fna", tmp_path / "manifest.csv")
         save_registry(seeded)
         capsys.readouterr()
@@ -654,7 +654,7 @@ class TestStatusWithRegistry:
         old_root = tmp_path / "a"
         _project_tree(old_root)
         StatusCommand().execute(_status_args(old_root, init=True))
-        seeded = load_registry(old_root / "metaquest_registry.json")
+        seeded = load_registry(old_root / "prepare_registry.json")
         record_genome(seeded, "GCF_1", old_root / "refs" / "wMel.fna", old_root / "manifest.csv")
         save_registry(seeded)
         capsys.readouterr()
@@ -670,7 +670,7 @@ class TestStatusWithRegistry:
     def test_next_drops_excluded_and_already_extracted_accessions(self, tmp_path, capsys):
         _project_tree(tmp_path)
         StatusCommand().execute(_status_args(tmp_path, init=True, accessions_file=str(tmp_path / "accessions.txt")))
-        seeded = load_registry(tmp_path / "metaquest_registry.json")
+        seeded = load_registry(tmp_path / "prepare_registry.json")
         record_exclusion(seeded, "SRR3", "16S amplicon")  # selected, not downloaded
         record_exclusion(seeded, "SRR2", "16S amplicon")  # downloaded
         record_extraction(seeded, "SRR1", "GCF_1", [], 0, False, {})  # zero mapped, but recorded
@@ -696,7 +696,7 @@ class TestStatusWithRegistry:
         StatusCommand().execute(_status_args(tmp_path, reconcile=True))
         out = json.loads(capsys.readouterr().out)
         assert out["drift"]["recorded_missing"] == ["SRR2"] and out["drift"]["untracked_fastq"] == ["SRR8"]
-        data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        data = json.loads((tmp_path / "prepare_registry.json").read_text())
         assert data["datasets"]["SRR2"]["download"]["state"] == "missing"
 
     def test_reconcile_registers_untracked_work(self, tmp_path, capsys):
@@ -717,7 +717,7 @@ class TestStatusWithRegistry:
         assert out["drift"]["untracked_fastq"] == ["SRR8"]
         assert out["drift"]["untracked_extractions"] == [["SRR1", "GCF_1"]]
 
-        datasets = json.loads((tmp_path / "metaquest_registry.json").read_text())["datasets"]
+        datasets = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]
         assert datasets["SRR8"]["download"]["state"] == "downloaded"
         assert datasets["SRR8"]["download"]["inferred"] is True
         assert datasets["SRR8"]["download"]["attempts"] == 0
@@ -729,7 +729,7 @@ class TestStatusWithRegistry:
         with caplog.at_level("ERROR"):
             rc = StatusCommand().execute(_status_args(tmp_path, reconcile=True))
         assert rc == 1
-        assert not (tmp_path / "metaquest_registry.json").exists()
+        assert not (tmp_path / "prepare_registry.json").exists()
         assert "status --init" in caplog.text
 
     def test_report_carries_the_schema_version(self, tmp_path, capsys):
@@ -741,7 +741,7 @@ class TestStatusWithRegistry:
     def test_text_report_shows_selection_criteria_and_exclusion_reasons(self, tmp_path, capsys):
         _project_tree(tmp_path)
         StatusCommand().execute(_status_args(tmp_path, init=True))
-        seeded = load_registry(tmp_path / "metaquest_registry.json")
+        seeded = load_registry(tmp_path / "prepare_registry.json")
         record_selection(
             seeded,
             ["SRR1"],
@@ -761,7 +761,7 @@ class TestStatusWithRegistry:
     def test_text_report_shows_the_selection_run_filters(self, tmp_path, capsys):
         _project_tree(tmp_path)
         StatusCommand().execute(_status_args(tmp_path, init=True))
-        seeded = load_registry(tmp_path / "metaquest_registry.json")
+        seeded = load_registry(tmp_path / "prepare_registry.json")
         record_selection(
             seeded,
             ["SRR1"],
@@ -789,12 +789,12 @@ class TestStatusWithRegistry:
         [(2_000_000_000, "max size 2 GB"), (1_500_000, "max size 1.5 MB"), (512, "max size 512 bytes")],
     )
     def test_selection_detail_formats_the_run_size(self, tmp_path, size, text):
-        registry = load_registry(tmp_path / "metaquest_registry.json")
+        registry = load_registry(tmp_path / "prepare_registry.json")
         record_selection(registry, ["SRR1"], {"column": "GCF_1", "max_run_size": size}, tmp_path / "a.txt")
         assert text in selection_detail(registry)
 
     def test_selection_detail_leaves_out_a_malformed_run_filter(self, tmp_path):
-        registry = load_registry(tmp_path / "metaquest_registry.json")
+        registry = load_registry(tmp_path / "prepare_registry.json")
         record_selection(
             registry, ["SRR1"], {"column": "GCF_1", "max_run_size": "lots", "min_spots": -3}, tmp_path / "a.txt"
         )
@@ -830,7 +830,7 @@ class TestStatusWithRegistry:
         """report['downloads'] surfaces registry verdicts; stages.downloaded is unaffected."""
         _project_tree(tmp_path)
         StatusCommand().execute(_status_args(tmp_path, init=True))
-        seeded = load_registry(tmp_path / "metaquest_registry.json")
+        seeded = load_registry(tmp_path / "prepare_registry.json")
         seeded.datasets["SRR1"]["download"]["complete"] = {"verdict": "truncated"}
         seeded.datasets["SRR2"]["download"]["complete"] = {"verdict": "unverified"}
         save_registry(seeded)
@@ -847,7 +847,7 @@ class TestStatusWithRegistry:
     def test_text_report_shows_truncated_downloads_line(self, tmp_path, capsys):
         _project_tree(tmp_path)
         StatusCommand().execute(_status_args(tmp_path, init=True))
-        seeded = load_registry(tmp_path / "metaquest_registry.json")
+        seeded = load_registry(tmp_path / "prepare_registry.json")
         seeded.datasets["SRR1"]["download"]["complete"] = {"verdict": "truncated"}
         save_registry(seeded)
         capsys.readouterr()
@@ -872,8 +872,8 @@ class TestStatusStorePlumbing:
         assert "Store" not in out
 
     def test_data_root_flag_adds_store_section(self, tmp_path, capsys):
-        from metaquest.store.catalog import catalog_write
-        from metaquest.store.layout import init_store
+        from prepare.store.catalog import catalog_write
+        from prepare.store.layout import init_store
 
         _project_tree(tmp_path)
         store_root = tmp_path / "store"
@@ -889,7 +889,7 @@ class TestStatusStorePlumbing:
         assert out["store"]["datasets"] == {}
 
     def test_data_root_flag_adds_text_store_block_after_local_inventory(self, tmp_path, capsys):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         _project_tree(tmp_path)
         store_root = tmp_path / "store"
@@ -903,13 +903,13 @@ class TestStatusStorePlumbing:
         assert out.index("Local inventory") < out.index("Store")
 
     def test_registry_recorded_store_root_is_used_when_no_flag(self, tmp_path, capsys):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         _project_tree(tmp_path)
         store_root = tmp_path / "store"
         init_store(store_root)
         StatusCommand().execute(_status_args(tmp_path, init=True))
-        seeded = load_registry(tmp_path / "metaquest_registry.json")
+        seeded = load_registry(tmp_path / "prepare_registry.json")
         seeded.store = {"root": str(store_root), "mode": "symlink", "linked": []}
         save_registry(seeded)
         capsys.readouterr()
@@ -926,9 +926,9 @@ class TestStatusIncompleteStoreLinks:
         """A fastq/<ACC> symlink into a store dataset whose sidecar state is not ready (here
         'failed') is missing, but status must say why rather than reporting it as an ordinary
         missing accession."""
-        from metaquest.store.layout import init_store, sidecar_path, sra_dir
-        from metaquest.store.link import link_dataset
-        from metaquest.store.sidecar import Sidecar, write_sidecar
+        from prepare.store.layout import init_store, sidecar_path, sra_dir
+        from prepare.store.link import link_dataset
+        from prepare.store.sidecar import Sidecar, write_sidecar
 
         store_root = tmp_path / "store"
         paths = init_store(store_root)
@@ -959,9 +959,9 @@ class TestStatusIncompleteStoreLinks:
         assert "linked to a store dataset that is not complete" in out
 
     def test_json_report_lists_incomplete_store_links(self, tmp_path, capsys):
-        from metaquest.store.layout import init_store, sidecar_path, sra_dir
-        from metaquest.store.link import link_dataset
-        from metaquest.store.sidecar import Sidecar, write_sidecar
+        from prepare.store.layout import init_store, sidecar_path, sra_dir
+        from prepare.store.link import link_dataset
+        from prepare.store.sidecar import Sidecar, write_sidecar
 
         store_root = tmp_path / "store"
         paths = init_store(store_root)
@@ -992,9 +992,9 @@ class TestStatusIncompleteStoreLinks:
         assert "SRR1" in out["wanted"]["fastq_missing"]
 
     def test_a_complete_store_link_is_not_reported_as_incomplete(self, tmp_path, capsys):
-        from metaquest.store.layout import init_store, sidecar_path, sra_dir
-        from metaquest.store.link import link_dataset
-        from metaquest.store.sidecar import Sidecar, write_sidecar
+        from prepare.store.layout import init_store, sidecar_path, sra_dir
+        from prepare.store.link import link_dataset
+        from prepare.store.sidecar import Sidecar, write_sidecar
 
         store_root = tmp_path / "store"
         paths = init_store(store_root)
@@ -1029,33 +1029,33 @@ class TestStatusReconcileVerdict:
     def test_reconcile_fills_missing_download_verdict(self, tmp_path, capsys):
         """A download recorded before completeness verification existed (no `download.complete`)
         gets a verdict computed from what is on disk, once the registry records NCBI's spot count."""
-        from metaquest.data.registry import record_metadata
+        from prepare.data.registry import record_metadata
 
         _project_tree(tmp_path)
         StatusCommand().execute(_status_args(tmp_path, init=True))
         capsys.readouterr()
 
-        registry = load_registry(tmp_path / "metaquest_registry.json")
+        registry = load_registry(tmp_path / "prepare_registry.json")
         record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {"run_total_spots": 100})
         save_registry(registry)
 
         StatusCommand().execute(_status_args(tmp_path, reconcile=True))
         capsys.readouterr()
 
-        data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        data = json.loads((tmp_path / "prepare_registry.json").read_text())
         complete = data["datasets"]["SRR1"]["download"]["complete"]
         assert complete["verdict"] == "truncated"
 
     def test_reconcile_backfilling_a_verdict_does_not_disturb_the_recorded_date(self, tmp_path, capsys):
         """Filling in a missing verdict uses set_download_verdict, not record_download, so the
         download's recorded date (and files/bytes_total/message) survive untouched."""
-        from metaquest.data.registry import record_metadata
+        from prepare.data.registry import record_metadata
 
         _project_tree(tmp_path)
         StatusCommand().execute(_status_args(tmp_path, init=True))
         capsys.readouterr()
 
-        registry = load_registry(tmp_path / "metaquest_registry.json")
+        registry = load_registry(tmp_path / "prepare_registry.json")
         record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {"run_total_spots": 100})
         original_date = registry.datasets["SRR1"]["download"]["date"]
         save_registry(registry)
@@ -1063,19 +1063,19 @@ class TestStatusReconcileVerdict:
         StatusCommand().execute(_status_args(tmp_path, reconcile=True))
         capsys.readouterr()
 
-        data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        data = json.loads((tmp_path / "prepare_registry.json").read_text())
         assert data["datasets"]["SRR1"]["download"]["date"] == original_date
         assert data["datasets"]["SRR1"]["download"]["complete"]["verdict"] == "truncated"
 
     def test_reconcile_leaves_existing_verdict_alone(self, tmp_path, capsys):
         """A verdict already on file (e.g. from a fresh download run) is never recomputed."""
-        from metaquest.data.registry import record_download, record_metadata
+        from prepare.data.registry import record_download, record_metadata
 
         _project_tree(tmp_path)
         StatusCommand().execute(_status_args(tmp_path, init=True))
         capsys.readouterr()
 
-        registry = load_registry(tmp_path / "metaquest_registry.json")
+        registry = load_registry(tmp_path / "prepare_registry.json")
         record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {"run_total_spots": 100})
         record_download(
             registry,
@@ -1090,19 +1090,19 @@ class TestStatusReconcileVerdict:
         StatusCommand().execute(_status_args(tmp_path, reconcile=True))
         capsys.readouterr()
 
-        data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        data = json.loads((tmp_path / "prepare_registry.json").read_text())
         assert data["datasets"]["SRR1"]["download"]["complete"]["verdict"] == "complete"
 
     def test_reconcile_skips_store_sourced_downloads(self, tmp_path, capsys):
         """A download whose reads came from the shared store already has its own verdict
         pipeline; reconcile must not overwrite it."""
-        from metaquest.data.registry import record_download, record_metadata
+        from prepare.data.registry import record_download, record_metadata
 
         _project_tree(tmp_path)
         StatusCommand().execute(_status_args(tmp_path, init=True))
         capsys.readouterr()
 
-        registry = load_registry(tmp_path / "metaquest_registry.json")
+        registry = load_registry(tmp_path / "prepare_registry.json")
         record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {"run_total_spots": 100})
         record_download(
             registry, "SRR1", "downloaded", tmp_path / "fastq", attempt=False, source="store", store_name="SRR1"
@@ -1112,7 +1112,7 @@ class TestStatusReconcileVerdict:
         StatusCommand().execute(_status_args(tmp_path, reconcile=True))
         capsys.readouterr()
 
-        data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        data = json.loads((tmp_path / "prepare_registry.json").read_text())
         assert "complete" not in data["datasets"]["SRR1"]["download"]
 
 
@@ -1148,7 +1148,7 @@ class TestStatusWithoutAReachableStore:
         assert "Unavailable" in out
 
     def test_a_store_root_with_no_catalogue_is_reported_as_unavailable(self, tmp_path, capsys):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         _project_tree(tmp_path)
         store_root = tmp_path / "store"
@@ -1196,7 +1196,7 @@ def _inventory_tree(root):
 
 def _reference_inventory(root, wanted):
     """The wanted block as the per-accession probes of the earlier implementation computed it."""
-    from metaquest.data.sra import accession_has_fastq
+    from prepare.data.sra import accession_has_fastq
 
     fastq_present = [a for a in wanted if accession_has_fastq(root / "fastq" / a)]
     meta_present = [a for a in wanted if (root / "metadata" / f"{a}_metadata.xml").exists()]
@@ -1223,7 +1223,7 @@ def test_inventory_wanted_block_matches_per_accession_probes(tmp_path):
 def test_inventory_does_not_probe_the_disk_per_wanted_accession(tmp_path, monkeypatch):
     import pathlib
 
-    from metaquest.processing import status_report
+    from prepare.processing import status_report
 
     _inventory_tree(tmp_path)
     with open(tmp_path / "accessions.txt", "a") as handle:
@@ -1262,9 +1262,9 @@ def test_wanted_from_parsed_containment_reads_the_index_column(tmp_path):
 
 
 def _mixed_registry(tmp_path):
-    from metaquest.data.registry import record_assembly, record_download, record_screening
+    from prepare.data.registry import record_assembly, record_download, record_screening
 
-    r = Registry(path=tmp_path / "metaquest_registry.json")
+    r = Registry(path=tmp_path / "prepare_registry.json")
     for n in range(1, 9):
         record_screening(r, f"SRR{n}", "G1", 0.1 * n, None, "matches", 0.0, None)
     record_screening(r, "SRR2", "G2", 0.3, None, "matches", 0.0, None)
@@ -1283,8 +1283,8 @@ def _mixed_registry(tmp_path):
 
 
 def test_stage_members_and_genome_counts_match_the_per_stage_queries(tmp_path):
-    from metaquest.data.registry import STAGES, query, stage_counts, stage_members
-    from metaquest.processing.status_report import genome_counts
+    from prepare.data.registry import STAGES, query, stage_counts, stage_members
+    from prepare.processing.status_report import genome_counts
 
     r = _mixed_registry(tmp_path)
     assert stage_members(r) == {s: query(r, s) for s in STAGES}
@@ -1293,12 +1293,12 @@ def test_stage_members_and_genome_counts_match_the_per_stage_queries(tmp_path):
 
 
 def test_build_report_stages_match_the_per_stage_queries(tmp_path):
-    from metaquest.data.registry import ProjectPaths, STAGES, query
-    from metaquest.processing.status_report import build_report
+    from prepare.data.registry import ProjectPaths, STAGES, query
+    from prepare.processing.status_report import build_report
 
     r = _mixed_registry(tmp_path)
     paths = ProjectPaths(fastq=tmp_path / "fastq", targeted=tmp_path / "targeted")
-    report = build_report(r, _status_args(tmp_path), paths, tmp_path / "metaquest_registry.json", True)
+    report = build_report(r, _status_args(tmp_path), paths, tmp_path / "prepare_registry.json", True)
     assert report["stages"] == {s: {"count": len(query(r, s)), "accessions": query(r, s)} for s in STAGES}
     assert report["genomes"]["G1"]["zero_mapped"] == ["SRR2"]
     expected_g3 = {"extracted": 0, "assembled": 0, "zero_mapped": ["SRR4"], "empty_assembly_dirs": []}
@@ -1306,7 +1306,7 @@ def test_build_report_stages_match_the_per_stage_queries(tmp_path):
 
 
 def test_stage_filter_accessions_keeps_first_seen_order_without_duplicates(tmp_path):
-    from metaquest.processing.status_report import stage_filter_accessions
+    from prepare.processing.status_report import stage_filter_accessions
 
     r = _mixed_registry(tmp_path)
     screened = ["SRR2", "SRR1", "SRR3", "SRR4", "SRR5", "SRR6", "SRR7", "SRR8"]
@@ -1321,12 +1321,12 @@ def test_download_next_steps_lists_selected_not_excluded_not_downloaded(tmp_path
 
 def _timed_project(tmp_path):
     """A project with an initialised registry holding a download, an extraction and an assembly time."""
-    from metaquest.data.registry import record_assembly
-    from metaquest.data.registry_timing import set_assembly_timing, set_download_timing, set_extraction_timing
+    from prepare.data.registry import record_assembly
+    from prepare.data.registry_timing import set_assembly_timing, set_download_timing, set_extraction_timing
 
     _project_tree(tmp_path)
     StatusCommand().execute(_status_args(tmp_path, init=True))
-    seeded = load_registry(tmp_path / "metaquest_registry.json")
+    seeded = load_registry(tmp_path / "prepare_registry.json")
     set_download_timing(seeded, "SRR1", "2026-10-01T10:00:00+00:00", 10.0)
     set_download_timing(seeded, "SRR2", "2026-10-01T10:00:10+00:00", 30.0)
     record_extraction(seeded, "SRR1", "GCF_1", [], 5, False, {})
@@ -1337,16 +1337,16 @@ def _timed_project(tmp_path):
 
 
 def test_build_report_timing_on_a_fixture_registry(tmp_path):
-    from metaquest.data.registry import ProjectPaths
-    from metaquest.data.registry_timing import set_download_timing, set_extraction_timing
-    from metaquest.processing.status_report import build_report
+    from prepare.data.registry import ProjectPaths
+    from prepare.data.registry_timing import set_download_timing, set_extraction_timing
+    from prepare.processing.status_report import build_report
 
     r = _mixed_registry(tmp_path)
     set_download_timing(r, "SRR1", "2026-10-01T10:00:00+00:00", 4.0)
     set_download_timing(r, "SRR2", "2026-10-01T10:00:00+00:00", 8.0)
     set_extraction_timing(r, "SRR2", "G2", "2026-10-01T10:00:00+00:00", 1.5)
     paths = ProjectPaths(fastq=tmp_path / "fastq", targeted=tmp_path / "targeted")
-    report = build_report(r, _status_args(tmp_path), paths, tmp_path / "metaquest_registry.json", True)
+    report = build_report(r, _status_args(tmp_path), paths, tmp_path / "prepare_registry.json", True)
     assert report["timing"] == {
         "downloads_timed": 2,
         "download_seconds_total": 12.0,
@@ -1391,7 +1391,7 @@ def test_text_report_has_no_timing_line_without_timing(tmp_path, capsys):
 
 
 def test_funnel_line_matches_the_specified_format():
-    from metaquest.cli.commands.status.render_text import funnel_line
+    from prepare.cli.commands.status.render_text import funnel_line
 
     funnel = {
         "screened": {"accessions": 1200},
@@ -1420,27 +1420,27 @@ def _funnel_with_download(bytes_total, seconds):
 def test_funnel_line_rounds_the_size_to_one_decimal_and_omits_an_unrecorded_time():
     # The crispatus project's downloads predate 0.7.0, so none carries a time: the line used to
     # read "(4.48731 GB, 0.0 h)".
-    from metaquest.cli.commands.status.render_text import funnel_line
+    from prepare.cli.commands.status.render_text import funnel_line
 
     line = funnel_line(_funnel_with_download(4_487_310_000, None))
     assert "7 downloaded (4.5 GB), 0 extracted" in line
 
 
 def test_funnel_line_keeps_a_recorded_time_even_with_a_size_in_terabytes():
-    from metaquest.cli.commands.status.render_text import funnel_line
+    from prepare.cli.commands.status.render_text import funnel_line
 
     assert "7 downloaded (2.0 TB, 1.5 h)," in funnel_line(_funnel_with_download(2_040_000_000_000, 5400.0))
     assert "7 downloaded (0 bytes, 0.0 h)," in funnel_line(_funnel_with_download(0, 0.0))
 
 
 def test_build_report_funnel_matches_project_funnel_directly(tmp_path):
-    from metaquest.data.registry import ProjectPaths
-    from metaquest.processing.project_funnel import funnel as project_funnel
-    from metaquest.processing.status_report import build_report
+    from prepare.data.registry import ProjectPaths
+    from prepare.processing.project_funnel import funnel as project_funnel
+    from prepare.processing.status_report import build_report
 
     r = _mixed_registry(tmp_path)
     paths = ProjectPaths(fastq=tmp_path / "fastq", targeted=tmp_path / "targeted")
-    report = build_report(r, _status_args(tmp_path), paths, tmp_path / "metaquest_registry.json", True)
+    report = build_report(r, _status_args(tmp_path), paths, tmp_path / "prepare_registry.json", True)
     assert report["funnel"] == project_funnel(r)
 
 
@@ -1485,10 +1485,10 @@ def test_export_tsv_extractions_gain_coverage_and_assembly_extra_columns(tmp_pat
     all empty for an extraction with no assembly and, for one with an assembly, project-relative."""
     import pandas as pd
 
-    from metaquest.data.registry import record_assembly
-    from metaquest.processing.status_report import to_dataframes
+    from prepare.data.registry import record_assembly
+    from prepare.processing.status_report import to_dataframes
 
-    r = load_registry(tmp_path / "metaquest_registry.json")
+    r = load_registry(tmp_path / "prepare_registry.json")
     coverage = {"breadth": 0.8, "mean_depth": 12.5, "coverage_tsv": tmp_path / "targeted" / "SRR1" / "cov.tsv"}
     record_extraction(r, "SRR1", "GCF_1", [], 50, False, {}, coverage=coverage)
     stats = {"contigs": 5, "total_bp": 40000, "n50": 3000, "n90": 900, "largest": 9000, "gc": 0.4123}
@@ -1519,7 +1519,7 @@ def test_init_fills_metadata_from_xml_with_a_spot_count(tmp_path, capsys):
     rc = StatusCommand().execute(_status_args(tmp_path, init=True, accessions_file=str(tmp_path / "accessions.txt")))
 
     assert rc == 0
-    data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    data = json.loads((tmp_path / "prepare_registry.json").read_text())
     metadata = data["datasets"]["SRR1"]["metadata"]
     assert metadata["run_total_spots"] == 4
     assert metadata["platform"] == "ILLUMINA"
@@ -1540,7 +1540,7 @@ class TestStatusReportsStoreUnavailable:
         gone = self._unmounted_link(tmp_path)
         assert StatusCommand().execute(_status_args(tmp_path, init=True)) == 0
         capsys.readouterr()
-        before = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        before = json.loads((tmp_path / "prepare_registry.json").read_text())
 
         rc = StatusCommand().execute(_status_args(tmp_path, data_root=str(gone), reconcile=True, json=True))
         report = json.loads(capsys.readouterr().out)
@@ -1549,7 +1549,7 @@ class TestStatusReportsStoreUnavailable:
         assert report["drift"]["store_unavailable"] == ["SRR3"]
         assert report["drift"]["recorded_missing"] == []
 
-        after = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        after = json.loads((tmp_path / "prepare_registry.json").read_text())
         assert after["datasets"] == before["datasets"]
         assert after["store"] == before["store"]
 
@@ -1607,13 +1607,13 @@ def _setup_metadata_fill_and_verdict_recheck(tmp_path, capsys):
     real XML on disk with a spot count: one --reconcile should fill both. verdicts_rechecked only
     counts a verdict that was literally "unverified", not a merely missing one (see
     _fill_verdicts), so the download must be recorded with that verdict explicitly."""
-    from metaquest.data.registry import record_download, record_metadata
+    from prepare.data.registry import record_download, record_metadata
 
     _project_tree(tmp_path)
     StatusCommand().execute(_status_args(tmp_path, init=True))
     capsys.readouterr()
 
-    registry = load_registry(tmp_path / "metaquest_registry.json")
+    registry = load_registry(tmp_path / "prepare_registry.json")
     record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {})
     record_download(
         registry,
@@ -1661,7 +1661,7 @@ def _seed_stale_assembly(tmp_path, capsys):
     _project_tree(tmp_path)
     StatusCommand().execute(_status_args(tmp_path, init=True))
     capsys.readouterr()
-    registry = load_registry(tmp_path / "metaquest_registry.json")
+    registry = load_registry(tmp_path / "prepare_registry.json")
     registry.datasets["SRR1"]["extractions"] = {
         "GCF_1": {
             "date": "2026-09-02T10:00:00+00:00",
@@ -1680,7 +1680,7 @@ def _seed_stale_assembly(tmp_path, capsys):
 
 
 def test_reconcile_drops_an_assembly_recorded_before_its_extraction(tmp_path, capsys, monkeypatch):
-    from metaquest.cli.commands.results import ResultsTableCommand
+    from prepare.cli.commands.results import ResultsTableCommand
 
     _seed_stale_assembly(tmp_path, capsys)
 
@@ -1688,7 +1688,7 @@ def test_reconcile_drops_an_assembly_recorded_before_its_extraction(tmp_path, ca
     first = json.loads(capsys.readouterr().out)
     assert rc == 0
     assert first["drift"]["assemblies_dropped"] == ["SRR1/GCF_1"]
-    registry = load_registry(tmp_path / "metaquest_registry.json")
+    registry = load_registry(tmp_path / "prepare_registry.json")
     assert registry.datasets["SRR1"]["extractions"]["GCF_1"].get("assembly") is None
     assert registry.datasets["SRR1"]["extractions"]["GCF_1"]["reads_mapped"] == 10
     assert registry.datasets["SRR1"]["extractions"]["GCF_2"]["assembly"]["contigs"] == 3
@@ -1696,7 +1696,7 @@ def test_reconcile_drops_an_assembly_recorded_before_its_extraction(tmp_path, ca
     StatusCommand().execute(_status_args(tmp_path, reconcile=True, json=True))
     second = json.loads(capsys.readouterr().out)
     assert second["drift"]["assemblies_dropped"] == []
-    assert load_registry(tmp_path / "metaquest_registry.json").datasets == registry.datasets
+    assert load_registry(tmp_path / "prepare_registry.json").datasets == registry.datasets
 
     monkeypatch.chdir(tmp_path)
     args = argparse.Namespace(
@@ -1704,7 +1704,7 @@ def test_reconcile_drops_an_assembly_recorded_before_its_extraction(tmp_path, ca
         genome_id=None,
         parsed_containment=str(tmp_path / "missing.txt"),
         min_containment=0.0,
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
         no_record=True,
     )
     assert ResultsTableCommand().execute(args) == 0

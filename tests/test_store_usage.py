@@ -1,5 +1,5 @@
 """
-Tests for metaquest.store.usage: the safe wrapper that records dataset usage in the
+Tests for prepare.store.usage: the safe wrapper that records dataset usage in the
 shared store's catalogue without ever letting a catalogue failure reach the caller, plus the
 ``stale_projects`` and ``linked_by`` helpers ``store_status``/``store_gc`` build on.
 """
@@ -10,10 +10,10 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.data.registry import Registry
-from metaquest.store.catalog import Catalog, catalog_write
-from metaquest.store.layout import init_store
-from metaquest.store.usage import linked_by, record_usage_many, record_usage_safe, stale_projects
+from prepare.data.registry import Registry
+from prepare.store.catalog import Catalog, catalog_write
+from prepare.store.layout import init_store
+from prepare.store.usage import linked_by, record_usage_many, record_usage_safe, stale_projects
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def paths(tmp_path):
 
 
 def _registry(tmp_path, project_id="proj1", name="demo", path=None):
-    registry = Registry(path=tmp_path / "metaquest_registry.json")
+    registry = Registry(path=tmp_path / "prepare_registry.json")
     if project_id is not None:
         registry.project = {"id": project_id, "name": name, "path": path or str(tmp_path), "created": "now"}
     return registry
@@ -95,7 +95,7 @@ class TestRecordUsageSafe:
 
     def test_catalog_write_raising_is_caught_and_logged(self, paths, tmp_path, caplog):
         registry = _registry(tmp_path)
-        with patch("metaquest.store.usage.catalog_write", side_effect=RuntimeError("locked")):
+        with patch("prepare.store.usage.catalog_write", side_effect=RuntimeError("locked")):
             with caplog.at_level("WARNING"):
                 result = record_usage_safe(paths, registry, "SRR1", "GCF_1", "downloaded")
         assert result is False
@@ -160,8 +160,8 @@ class TestRecordUsageMany:
         rows = [("SRR1", "", "linked", ""), ("SRR2", "", "linked", "")]
 
         with patch(
-            "metaquest.store.usage.catalog_write",
-            wraps=__import__("metaquest.store.catalog", fromlist=["catalog_write"]).catalog_write,
+            "prepare.store.usage.catalog_write",
+            wraps=__import__("prepare.store.catalog", fromlist=["catalog_write"]).catalog_write,
         ) as wrapped:
             record_usage_many(paths, registry, rows)
 
@@ -169,7 +169,7 @@ class TestRecordUsageMany:
 
     def test_catalog_write_raising_is_caught_and_logged(self, paths, tmp_path, caplog):
         registry = _registry(tmp_path)
-        with patch("metaquest.store.usage.catalog_write", side_effect=RuntimeError("locked")):
+        with patch("prepare.store.usage.catalog_write", side_effect=RuntimeError("locked")):
             with caplog.at_level("WARNING"):
                 result = record_usage_many(paths, registry, [("SRR1", "", "linked", "")])
         assert result is False
@@ -186,7 +186,7 @@ class TestStaleProjects:
 
         blocked_dir = tmp_path / "blocked"
         blocked_dir.mkdir()
-        registry_file = blocked_dir / "metaquest_registry.json"
+        registry_file = blocked_dir / "prepare_registry.json"
         registry_file.write_text(json.dumps({"project": {"id": "proj1"}}))
 
         with catalog_write(paths) as cat:
@@ -220,7 +220,7 @@ class TestLinkedBy:
         project_dir = tmp_path / "proj"
         (project_dir / "fastq").mkdir(parents=True)
         (project_dir / "fastq" / "SRR1").symlink_to(acc_dir, target_is_directory=True)
-        registry_file = project_dir / "metaquest_registry.json"
+        registry_file = project_dir / "prepare_registry.json"
         registry_file.write_text(json.dumps({"project": {"id": "proj1"}}))
 
         with catalog_write(paths) as cat:
@@ -239,7 +239,7 @@ class TestLinkedBy:
         (project_dir / "fastq" / "SRR1").symlink_to(acc_dir, target_is_directory=True)
         # No registry file is ever written at this path, so the project is stale.
         with catalog_write(paths) as cat:
-            cat.upsert_project("proj1", "Gone", str(project_dir), str(project_dir / "metaquest_registry.json"))
+            cat.upsert_project("proj1", "Gone", str(project_dir), str(project_dir / "prepare_registry.json"))
 
         with Catalog(paths, create=True) as cat:
             cat.migrate()
@@ -254,7 +254,7 @@ class TestLinkedBy:
         project_dir = tmp_path / "proj"
         (project_dir / "fastq").mkdir(parents=True)
         (project_dir / "fastq" / "SRR1").symlink_to(other_dir, target_is_directory=True)
-        registry_file = project_dir / "metaquest_registry.json"
+        registry_file = project_dir / "prepare_registry.json"
         registry_file.write_text(json.dumps({"project": {"id": "proj1"}}))
 
         with catalog_write(paths) as cat:

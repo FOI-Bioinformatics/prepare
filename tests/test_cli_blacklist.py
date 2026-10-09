@@ -3,7 +3,7 @@
 import argparse
 import json
 
-from metaquest.cli.commands.blacklist import BlacklistCommand
+from prepare.cli.commands.blacklist import BlacklistCommand
 
 
 def _args(tmp_path, **kw):
@@ -14,7 +14,7 @@ def _args(tmp_path, **kw):
         reason=None,
         list=False,
         blacklist_file=str(tmp_path / "blacklist.txt"),
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
     )
     base.update(kw)
     return argparse.Namespace(**base)
@@ -23,7 +23,7 @@ def _args(tmp_path, **kw):
 def test_add_records_reason_and_writes_file(tmp_path, capsys):
     rc = BlacklistCommand().execute(_args(tmp_path, add=["SRR2517418"], reason="16S amplicon mislabelled as WGS"))
     assert rc == 0
-    data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    data = json.loads((tmp_path / "prepare_registry.json").read_text())
     exclusion = data["datasets"]["SRR2517418"]["exclusion"]
     assert exclusion["excluded"] is True and exclusion["reason"] == "16S amplicon mislabelled as WGS"
     assert (tmp_path / "blacklist.txt").read_text().splitlines() == ["SRR2517418  # 16S amplicon mislabelled as WGS"]
@@ -36,7 +36,7 @@ def test_add_requires_reason(tmp_path):
 def test_remove_clears_and_rewrites_file(tmp_path):
     BlacklistCommand().execute(_args(tmp_path, add=["SRR1", "SRR2"], reason="test"))
     assert BlacklistCommand().execute(_args(tmp_path, remove=["SRR1"])) == 0
-    data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    data = json.loads((tmp_path / "prepare_registry.json").read_text())
     assert data["datasets"]["SRR1"]["exclusion"]["excluded"] is False
     assert (tmp_path / "blacklist.txt").read_text().splitlines() == ["SRR2  # test"]
 
@@ -52,7 +52,7 @@ def test_from_file_and_list(tmp_path, capsys):
 
 
 def test_registered():
-    from metaquest.cli.main import create_parser
+    from prepare.cli.main import create_parser
 
     args = create_parser().parse_args(["blacklist", "--list"])
     assert args.list is True and args.blacklist_file == "blacklist.txt"

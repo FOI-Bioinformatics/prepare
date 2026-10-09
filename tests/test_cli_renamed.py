@@ -6,7 +6,7 @@ instead of argparse's list of valid choices, and exit status 2.
 
 import pytest
 
-from metaquest.cli.main import create_parser, main
+from prepare.cli.main import create_parser, main
 
 RENAMED = {
     "sra_stats": "sra_profile",
@@ -23,17 +23,17 @@ RENAMED = {
 def test_old_name_exits_2_with_a_pointer_on_stderr(old, new, capsys):
     assert main([old]) == 2
     captured = capsys.readouterr()
-    assert f"ERROR - metaquest.cli.commands.renamed - {old} was renamed: use metaquest {new}" in captured.err
+    assert f"ERROR - prepare.cli.commands.renamed - {old} was renamed: use prepare {new}" in captured.err
     assert captured.out == ""
 
 
 def test_old_name_with_its_old_flags_still_gets_the_pointer(capsys):
     assert main(["sra_stats", "--fastq-folder", "fastq", "--accessions", "SRR1"]) == 2
-    assert "sra_stats was renamed: use metaquest sra_profile" in capsys.readouterr().err
+    assert "sra_stats was renamed: use prepare sra_profile" in capsys.readouterr().err
 
 
 def test_registered_renamed_commands_match_the_table():
-    from metaquest.cli.commands.renamed import RENAMED_COMMANDS
+    from prepare.cli.commands.renamed import RENAMED_COMMANDS
 
     assert RENAMED_COMMANDS == RENAMED
 

@@ -1,6 +1,6 @@
 """Tests for module-level mutable state that must survive two runs in one process.
 
-Covers the Task 10 fixes: metaquest no longer configures logging on import (a library host
+Covers the Task 10 fixes: prepare no longer configures logging on import (a library host
 or a second test run must not have the root logger reconfigured out from under it),
 SecureSubprocess._extra_roots and the GTDB session are safe under concurrent access, and
 Bio.Entrez's email/api_key module attributes are set only for the duration of one call.
@@ -13,53 +13,53 @@ import threading
 import pytest
 from Bio import Entrez
 
-import metaquest
-from metaquest.data import gtdb
-from metaquest.data.metadata import _entrez_credentials
-from metaquest.utils.logging import setup_logging
-from metaquest.utils.security import SecureSubprocess
+import prepare
+from prepare.data import gtdb
+from prepare.data.metadata import _entrez_credentials
+from prepare.utils.logging import setup_logging
+from prepare.utils.security import SecureSubprocess
 
 
-def _metaquest_tagged_handlers():
+def _prepare_tagged_handlers():
     """The handlers on the root logger that setup_logging installed."""
-    return [h for h in logging.getLogger().handlers if getattr(h, "_metaquest", False)]
+    return [h for h in logging.getLogger().handlers if getattr(h, "_prepare", False)]
 
 
 class TestImportDoesNotConfigureLogging:
-    """Importing metaquest must not call setup_logging() or touch the root logger."""
+    """Importing prepare must not call setup_logging() or touch the root logger."""
 
     def test_import_leaves_a_preexisting_root_handler_in_place(self):
         root_logger = logging.getLogger()
         sentinel = logging.NullHandler()
         root_logger.addHandler(sentinel)
         try:
-            importlib.reload(metaquest)
+            importlib.reload(prepare)
             assert sentinel in root_logger.handlers
         finally:
             root_logger.removeHandler(sentinel)
 
-    def test_metaquest_logger_has_a_null_handler(self):
-        importlib.reload(metaquest)
-        metaquest_logger = logging.getLogger("metaquest")
-        assert any(isinstance(h, logging.NullHandler) for h in metaquest_logger.handlers)
+    def test_prepare_logger_has_a_null_handler(self):
+        importlib.reload(prepare)
+        prepare_logger = logging.getLogger("prepare")
+        assert any(isinstance(h, logging.NullHandler) for h in prepare_logger.handlers)
 
 
 class TestSetupLoggingTagsItsOwnHandlers:
     """setup_logging only ever removes the handlers it installed itself."""
 
     def teardown_method(self):
-        for handler in _metaquest_tagged_handlers():
+        for handler in _prepare_tagged_handlers():
             logging.getLogger().removeHandler(handler)
 
     def test_called_twice_leaves_one_console_handler(self):
         setup_logging(level=logging.INFO)
         setup_logging(level=logging.INFO)
-        assert len(_metaquest_tagged_handlers()) == 1
+        assert len(_prepare_tagged_handlers()) == 1
 
     def test_caplog_still_captures_after_setup_logging(self, caplog):
         setup_logging(level=logging.INFO)
         with caplog.at_level(logging.INFO):
-            logging.getLogger("metaquest.test_globals").info("hello from setup_logging test")
+            logging.getLogger("prepare.test_globals").info("hello from setup_logging test")
         assert "hello from setup_logging test" in caplog.text
 
     def test_a_foreign_root_handler_survives_setup_logging(self):

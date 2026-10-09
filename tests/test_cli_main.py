@@ -11,8 +11,8 @@ from io import StringIO
 
 import pytest
 
-from metaquest.cli.main import register_all_commands, create_parser, main
-from metaquest.cli.base import command_registry
+from prepare.cli.main import register_all_commands, create_parser, main
+from prepare.cli.base import command_registry
 
 
 class TestRegisterAllCommands:
@@ -166,7 +166,7 @@ class TestCreateParser:
         parser = create_parser()
 
         assert isinstance(parser, argparse.ArgumentParser)
-        assert "MetaQuest" in parser.description
+        assert "PREPARE" in parser.description
 
     def test_create_parser_version_argument(self):
         """Test version argument is configured."""
@@ -213,8 +213,8 @@ class TestCreateParser:
 class TestMainFunction:
     """Test main function execution."""
 
-    @patch("metaquest.cli.main.setup_logging")
-    @patch("metaquest.cli.main.create_parser")
+    @patch("prepare.cli.main.setup_logging")
+    @patch("prepare.cli.main.create_parser")
     def test_main_successful_execution(self, mock_create_parser, mock_setup_logging):
         """Test successful command execution."""
         # Mock parser and args
@@ -234,8 +234,8 @@ class TestMainFunction:
         assert mock_setup_logging.call_args.kwargs["level"] == logging.INFO
         mock_args.func.assert_called_once_with(mock_args)
 
-    @patch("metaquest.cli.main.setup_logging")
-    @patch("metaquest.cli.main.create_parser")
+    @patch("prepare.cli.main.setup_logging")
+    @patch("prepare.cli.main.create_parser")
     def test_main_command_failure(self, mock_create_parser, mock_setup_logging):
         """Test command execution failure."""
         # Mock parser and args with failing command
@@ -255,9 +255,9 @@ class TestMainFunction:
         assert mock_setup_logging.call_args.kwargs["level"] == logging.ERROR
         mock_args.func.assert_called_once_with(mock_args)
 
-    @patch("metaquest.cli.main.logging.error")
-    @patch("metaquest.cli.main.setup_logging")
-    @patch("metaquest.cli.main.create_parser")
+    @patch("prepare.cli.main.logging.error")
+    @patch("prepare.cli.main.setup_logging")
+    @patch("prepare.cli.main.create_parser")
     def test_main_exception_handling(self, mock_create_parser, mock_setup_logging, mock_log_error):
         """Test exception handling in main function."""
         # Mock parser and args that raise exception
@@ -278,8 +278,8 @@ class TestMainFunction:
         mock_log_error.assert_called_once()
         assert mock_log_error.call_args.args == ("Exception: Test error",)
 
-    @patch("metaquest.cli.main.setup_logging")
-    @patch("metaquest.cli.main.create_parser")
+    @patch("prepare.cli.main.setup_logging")
+    @patch("prepare.cli.main.create_parser")
     def test_main_different_log_levels(self, mock_create_parser, mock_setup_logging):
         """Test main function with different log levels."""
         log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -304,10 +304,10 @@ class TestMainFunction:
             mock_setup_logging.assert_called_once()
             assert mock_setup_logging.call_args.kwargs["level"] == expected_level
 
-    @patch("metaquest.cli.main.sys.argv", ["metaquest"])
+    @patch("prepare.cli.main.sys.argv", ["prepare"])
     def test_main_no_args_uses_sys_argv(self):
         """Test that main() with no args uses sys.argv."""
-        with patch("metaquest.cli.main.create_parser") as mock_create_parser:
+        with patch("prepare.cli.main.create_parser") as mock_create_parser:
             mock_parser = Mock()
             mock_parser.parse_args.side_effect = SystemExit(2)  # Help message exit
             mock_create_parser.return_value = mock_parser
@@ -320,8 +320,8 @@ class TestMainFunction:
 
     def test_main_with_explicit_args(self):
         """Test main() with explicit argument list."""
-        with patch("metaquest.cli.main.create_parser") as mock_create_parser:
-            with patch("metaquest.cli.main.setup_logging"):
+        with patch("prepare.cli.main.create_parser") as mock_create_parser:
+            with patch("prepare.cli.main.setup_logging"):
                 mock_parser = Mock()
                 mock_args = Mock()
                 mock_args.log_level = "INFO"
@@ -348,7 +348,7 @@ class TestMainIntegration:
 
             assert exc_info.value.code == 0
             output = mock_stdout.getvalue()
-            assert "MetaQuest v" in output
+            assert "PREPARE v" in output
 
     def test_main_integration_help(self):
         """Test help display integration."""
@@ -358,7 +358,7 @@ class TestMainIntegration:
 
             assert exc_info.value.code == 0
             output = mock_stdout.getvalue()
-            assert "MetaQuest" in output
+            assert "PREPARE" in output
             assert "usage:" in output
 
     def test_main_integration_invalid_command(self):
@@ -369,11 +369,11 @@ class TestMainIntegration:
 
             assert exc_info.value.code != 0
 
-    @patch("metaquest.cli.main.setup_logging")
+    @patch("prepare.cli.main.setup_logging")
     def test_main_integration_valid_command_structure(self, mock_setup_logging):
         """Test that a valid command can be parsed (without executing)."""
         # This tests the full parser setup without actually running commands
-        with patch("metaquest.cli.main.register_all_commands"):
+        with patch("prepare.cli.main.register_all_commands"):
             with patch.object(command_registry, "setup_parsers"):
                 # Mock a simple command execution
                 with patch("argparse.ArgumentParser.parse_args") as mock_parse:

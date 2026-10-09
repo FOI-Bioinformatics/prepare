@@ -16,15 +16,15 @@ import threading
 from pathlib import Path
 from unittest.mock import patch
 
-from metaquest.cli.commands import sra_verdicts
-from metaquest.cli.commands.read_extraction import ExtractTargetReadsCommand
-from metaquest.cli.commands.sra import DownloadSraCommand
-from metaquest.cli.commands.store import StoreAdoptCommand, StoreLinkCommand
-from metaquest.data import registry_blocks as rb
-from metaquest.data.registry import Registry, load_registry, save_registry
-from metaquest.store.layout import init_store, sidecar_path, sra_dir
-from metaquest.store.link import link_dataset
-from metaquest.store.sidecar import Sidecar, read_sidecar, write_sidecar
+from prepare.cli.commands import sra_verdicts
+from prepare.cli.commands.read_extraction import ExtractTargetReadsCommand
+from prepare.cli.commands.sra import DownloadSraCommand
+from prepare.cli.commands.store import StoreAdoptCommand, StoreLinkCommand
+from prepare.data import registry_blocks as rb
+from prepare.data.registry import Registry, load_registry, save_registry
+from prepare.store.layout import init_store, sidecar_path, sra_dir
+from prepare.store.link import link_dataset
+from prepare.store.sidecar import Sidecar, read_sidecar, write_sidecar
 
 from tests.helpers_processes import install_fake_tools
 from tests.test_cli_sra_verdicts import _write_xml
@@ -35,7 +35,7 @@ FASTQ_RECORD = "@r\nACGT\n+\nIIII\n"
 
 def _registry(project, datasets):
     """Write a registry holding ``datasets`` into ``project``; return its path."""
-    path = project / "metaquest_registry.json"
+    path = project / "prepare_registry.json"
     registry = Registry(path=path)
     registry.datasets.update(json.loads(json.dumps(datasets)))
     save_registry(registry, path)
@@ -64,7 +64,7 @@ def _link_args(project, root, accept_partial=False):
     return argparse.Namespace(
         accessions=[ACC],
         fastq_folder=str(project / "fastq"),
-        registry=str(project / "metaquest_registry.json"),
+        registry=str(project / "prepare_registry.json"),
         data_root=str(root),
         link_mode="auto",
         accept_partial=accept_partial,
@@ -171,7 +171,7 @@ def test_store_link_judges_a_short_copy_by_the_project_metadata_xml(tmp_path):
 
 
 def test_store_link_leaves_the_sidecar_alone_while_another_run_holds_the_lock(tmp_path, caplog):
-    from metaquest.store.locks import dataset_lock
+    from prepare.store.locks import dataset_lock
 
     paths = init_store(tmp_path / "store")
     _store_copy(paths, reads=10)
@@ -206,7 +206,7 @@ def _adopt(project, root):
     args = argparse.Namespace(
         fastq_folder="fastq",
         data_root=str(root),
-        registry=str(project / "metaquest_registry.json"),
+        registry=str(project / "prepare_registry.json"),
         move=True,
         dry_run=False,
         compress=False,
@@ -268,7 +268,7 @@ def _download_args(project, root, *extra):
             "--fastq-folder",
             str(project / "fastq"),
             "--registry",
-            str(project / "metaquest_registry.json"),
+            str(project / "prepare_registry.json"),
             "--data-root",
             str(root),
             "--min-free-gb",
@@ -314,7 +314,7 @@ def test_copy_mode_project_records_truncated_for_an_incomplete_store_result(tmp_
     )
     calls = []
 
-    with patch("metaquest.data.sra.accession.download_accession", side_effect=_fake_fetch(calls, 1)):
+    with patch("prepare.data.sra.accession.download_accession", side_effect=_fake_fetch(calls, 1)):
         rc = DownloadSraCommand().execute(_download_args(project, paths.root, "--link-mode", "copy", "--force"))
 
     assert rc == 1
@@ -341,7 +341,7 @@ def test_a_partial_store_result_is_fetched_once_per_run(tmp_path, monkeypatch):
     _registry(project, {ACC: {"metadata": {"run_total_spots": 100}}})
     calls = []
 
-    with patch("metaquest.data.sra.accession.download_accession", side_effect=_fake_fetch(calls, 5)):
+    with patch("prepare.data.sra.accession.download_accession", side_effect=_fake_fetch(calls, 5)):
         rc = DownloadSraCommand().execute(_download_args(project, paths.root))
 
     assert rc == 1

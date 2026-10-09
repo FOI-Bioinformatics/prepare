@@ -1,4 +1,4 @@
-"""Tests for targeted read extraction (metaquest.data.read_extraction)."""
+"""Tests for targeted read extraction (prepare.data.read_extraction)."""
 
 import gzip
 import json
@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from metaquest.core.exceptions import DataAccessError, ProcessingError, SecurityError
-from metaquest.data.read_extraction import (
+from prepare.core.exceptions import DataAccessError, ProcessingError, SecurityError
+from prepare.data.read_extraction import (
     ExtractionResult,
     _map_and_extract,
     _minimap2_map_args,
@@ -34,7 +34,7 @@ from metaquest.data.read_extraction import (
     summarise_contigs,
     summarise_coverage_table,
 )
-from metaquest.data.registry import load_registry, record_extraction, resolve_project_path, save_registry
+from prepare.data.registry import load_registry, record_extraction, resolve_project_path, save_registry
 from helpers_extraction import _fake_tools, coverage_table
 
 
@@ -110,7 +110,7 @@ class TestSampleReads:
 
 
 class TestExtractTargetReads:
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_paired_extraction_command_construction(self, mock_run):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -143,7 +143,7 @@ class TestExtractTargetReads:
         assert all(flag in fastq_args for flag in ("-1", "-2", "-s", "-0", "-@"))
         assert state["calls"][6][1][0] == "sort" and state["calls"][7][1][0] == "coverage"
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_single_end_uses_flag_0(self, mock_run):
         state = {"nonempty": ("-0",)}
         mock_run.side_effect = _fake_tools(state)
@@ -162,7 +162,7 @@ class TestExtractTargetReads:
         assert "-0" in fastq_args
         assert "-@" in fastq_args
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_zero_mapped_records_writes_nothing(self, mock_run, caplog):
         state = {"mapped": 0}
         mock_run.side_effect = _fake_tools(state)
@@ -184,7 +184,7 @@ class TestExtractTargetReads:
         # samtools fastq are all skipped.
         assert [c[0] for c in state["calls"]] == ["minimap2", "minimap2", "samtools"]
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_unequal_mates_fall_back_to_orphan_file(self, mock_run, caplog):
         state = {"unequal": True, "nonempty": ("-0",)}
         mock_run.side_effect = _fake_tools(state)
@@ -202,7 +202,7 @@ class TestExtractTargetReads:
             assert [p.name for p in results["SRR1"].files] == ["GCF_1_0.fastq.gz"]
         assert "different read counts" in caplog.text
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_mapped_count_is_logged(self, mock_run, caplog):
         state = {"mapped": 1234}
         mock_run.side_effect = _fake_tools(state)
@@ -219,7 +219,7 @@ class TestExtractTargetReads:
                 )
         assert "1234 mapped records for SRR1" in caplog.text
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_dry_run_runs_no_tools(self, mock_run):
         seen = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -238,7 +238,7 @@ class TestExtractTargetReads:
         mock_run.assert_not_called()
         assert seen == []  # a dry run records nothing
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_on_result_runs_per_sample_and_failures_are_isolated(self, mock_run, caplog):
         """A callback that raises for one sample must not stop the next sample's extraction."""
         mock_run.side_effect = _fake_tools({})
@@ -276,7 +276,7 @@ class TestExtractTargetReads:
             with pytest.raises(ProcessingError):
                 extract_target_reads(table, "GCF_1", genome, preset="not-a-preset")
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_missing_genome_fasta_raises(self, mock_run):
         with tempfile.TemporaryDirectory() as tmp:
             root, table, _ = _make_tree(tmp)
@@ -292,7 +292,7 @@ class TestBuildIndex:
         genome.write_text(">s\nACGT\n")
         index_dir = tmp_path / ".index"
         state = {}
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
             first = build_index(genome, "sr", index_dir)
             assert len(state["calls"]) == 1
             executable, args = state["calls"][0]
@@ -314,7 +314,7 @@ class TestBuildIndex:
         genome.write_text(">s\nACGT\n")
         index_dir = tmp_path / ".index"
         state = {"empty_index": True}
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
             with pytest.raises(ProcessingError, match="empty"):
                 build_index(genome, "sr", index_dir)
         assert [p.name for p in index_dir.iterdir() if not p.name.endswith(".lock")] == []
@@ -324,7 +324,7 @@ class TestBuildIndex:
         genome.write_text(">s\nACGT\n")
         index_dir = tmp_path / ".index"
         state = {}
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
             index = build_index(genome, "sr", index_dir)
             index.write_bytes(b"")
             again = build_index(genome, "sr", index_dir)
@@ -350,7 +350,7 @@ class TestBuildIndex:
 
         index_dir = tmp_path / ".index"
         state = {}
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
             first = build_index(old, "sr", index_dir)
             second = build_index(new, "sr", index_dir)
 
@@ -368,7 +368,7 @@ class TestBuildIndex:
             Path(args[args.index("-d") + 1]).write_bytes(b"half")  # a partial index
             raise SecurityError("minimap2 refused the command")
 
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=failing_build):
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=failing_build):
             with pytest.raises(SecurityError):
                 build_index(genome, "sr", index_dir)
 
@@ -380,7 +380,7 @@ class TestBuildIndex:
         genome.write_text(">s\nACGT\n")
         index_dir = tmp_path / ".index"
         state = {}
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
             index_path = build_index(genome, "sr", index_dir)
             assert len(state["calls"]) == 1
 
@@ -396,7 +396,7 @@ class TestBuildIndex:
 
 
 class TestIndexReuseAcrossSamples:
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_index_built_once_for_three_samples_and_reused(self, mock_run):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -416,7 +416,7 @@ class TestIndexReuseAcrossSamples:
 
 
 class TestMapqAndSamLifetime:
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_min_mapq_passed_to_the_filter_and_logged(self, mock_run, caplog):
         state = {"mapped_total": 100, "mapped": 80}
         mock_run.side_effect = _fake_tools(state)
@@ -438,7 +438,7 @@ class TestMapqAndSamLifetime:
         assert args[args.index("-q") + 1] == "20"
         assert "kept 80 of 100 mapped records (secondary/supplementary and MAPQ below 20 removed: 20)" in caplog.text
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_no_min_mapq_omits_the_q_flag(self, mock_run):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -455,7 +455,7 @@ class TestMapqAndSamLifetime:
         filter_call = next(c for c in state["calls"] if c[0] == "samtools" and c[1][:2] == ["view", "-b"])
         assert "-q" not in filter_call[1]
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_sam_is_removed_after_the_run(self, mock_run):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -471,7 +471,7 @@ class TestMapqAndSamLifetime:
             )
             assert list((root / "targeted" / "SRR1").glob("*.sam")) == []
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_sam_is_kept_with_the_debug_flag(self, mock_run):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -488,7 +488,7 @@ class TestMapqAndSamLifetime:
             )
             assert len(list((root / "targeted" / "SRR1").glob("*.sam"))) == 1
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_sam_written_under_temp_folder_when_given(self, mock_run):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -531,7 +531,7 @@ class TestSamHitOnly:
         args = _minimap2_map_args("sr", 4, Path("out.sam"), Path("ref.mmi"), [Path("r.fastq.gz")])
         assert "--sam-hit-only" in args
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_mapped_total_and_kept_count_are_pinned(self, mock_run, tmp_path):
         state = {"sam_records": self.RECORDS}
         mock_run.side_effect = _fake_tools(state)
@@ -553,7 +553,7 @@ class TestSamHitOnly:
         align_call = next(c for c in state["calls"] if c[0] == "minimap2")
         assert "--sam-hit-only" in align_call[1]
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_assembly_coverage_mapping_rate_is_pinned(self, mock_run, tmp_path):
         state = {"sam_records": self.RECORDS}
         mock_run.side_effect = _fake_tools(state)
@@ -570,7 +570,7 @@ class TestSamHitOnly:
 
 
 class TestTruncatedDownloadSkip:
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_truncated_sample_is_skipped_by_default(self, mock_run, caplog):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -591,7 +591,7 @@ class TestTruncatedDownloadSkip:
         assert not mock_run.called
         assert "skipped SRR1: download truncated (5 of 20 spots); use --allow-truncated" in caplog.text
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_allow_truncated_extracts_anyway(self, mock_run):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -613,7 +613,7 @@ class TestTruncatedDownloadSkip:
 
 
 class TestMateCountMismatch:
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_mismatched_mate_counts_map_single_end_without_the_stderr_marker(self, mock_run, caplog):
         """mate_counts alone (no minimap2 stderr marker) is enough to trigger the fallback."""
         state = {"nonempty": ("-0",)}
@@ -643,7 +643,7 @@ class TestMateCountMismatch:
         cat_calls = [c for c in state["calls"] if c[0] == "samtools" and c[1][:1] == ["cat"]]
         assert len(cat_calls) == 1
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_matching_mate_counts_map_as_a_pair(self, mock_run):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -680,7 +680,7 @@ class TestRecordMatches:
 
 
 class TestExtractionIdempotency:
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_recorded_extraction_is_skipped_unless_forced(self, mock_run):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -730,7 +730,7 @@ class TestExtractionIdempotency:
             )
             assert forced["SRR1"].skipped is False and len(state["calls"]) > calls_before
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_assembly_skips_existing_contigs_and_redoes_empty_dir(self, mock_run, caplog):
         mock_run.side_effect = _fake_tools({})
         with tempfile.TemporaryDirectory() as tmp:
@@ -747,7 +747,7 @@ class TestExtractionIdempotency:
             assert (out / "final.contigs.fa").exists()
             assert [p.name for p in Path(tmp).iterdir()] == ["asm"]  # no staging folder left behind
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_inferred_record_without_parameters_is_skipped(self, mock_run):
         """A record bootstrapped from disk has no parameters; each missing one is a wildcard."""
         state = {}
@@ -781,7 +781,7 @@ class TestExtractionIdempotency:
             )
             assert again["SRR1"].skipped is True and len(state["calls"]) == calls_before
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_inferred_zero_mapped_record_is_skipped(self, mock_run):
         mock_run.side_effect = _fake_tools({})
         with tempfile.TemporaryDirectory() as tmp:
@@ -798,7 +798,7 @@ class TestExtractionIdempotency:
         assert results["SRR1"].skipped is True
         mock_run.assert_not_called()
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_redo_reason_names_missing_output(self, mock_run, caplog):
         """The recorded parameters still match, but a recorded output file was removed from
         disk; the redo log must name that reason, not blame the parameters."""
@@ -828,7 +828,7 @@ class TestExtractionIdempotency:
         assert "recorded output file missing" in caplog.text
         assert "recorded parameters differ" not in caplog.text
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_relative_genome_path_matches_recorded_path(self, mock_run, monkeypatch):
         """./genomes/x.fna and genomes/x.fna are the same file, so the record still matches."""
         mock_run.side_effect = _fake_tools({})
@@ -857,7 +857,7 @@ class TestExtractionIdempotency:
         assert results["SRR1"].skipped is True
         mock_run.assert_not_called()
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_resolved_record_still_matches_after_the_project_directory_is_renamed(self, mock_run, tmp_path):
         """A registry record is written under the project's original location, the project
         directory is then renamed, and the registry (now loaded from the new location) is
@@ -874,7 +874,7 @@ class TestExtractionIdempotency:
         for f in extracted_files:
             f.write_text("@r\nACGT\n+\nIIII\n")
 
-        registry_file = old_root / "metaquest_registry.json"
+        registry_file = old_root / "prepare_registry.json"
         registry = load_registry(registry_file)
         record_extraction(
             registry,
@@ -890,7 +890,7 @@ class TestExtractionIdempotency:
         new_root = tmp_path / "b"
         old_root.rename(new_root)
 
-        reloaded = load_registry(new_root / "metaquest_registry.json")
+        reloaded = load_registry(new_root / "prepare_registry.json")
         stored = reloaded.datasets["SRR1"]["extractions"]["GCF_1"]
         resolved_record = {
             "SRR1": {
@@ -912,7 +912,7 @@ class TestExtractionIdempotency:
         assert results["SRR1"].skipped is True
         mock_run.assert_not_called()
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_dry_run_reports_would_be_skips(self, mock_run, caplog):
         mock_run.side_effect = _fake_tools({})
         with tempfile.TemporaryDirectory() as tmp:
@@ -962,7 +962,7 @@ class TestExtractionIdempotency:
         assert caplog.text.count("No FASTQ files found for") == 0
         assert "1 of the 3 selected sample(s) have no FASTQ" in caplog.text
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_available_filter_keeps_already_done_samples_without_fastq(self, mock_run, tmp_path, caplog):
         """A sample whose extraction is already recorded must not be dropped as 'no FASTQ'
         just because its input FASTQ folder is gone (e.g. after store_gc/store_unlink runs
@@ -1007,7 +1007,7 @@ class TestExtractionIdempotency:
 
 
 class TestAssembleExtractedReads:
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_paired_uses_1_2(self, mock_run, tmp_path):
         mock_run.side_effect = _fake_tools({})
         out, ran = assemble_extracted_reads([Path("a_1.fastq.gz"), Path("a_2.fastq.gz")], tmp_path / "asm")
@@ -1015,7 +1015,7 @@ class TestAssembleExtractedReads:
         args = mock_run.call_args.args[1]
         assert "-1" in args and "-2" in args and "-r" not in args
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_single_uses_r(self, mock_run, tmp_path):
         mock_run.side_effect = _fake_tools({})
         assemble_extracted_reads([Path("a.fastq.gz")], tmp_path / "asm", min_contig_len=500)
@@ -1026,21 +1026,21 @@ class TestAssembleExtractedReads:
         with pytest.raises(ProcessingError):
             assemble_extracted_reads([], "asm")
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_default_preset_added_to_the_megahit_args(self, mock_run, tmp_path):
         mock_run.side_effect = _fake_tools({})
         assemble_extracted_reads([Path("a.fastq.gz")], tmp_path / "asm")
         args = mock_run.call_args.args[1]
         assert args[args.index("--presets") + 1] == "meta-sensitive"
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_explicit_preset_added_to_the_megahit_args(self, mock_run, tmp_path):
         mock_run.side_effect = _fake_tools({})
         assemble_extracted_reads([Path("a.fastq.gz")], tmp_path / "asm", preset="meta-large")
         args = mock_run.call_args.args[1]
         assert args[args.index("--presets") + 1] == "meta-large"
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_default_and_none_preset_omit_the_flag(self, mock_run, tmp_path):
         mock_run.side_effect = _fake_tools({})
         assemble_extracted_reads([Path("a.fastq.gz")], tmp_path / "asm", preset="default")
@@ -1052,7 +1052,7 @@ class TestAssembleExtractedReads:
         with pytest.raises(ProcessingError, match="cannot be combined"):
             assemble_extracted_reads([Path("a.fastq.gz")], "asm", preset="meta-sensitive", k_flags={"k-min": 21})
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_explicit_k_values_used_without_a_preset(self, mock_run, tmp_path):
         mock_run.side_effect = _fake_tools({})
         assemble_extracted_reads(
@@ -1063,7 +1063,7 @@ class TestAssembleExtractedReads:
         assert args[args.index("--k-max") + 1] == "141"
         assert "--presets" not in args
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_intermediate_contigs_removed_by_default(self, mock_run):
         mock_run.side_effect = _fake_tools({})
         with tempfile.TemporaryDirectory() as tmp:
@@ -1072,7 +1072,7 @@ class TestAssembleExtractedReads:
             assert (out / "final.contigs.fa").exists()
             assert not (out / "intermediate_contigs").exists()
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_intermediate_contigs_kept_when_requested(self, mock_run):
         mock_run.side_effect = _fake_tools({})
         with tempfile.TemporaryDirectory() as tmp:
@@ -1080,7 +1080,7 @@ class TestAssembleExtractedReads:
             assemble_extracted_reads([Path(tmp) / "r1.fq.gz"], out, keep_intermediate=True)
             assert (out / "intermediate_contigs").exists()
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_a_reused_assembly_keeps_its_intermediate_contigs(self, mock_run):
         """The reuse path returns before the cleanup, so a kept folder is not removed by a
         later run that does not reassemble."""
@@ -1103,7 +1103,7 @@ class TestAssembleExtractedReads:
         err = subprocess.CalledProcessError(
             1, ["megahit"], output="", stderr="line1\nOSError: [Errno 45] Operation not supported\n"
         )
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=err):
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=err):
             with pytest.raises(ProcessingError) as excinfo:
                 assemble_extracted_reads(reads, tmp_path / "asm", threads=1, tmp_dir=tmp_path / "scratch")
         assert "Operation not supported" in str(excinfo.value)
@@ -1112,7 +1112,7 @@ class TestAssembleExtractedReads:
         state = {"calls": []}
         reads = [tmp_path / "r.fastq.gz"]
         reads[0].write_bytes(b"x")
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
             assemble_extracted_reads(reads, tmp_path / "asm", threads=1, tmp_dir=tmp_path / "scratch")
         megahit_call = next(c for c in state["calls"] if c[0] == "megahit")
         assert "--tmp-dir" in megahit_call[1]
@@ -1124,7 +1124,7 @@ class TestAssembleExtractedReads:
         reads = [tmp_path / "r.fastq.gz"]
         reads[0].write_bytes(b"x")
         out_dir = tmp_path / "asm"
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure") as mock_run:
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure") as mock_run:
             with pytest.raises(ProcessingError, match="must not"):
                 assemble_extracted_reads(reads, out_dir, threads=1, tmp_dir=out_dir / "scratch")
         mock_run.assert_not_called()
@@ -1133,22 +1133,22 @@ class TestAssembleExtractedReads:
 
 class TestResolveAssemblyThreads:
     def test_explicit_request_wins(self, monkeypatch):
-        monkeypatch.setattr("metaquest.data.read_extraction.platform.system", lambda: "Darwin")
+        monkeypatch.setattr("prepare.data.read_extraction.platform.system", lambda: "Darwin")
         assert resolve_assembly_threads(8, 4) == 8
 
     def test_macos_defaults_to_single_thread(self, monkeypatch):
-        monkeypatch.setattr("metaquest.data.read_extraction.platform.system", lambda: "Darwin")
+        monkeypatch.setattr("prepare.data.read_extraction.platform.system", lambda: "Darwin")
         assert resolve_assembly_threads(None, 4) == 1
 
     def test_non_macos_uses_fallback(self, monkeypatch):
-        monkeypatch.setattr("metaquest.data.read_extraction.platform.system", lambda: "Linux")
+        monkeypatch.setattr("prepare.data.read_extraction.platform.system", lambda: "Linux")
         assert resolve_assembly_threads(None, 4) == 4
 
 
 class TestRunMinimap2Retry:
     """_run_minimap2 retries once against the FASTA when the prebuilt index fails."""
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_index_failure_retries_against_the_fasta_and_warns(self, mock_run, tmp_path, caplog):
         genome = tmp_path / "g.fna"
         genome.write_text(">s\nACGT\n")
@@ -1170,7 +1170,7 @@ class TestRunMinimap2Retry:
         assert str(index_path) not in second_call.args[1]
         assert "retrying against the FASTA directly" in caplog.text
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_a_rejected_command_also_falls_back(self, mock_run, tmp_path):
         ok_result = MagicMock(returncode=0, stdout="", stderr="")
         mock_run.side_effect = [SecurityError("command timed out"), ok_result]
@@ -1182,7 +1182,7 @@ class TestRunMinimap2Retry:
         assert result is ok_result
         assert mock_run.call_count == 2
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_an_interrupt_is_not_swallowed_by_the_fallback(self, mock_run, tmp_path):
         """Ctrl-C is not a reason to run minimap2 a second time."""
         mock_run.side_effect = KeyboardInterrupt()
@@ -1247,7 +1247,7 @@ class TestFastaLength:
 
 
 class TestAssemblyCoverage:
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_coverage_numbers_from_faked_counts(self, mock_run, tmp_path):
         mock_run.side_effect = _fake_tools({"coverage_mapped": 8})
         contigs = tmp_path / "final.contigs.fa"
@@ -1264,7 +1264,7 @@ class TestAssemblyCoverage:
         assert not (tmp_path / "coverage.sam").exists()
         assert not (tmp_path / "coverage.bam").exists()
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_mapping_rate_is_none_when_mapped_reads_is_unknown_or_zero(self, mock_run, tmp_path):
         mock_run.side_effect = _fake_tools({})
         contigs = tmp_path / "final.contigs.fa"
@@ -1276,7 +1276,7 @@ class TestAssemblyCoverage:
         assert assembly_coverage(contigs, [reads_file], "sr", 2, tmp_path, mapped_reads=None)["mapping_rate"] is None
         assert assembly_coverage(contigs, [reads_file], "sr", 2, tmp_path, mapped_reads=0)["mapping_rate"] is None
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_mean_depth_is_none_for_an_assembly_with_no_contigs(self, mock_run, tmp_path):
         """No contigs means no depth to report, which 0.0 would misstate as a measurement."""
         mock_run.side_effect = _fake_tools({})
@@ -1290,7 +1290,7 @@ class TestAssemblyCoverage:
 
         assert result["mean_depth_estimate"] is None
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_minimap2_and_samtools_args_shape(self, mock_run, tmp_path):
         mock_run.side_effect = _fake_tools({})
         contigs = tmp_path / "final.contigs.fa"
@@ -1349,7 +1349,7 @@ class TestReferenceCoverage:
         assert summary["reference_bp"] == 0
         assert summary["breadth"] is None and summary["mean_depth"] is None
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_reference_coverage_returns_the_summary_and_table_path(self, mock_run, tmp_path):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -1367,7 +1367,7 @@ class TestReferenceCoverage:
         assert state["calls"][0][1] == ["sort", "-@", "2", "-o", str(sorted_bam), str(bam)]
         assert state["calls"][1][1] == ["coverage", "-o", str(tsv), str(sorted_bam)]
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_extraction_writes_the_table_and_records_breadth(self, mock_run, tmp_path):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -1384,7 +1384,7 @@ class TestReferenceCoverage:
         subcommands = [args[0] for tool, args in state["calls"] if tool == "samtools"]
         assert subcommands.index("fastq") < subcommands.index("sort") < subcommands.index("coverage")
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_zero_mapped_sample_runs_neither_sort_nor_coverage(self, mock_run, tmp_path):
         state = {"mapped": 0, "mapped_total": 0}
         mock_run.side_effect = _fake_tools(state)
@@ -1394,7 +1394,7 @@ class TestReferenceCoverage:
         subcommands = [args[0] for tool, args in state["calls"] if tool == "samtools"]
         assert "sort" not in subcommands and "coverage" not in subcommands
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_zero_kept_after_filter_runs_neither_sort_nor_coverage(self, mock_run, tmp_path):
         state = {"mapped": 0, "mapped_total": 5}
         mock_run.side_effect = _fake_tools(state)
@@ -1404,12 +1404,12 @@ class TestReferenceCoverage:
         subcommands = [args[0] for tool, args in state["calls"] if tool == "samtools"]
         assert "sort" not in subcommands and "coverage" not in subcommands
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_coverage_failure_is_a_warning_and_the_fastq_still_lands(self, mock_run, tmp_path, caplog):
         state = {"coverage_fail": True}
         mock_run.side_effect = _fake_tools(state)
         root, table, genome = _make_tree(tmp_path, paired=True)
-        with caplog.at_level(logging.WARNING, logger="metaquest.data.read_extraction"):
+        with caplog.at_level(logging.WARNING, logger="prepare.data.read_extraction"):
             results = self._extract(root, table, genome)
         sample_dir = root / "targeted" / "SRR1"
         assert results["SRR1"].coverage is None
@@ -1422,7 +1422,7 @@ class TestReferenceCoverage:
             for r in caplog.records
         )
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_sorted_bam_is_placed_under_the_temp_folder(self, mock_run, tmp_path):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -1433,7 +1433,7 @@ class TestReferenceCoverage:
         assert Path(sort_args[sort_args.index("-o") + 1]) == temp_folder / "GCF_1.mapped.sorted.bam"
         assert list(temp_folder.glob("*.sorted.bam")) == []
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_forced_rerun_with_zero_mapped_removes_an_earlier_table(self, mock_run, tmp_path):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -1446,7 +1446,7 @@ class TestReferenceCoverage:
         assert results["SRR1"].coverage is None
         assert not tsv.exists()
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_forced_rerun_with_zero_kept_removes_an_earlier_table(self, mock_run, tmp_path):
         state = {}
         mock_run.side_effect = _fake_tools(state)
@@ -1465,9 +1465,9 @@ class TestOldMinimap2WithoutSamHitOnly:
 
     OLD_STDERR = '[ERROR] unknown option in "--sam-hit-only"\n'
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_unknown_option_is_a_configuration_error(self, mock_run, tmp_path):
-        from metaquest.core.exceptions import ConfigurationError
+        from prepare.core.exceptions import ConfigurationError
 
         state = {"minimap2_fail_stderr": self.OLD_STDERR}
         mock_run.side_effect = _fake_tools(state)
@@ -1479,7 +1479,7 @@ class TestOldMinimap2WithoutSamHitOnly:
         # No retry against the FASTA: the same option would be rejected again.
         assert [call[0] for call in state["calls"]] == ["minimap2"]
 
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_other_failures_still_fall_back_to_the_fasta(self, mock_run, tmp_path):
         state = {"minimap2_fail_stderr": "[ERROR] failed to open file 'g.sr.mmi'\n"}
         mock_run.side_effect = _fake_tools(state)
@@ -1493,17 +1493,17 @@ class TestOldMinimap2WithoutSamHitOnly:
 class TestMegahitVersion:
     """The version probe always passes VERSION_PROBE_TIMEOUT, not the run's subprocess_timeout."""
 
-    @patch("metaquest.utils.tools.shutil.which", return_value="/usr/bin/megahit")
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.utils.tools.shutil.which", return_value="/usr/bin/megahit")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_passes_the_fixed_probe_timeout(self, mock_run, _which):
-        from metaquest.core.constants import VERSION_PROBE_TIMEOUT
+        from prepare.core.constants import VERSION_PROBE_TIMEOUT
 
         mock_run.return_value = MagicMock(stdout="MEGAHIT v1.2.9\n", stderr="", returncode=0)
         assert megahit_version() == "MEGAHIT v1.2.9"
         mock_run.assert_called_once_with("megahit", ["--version"], timeout=VERSION_PROBE_TIMEOUT, check=False)
 
-    @patch("metaquest.utils.tools.shutil.which", return_value="/usr/bin/megahit")
-    @patch("metaquest.data.read_extraction.SecureSubprocess.run_secure")
+    @patch("prepare.utils.tools.shutil.which", return_value="/usr/bin/megahit")
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_returns_empty_when_the_tool_cannot_be_run(self, mock_run, _which):
         mock_run.side_effect = SecurityError("not installed")
         assert megahit_version() == ""

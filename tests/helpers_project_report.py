@@ -9,8 +9,8 @@ and three run-log lines. The FASTQ files exist so a test can check that the repo
 import json
 from pathlib import Path
 
-from metaquest.data import run_log
-from metaquest.data.registry import (
+from prepare.data import run_log
+from prepare.data.registry import (
     REGISTRY_FILENAME,
     Registry,
     record_analysis,
@@ -24,8 +24,8 @@ from metaquest.data.registry import (
     save_registry,
     set_download_verdict,
 )
-from metaquest.data.registry_timing import set_assembly_timing, set_download_timing, set_extraction_timing
-from metaquest.data.run_log import RunRecord
+from prepare.data.registry_timing import set_assembly_timing, set_download_timing, set_extraction_timing
+from prepare.data.run_log import RunRecord
 
 FAILED_MESSAGE = "Retry 2: Connection reset by peer"
 

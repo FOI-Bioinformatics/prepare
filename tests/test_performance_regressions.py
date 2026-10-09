@@ -15,7 +15,7 @@ Fixtures live in ``tests/perf_fixtures.py``: a synthetic 20,000-dataset project 
 through the real ``record_*`` writers, a 100,000-record gzip FASTQ file, 300 synthetic NCBI efetch
 metadata XML files, and a 20,000 x 5 containment table.
 
-Every time bound (not the memory bound) is multiplied by the ``METAQUEST_PERF_SCALE`` environment
+Every time bound (not the memory bound) is multiplied by the ``PREPARE_PERF_SCALE`` environment
 variable (default 1, at least 1; CI sets 4 for its shared runners), and each failure message prints the
 scale in effect.
 
@@ -35,14 +35,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from metaquest.cli.commands.sra import DownloadSraCommand
-from metaquest.data import registry as registry_mod
-from metaquest.data import registry_blocks as rb
-from metaquest.data.branchwater import _generate_containment_summary
-from metaquest.data.metadata import parse_metadata
-from metaquest.data.sra import sample_records
-from metaquest.processing.results import results_rows
-from metaquest.processing.status_report import build_report
+from prepare.cli.commands.sra import DownloadSraCommand
+from prepare.data import registry as registry_mod
+from prepare.data import registry_blocks as rb
+from prepare.data.branchwater import _generate_containment_summary
+from prepare.data.metadata import parse_metadata
+from prepare.data.sra import sample_records
+from prepare.processing.results import results_rows
+from prepare.processing.status_report import build_report
 from tests.perf_fixtures import (
     build_registry,
     containment_data,
@@ -52,17 +52,17 @@ from tests.perf_fixtures import (
 
 
 def _read_scale(text):
-    """The perf time-bound factor parsed from ``METAQUEST_PERF_SCALE``; values below 1 are rejected."""
+    """The perf time-bound factor parsed from ``PREPARE_PERF_SCALE``; values below 1 are rejected."""
     try:
         scale = float(text)
     except ValueError:
-        raise ValueError(f"METAQUEST_PERF_SCALE must be a number of at least 1, got {text!r}") from None
+        raise ValueError(f"PREPARE_PERF_SCALE must be a number of at least 1, got {text!r}") from None
     if not scale >= 1:
-        raise ValueError(f"METAQUEST_PERF_SCALE must be at least 1, got {text!r}")
+        raise ValueError(f"PREPARE_PERF_SCALE must be at least 1, got {text!r}")
     return scale
 
 
-PERF_SCALE = _read_scale(os.environ.get("METAQUEST_PERF_SCALE", "1"))
+PERF_SCALE = _read_scale(os.environ.get("PREPARE_PERF_SCALE", "1"))
 
 
 def _scaled(bound):
@@ -72,7 +72,7 @@ def _scaled(bound):
 
 def _over(label, elapsed, bound):
     """Failure message naming the measured time, the scaled bound and the scale factor."""
-    return f"{label} took {elapsed:.2f} s (bound {_scaled(bound):.2f} s, METAQUEST_PERF_SCALE={PERF_SCALE:g})"
+    return f"{label} took {elapsed:.2f} s (bound {_scaled(bound):.2f} s, PREPARE_PERF_SCALE={PERF_SCALE:g})"
 
 
 @pytest.fixture(scope="module")
@@ -333,16 +333,16 @@ def test_load_registry_peak_memory_on_20000_datasets_is_bounded(registry_20k):
 
 
 def test_scaled_multiplies_bounds_by_the_perf_scale(monkeypatch):
-    """``_scaled`` applies the module's scale factor, as CI's ``METAQUEST_PERF_SCALE=4`` sets it."""
+    """``_scaled`` applies the module's scale factor, as CI's ``PREPARE_PERF_SCALE=4`` sets it."""
     monkeypatch.setattr(sys.modules[__name__], "PERF_SCALE", 4.0)
     assert _scaled(1.0) == 4.0
-    assert "METAQUEST_PERF_SCALE=4" in _over("x", 5.0, 1.0)
+    assert "PREPARE_PERF_SCALE=4" in _over("x", 5.0, 1.0)
 
 
 @pytest.mark.parametrize("text", ["0.5", "0", "-2", "fast", "nan"])
 def test_perf_scale_below_one_or_not_a_number_is_rejected(text):
     """A scale that would tighten the bounds, or is not a number, is refused with a clear message."""
-    with pytest.raises(ValueError, match="METAQUEST_PERF_SCALE"):
+    with pytest.raises(ValueError, match="PREPARE_PERF_SCALE"):
         _read_scale(text)
 
 

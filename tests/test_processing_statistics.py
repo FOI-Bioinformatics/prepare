@@ -10,7 +10,7 @@ import pandas as pd
 import importlib.util
 import pytest
 
-from metaquest.processing.statistics import (
+from prepare.processing.statistics import (
     calculate_enrichment,
     _validate_distance_method,
     _create_binary_presence_matrix,
@@ -20,10 +20,10 @@ from metaquest.processing.statistics import (
     calculate_distance_matrix,
     perform_hypergeometric_test,
 )
-from metaquest.core.exceptions import ProcessingError
+from prepare.core.exceptions import ProcessingError
 
 requires_analysis = pytest.mark.skipif(
-    not all(importlib.util.find_spec(m) for m in ("sklearn", "scipy")), reason="needs metaquest[analysis]"
+    not all(importlib.util.find_spec(m) for m in ("sklearn", "scipy")), reason="needs prepare[analysis]"
 )
 
 
@@ -606,7 +606,7 @@ class TestEdgeCasesAndErrorHandling:
             for j in range(i + 1, 3):
                 assert result.iloc[i, j] == 1.0
 
-    @patch("metaquest.processing.statistics.logger")
+    @patch("prepare.processing.statistics.logger")
     def test_calculate_distance_matrix_logging(self, mock_logger, tmp_path):
         """Test that appropriate logging occurs."""
         summary_file = tmp_path / "summary.txt"
@@ -741,7 +741,7 @@ class TestCompareGroupMeans:
 
     @requires_analysis
     def test_two_groups_use_a_t_test(self):
-        from metaquest.processing.statistics import compare_group_means
+        from prepare.processing.statistics import compare_group_means
 
         name, statistic, p_value = compare_group_means([np.array([1.0, 2.0, 3.0]), np.array([7.0, 8.0, 9.0])])
         assert name == "t-test"
@@ -750,7 +750,7 @@ class TestCompareGroupMeans:
 
     @requires_analysis
     def test_three_groups_use_anova(self):
-        from metaquest.processing.statistics import compare_group_means
+        from prepare.processing.statistics import compare_group_means
 
         groups = [np.array([1.0, 2.0, 3.0]), np.array([1.5, 2.5, 3.5]), np.array([9.0, 10.0, 11.0])]
         name, statistic, p_value = compare_group_means(groups)
@@ -761,9 +761,9 @@ class TestCompareGroupMeans:
     def test_missing_scipy_names_the_analysis_extra(self, monkeypatch):
         import sys
 
-        from metaquest.core.exceptions import ConfigurationError
-        from metaquest.processing.statistics import compare_group_means
+        from prepare.core.exceptions import ConfigurationError
+        from prepare.processing.statistics import compare_group_means
 
         monkeypatch.setitem(sys.modules, "scipy", None)
-        with pytest.raises(ConfigurationError, match=r"metaquest\[analysis\]"):
+        with pytest.raises(ConfigurationError, match=r"prepare\[analysis\]"):
             compare_group_means([np.array([1.0, 2.0]), np.array([3.0, 4.0])])

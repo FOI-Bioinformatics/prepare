@@ -1,4 +1,4 @@
-"""Tests for the download free-space guard (metaquest.data.sra.space) and the first-pass disk-full abort."""
+"""Tests for the download free-space guard (prepare.data.sra.space) and the first-pass disk-full abort."""
 
 import argparse
 import threading
@@ -9,11 +9,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from metaquest.cli.commands.sra import DownloadSraCommand
-from metaquest.data.registry import load_registry, record_metadata, save_registry
-from metaquest.data.sra import download as download_mod
-from metaquest.data.sra import retry as retry_mod
-from metaquest.data.sra import space as space_mod
+from prepare.cli.commands.sra import DownloadSraCommand
+from prepare.data.registry import load_registry, record_metadata, save_registry
+from prepare.data.sra import download as download_mod
+from prepare.data.sra import retry as retry_mod
+from prepare.data.sra import space as space_mod
 
 GB = space_mod.GB
 E = space_mod.FASTQ_EXPANSION
@@ -415,7 +415,7 @@ class TestDownloadSraGuard:
         assert self._run(tmp_path, min_free_gb=0)["guard"] is None
 
     def test_setting_is_used_when_not_given(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("METAQUEST_MIN_FREE_GB")
+        monkeypatch.delenv("PREPARE_MIN_FREE_GB")
         guard = self._run(tmp_path, run_sizes={"SRR1": 123})["guard"]
         assert guard.floor_bytes == 10 * GB
         assert guard._sizes == {"SRR1": 123}
@@ -440,10 +440,10 @@ class TestDownloadSraGuard:
 
 
 class TestCommand:
-    @patch("metaquest.cli.commands.sra.require_tools")
-    @patch("metaquest.cli.commands.sra.download_sra")
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_run_sizes_and_min_free_gb_reach_download_sra(self, mock_download, _which, tmp_path):
-        registry_path = tmp_path / "metaquest_registry.json"
+        registry_path = tmp_path / "prepare_registry.json"
         seeded = load_registry(registry_path)
         record_metadata(seeded, "SRR1", tmp_path / "SRR1.xml", {"run_size": 5000, "run_total_spots": 10})
         record_metadata(seeded, "SRR2", tmp_path / "SRR2.xml", {"run_total_spots": 10})
@@ -468,7 +468,7 @@ class TestCommand:
         DownloadSraCommand().configure_parser(parser)
         text = " ".join(parser.format_help().split())
         assert "CPUs available to this job" in text
-        assert "METAQUEST_MAX_WORKERS_CAP" in text
+        assert "PREPARE_MAX_WORKERS_CAP" in text
         assert "--min-free-gb" in text
 
 

@@ -6,9 +6,9 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
-from metaquest.cli.commands.branchwater_search import BranchwaterSearchCommand
-from metaquest.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
-from metaquest.core.exceptions import DataAccessError
+from prepare.cli.commands.branchwater_search import BranchwaterSearchCommand
+from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
+from prepare.core.exceptions import DataAccessError
 
 
 def _args(tmp_path=None, **kwargs):
@@ -20,7 +20,7 @@ def _args(tmp_path=None, **kwargs):
         branchwater_folder="branchwater",
         output=None,
         server="https://s",
-        registry=str(registry_dir / "metaquest_registry.json"),
+        registry=str(registry_dir / "prepare_registry.json"),
         registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
         no_cache=False,
         refresh=False,
@@ -60,9 +60,9 @@ class TestBranchwaterSearchCommand:
         assert args.refresh is True
         assert args.max_cache_age_days == 7
 
-    @patch("metaquest.cli.commands.branchwater_search.write_branchwater_csv")
-    @patch("metaquest.cli.commands.branchwater_search.search_index")
-    @patch("metaquest.cli.commands.branchwater_search.sketch_fasta")
+    @patch("prepare.cli.commands.branchwater_search.write_branchwater_csv")
+    @patch("prepare.cli.commands.branchwater_search.search_index")
+    @patch("prepare.cli.commands.branchwater_search.sketch_fasta")
     def test_fasta_default_output_path(self, mock_sketch, mock_search, mock_write, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         mock_sketch.return_value = {"signatures": []}
@@ -78,33 +78,33 @@ class TestBranchwaterSearchCommand:
             max_cache_age_days=None,
         )
         mock_write.assert_called_once_with([("SRR1", 0.9)], Path("branchwater") / "GCF_000008025.1.csv")
-        data = json.loads((tmp_path / "metaquest_registry.json").read_text())
+        data = json.loads((tmp_path / "prepare_registry.json").read_text())
         screening = data["datasets"]["SRR1"]["screening"]
         assert screening["genomes"]["GCF_000008025.1"]["source"] == "branchwater"
         assert screening["genomes"]["GCF_000008025.1"]["containment"] == 0.9
 
-    @patch("metaquest.cli.commands.branchwater_search.write_branchwater_csv")
-    @patch("metaquest.cli.commands.branchwater_search.search_index")
-    @patch("metaquest.cli.commands.branchwater_search.load_signature")
+    @patch("prepare.cli.commands.branchwater_search.write_branchwater_csv")
+    @patch("prepare.cli.commands.branchwater_search.search_index")
+    @patch("prepare.cli.commands.branchwater_search.load_signature")
     def test_signature_and_explicit_output(self, mock_load, mock_search, mock_write, tmp_path):
         mock_load.return_value = {"signatures": []}
         mock_search.return_value = []
         rc = BranchwaterSearchCommand().execute(_args(tmp_path, signature="wmel.sig", output=str(tmp_path / "out.csv")))
         assert rc == 0
         mock_write.assert_called_once_with([], Path(tmp_path / "out.csv"))
-        assert (tmp_path / "metaquest_registry.json").exists()
+        assert (tmp_path / "prepare_registry.json").exists()
 
-    @patch("metaquest.cli.commands.branchwater_search.write_branchwater_csv")
-    @patch("metaquest.cli.commands.branchwater_search.search_index", return_value=[])
-    @patch("metaquest.cli.commands.branchwater_search.load_signature", return_value={"signatures": []})
+    @patch("prepare.cli.commands.branchwater_search.write_branchwater_csv")
+    @patch("prepare.cli.commands.branchwater_search.search_index", return_value=[])
+    @patch("prepare.cli.commands.branchwater_search.load_signature", return_value={"signatures": []})
     def test_zero_matches_warns(self, _load, _search, _write, caplog):
         with caplog.at_level("WARNING"):
             assert BranchwaterSearchCommand().execute(_args(signature="wmel.sig")) == 0
         assert "control genome" in caplog.text
 
-    @patch("metaquest.cli.commands.branchwater_search.write_branchwater_csv")
-    @patch("metaquest.cli.commands.branchwater_search.search_index")
-    @patch("metaquest.cli.commands.branchwater_search.load_signature")
+    @patch("prepare.cli.commands.branchwater_search.write_branchwater_csv")
+    @patch("prepare.cli.commands.branchwater_search.search_index")
+    @patch("prepare.cli.commands.branchwater_search.load_signature")
     def test_tied_top_hit_picks_alphabetically_first_accession(self, mock_load, mock_search, _write, tmp_path, caplog):
         """A tie at the top containment must resolve the same way every run, not by list order."""
         mock_load.return_value = {"signatures": []}
@@ -116,12 +116,12 @@ class TestBranchwaterSearchCommand:
         assert rc == 0
         assert "best containment 0.9000 (SRR2)" in caplog.text
 
-    @patch("metaquest.cli.commands.branchwater_search.load_signature", side_effect=DataAccessError("bad sig"))
+    @patch("prepare.cli.commands.branchwater_search.load_signature", side_effect=DataAccessError("bad sig"))
     def test_error_returns_1(self, _load):
         assert BranchwaterSearchCommand().execute(_args(signature="wmel.sig")) == 1
 
-    @patch("metaquest.data.branchwater_search._session")
-    @patch("metaquest.cli.commands.branchwater_search.load_signature", return_value={"signatures": []})
+    @patch("prepare.data.branchwater_search._session")
+    @patch("prepare.cli.commands.branchwater_search.load_signature", return_value={"signatures": []})
     def test_server_ignoring_threshold_is_filtered_locally(self, _load, mock_session_factory, tmp_path, caplog):
         text = "SRA accession,containment\nSRR1,0.0009\nSRR2,0.001\nSRR3,0.0005\n"
         session = MagicMock()
@@ -141,9 +141,9 @@ class TestBranchwaterSearchCommand:
             "geo_loc_name_country_calc,organism,lat_lon"
         ]
 
-    @patch("metaquest.cli.commands.branchwater_search.write_branchwater_csv")
-    @patch("metaquest.cli.commands.branchwater_search.search_index")
-    @patch("metaquest.cli.commands.branchwater_search.load_signature")
+    @patch("prepare.cli.commands.branchwater_search.write_branchwater_csv")
+    @patch("prepare.cli.commands.branchwater_search.search_index")
+    @patch("prepare.cli.commands.branchwater_search.load_signature")
     def test_screening_entries_are_capped(self, mock_load, mock_search, _write, tmp_path, caplog):
         """A broad search must not fill the registry; only the best matches are kept."""
         mock_load.return_value = {"signatures": []}
@@ -153,13 +153,13 @@ class TestBranchwaterSearchCommand:
                 _args(tmp_path, signature="wmel.sig", output=str(tmp_path / "out.csv"), registry_max_screened=2)
             )
         assert rc == 0
-        datasets = json.loads((tmp_path / "metaquest_registry.json").read_text())["datasets"]
+        datasets = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]
         assert sorted(datasets) == ["SRR1", "SRR2"]
         assert "2" in caplog.text
 
-    @patch("metaquest.cli.commands.branchwater_search.write_branchwater_csv")
-    @patch("metaquest.cli.commands.branchwater_search.search_index")
-    @patch("metaquest.cli.commands.branchwater_search.sketch_fasta")
+    @patch("prepare.cli.commands.branchwater_search.write_branchwater_csv")
+    @patch("prepare.cli.commands.branchwater_search.search_index")
+    @patch("prepare.cli.commands.branchwater_search.sketch_fasta")
     def test_no_cache_flag_disables_cache_dir(self, mock_sketch, mock_search, mock_write, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         mock_sketch.return_value = {"signatures": []}
@@ -169,9 +169,9 @@ class TestBranchwaterSearchCommand:
         _, kwargs = mock_search.call_args
         assert kwargs["cache_dir"] is None
 
-    @patch("metaquest.cli.commands.branchwater_search.write_branchwater_csv")
-    @patch("metaquest.cli.commands.branchwater_search.search_index")
-    @patch("metaquest.cli.commands.branchwater_search.sketch_fasta")
+    @patch("prepare.cli.commands.branchwater_search.write_branchwater_csv")
+    @patch("prepare.cli.commands.branchwater_search.search_index")
+    @patch("prepare.cli.commands.branchwater_search.sketch_fasta")
     def test_refresh_and_max_cache_age_passed_through(
         self, mock_sketch, mock_search, mock_write, tmp_path, monkeypatch
     ):
@@ -187,7 +187,7 @@ class TestBranchwaterSearchCommand:
         assert kwargs["max_cache_age_days"] == 3
 
     def test_registered(self):
-        from metaquest.cli.main import create_parser, register_all_commands
+        from prepare.cli.main import create_parser, register_all_commands
 
         register_all_commands()
         parser = create_parser()

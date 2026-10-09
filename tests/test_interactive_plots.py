@@ -12,7 +12,7 @@ import tempfile
 for _module in ("plotly", "sklearn", "scipy"):
     pytest.importorskip(_module)
 
-from metaquest.visualization.interactive import (  # noqa: E402
+from prepare.visualization.interactive import (  # noqa: E402
     create_interactive_pca,
     create_interactive_heatmap,
     create_diversity_comparison_plot,

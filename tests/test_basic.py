@@ -1,10 +1,10 @@
 """
-Basic unit tests for MetaQuest.
+Basic unit tests for PREPARE.
 """
 
-import metaquest
+import prepare
 
 
 def test_version():
     """Test that version is defined."""
-    assert metaquest.__version__ is not None
+    assert prepare.__version__ is not None

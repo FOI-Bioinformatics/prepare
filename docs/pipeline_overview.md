@@ -1,8 +1,8 @@
 # Pipeline Overview
 
-MetaQuest moves a population of public SRA datasets through six stages: screen, select, download,
+PREPARE moves a population of public SRA datasets through six stages: screen, select, download,
 analyse, extract, assemble. Each stage has one or two commands. Every command records what it decided
-in the project registry (`metaquest_registry.json` in the project root), so `status` can show where each
+in the project registry (`prepare_registry.json` in the project root), so `status` can show where each
 dataset stands at any time. This page lists the stages in order, the commands that belong to each, the
 files they produce and what the registry keeps. The [README](../README.md) documents every flag; the
 [Branchwater workflow](branchwater_workflow.md) covers the screening step in more depth.
@@ -29,13 +29,13 @@ Find the metagenomes that contain the target genome.
 
 ```bash
 # Query the Branchwater index with a genome FASTA (writes branchwater/<name>.csv)
-metaquest branchwater_search --genome-fasta genomes/GCF_000008025.1.fna
+prepare branchwater_search --genome-fasta genomes/GCF_000008025.1.fna
 
 # Or place CSVs downloaded from the Branchwater web site in matches/ and convert them
-metaquest use_branchwater --branchwater-folder branchwater --matches-folder matches
+prepare use_branchwater --branchwater-folder branchwater --matches-folder matches
 
 # Build the sample by genome containment table and its summary
-metaquest parse_containment --matches-folder matches
+prepare parse_containment --matches-folder matches
 ```
 
 `parse_containment` writes `parsed_containment.txt` (one row per SRA accession, one column per genome,
@@ -60,17 +60,17 @@ Decide which datasets are worth downloading, and which ones to leave out on purp
 
 ```bash
 # Accessions whose containment for the genome is at or above the threshold
-metaquest select_datasets --genome-id GCF_000008025.1 --threshold 0.5 --output accessions.txt
+prepare select_datasets --genome-id GCF_000008025.1 --threshold 0.5 --output accessions.txt
 
 # The same, restricted to a metadata value
-metaquest select_datasets --genome-id GCF_000008025.1 --threshold 0.5 \
+prepare select_datasets --genome-id GCF_000008025.1 --threshold 0.5 \
     --metadata-column Sample_Scientific_Name --metadata-value "Drosophila melanogaster"
 
 # Only Illumina runs of at most 2 GB (needs the NCBI metadata table from parse_metadata)
-metaquest select_datasets --genome-id GCF_000008025.1 --threshold 0.5 --max-run-size 2G --platform ILLUMINA
+prepare select_datasets --genome-id GCF_000008025.1 --threshold 0.5 --max-run-size 2G --platform ILLUMINA
 
 # Exclude a dataset and say why
-metaquest blacklist --add SRR2517418 --reason "16S amplicon mislabelled as WGS"
+prepare blacklist --add SRR2517418 --reason "16S amplicon mislabelled as WGS"
 ```
 
 The registry records the column, threshold, metadata filter, date and output file of the latest
@@ -99,7 +99,7 @@ records these four values with the selection.
 ## 3. Download
 
 ```bash
-metaquest download_sra --accessions-file accessions.txt --fastq-folder fastq --max-workers 4
+prepare download_sra --accessions-file accessions.txt --fastq-folder fastq --max-workers 4
 ```
 
 Reads land in `fastq/<accession>/` by default (as `<accession>_1.fastq.gz`, `_2` for paired runs):
@@ -113,12 +113,12 @@ message) or skipped (blacklisted or cut by `--max-downloads`). Failed accessions
 `fastq/failed_accessions.txt` for a retry, and `--report-file` writes one row per accession. A rerun
 skips accessions already on disk; `--force` downloads them again. `--dry-run` reports the plan and
 touches neither the disk nor the registry. `--temp-folder DIR` sets where `fasterq-dump` writes scratch
-files; without it, a plain per-project download uses `fastq/.metaquest-tmp/<accession>_fqtmp`, while a
+files; without it, a plain per-project download uses `fastq/.prepare-tmp/<accession>_fqtmp`, while a
 store-backed one (below) defaults to `<data-root>/tmp/<accession>_fqtmp`; either is removed once the
 accession's download ends. Ctrl-C cancels downloads not yet started and
 stops the running `prefetch`/`fasterq-dump` processes for the ones in progress.
 
-When a shared data store is configured (`--data-root`, `METAQUEST_DATA`, or the project's recorded
+When a shared data store is configured (`--data-root`, `PREPARE_DATA`, or the project's recorded
 store), `download_sra` looks up each accession in the store first. A complete or unverified dataset is
 linked into `fastq/<accession>` without a new download; a partial dataset is re-downloaded unless
 `--accept-partial`; an accession absent from the store is downloaded once, compressed, and added to the
@@ -131,9 +131,9 @@ store cooperate on the same accession without downloading it twice. See the stor
 ## 4. Analyse
 
 ```bash
-metaquest sra_validate --fastq-folder fastq
-metaquest sra_profile --fastq-folder fastq --accessions-file accessions.txt
-metaquest sra_report --fastq-folder fastq --groups-file groups.json --quality-profiles sra_quality_profiles
+prepare sra_validate --fastq-folder fastq
+prepare sra_profile --fastq-folder fastq --accessions-file accessions.txt
+prepare sra_report --fastq-folder fastq --groups-file groups.json --quality-profiles sra_quality_profiles
 ```
 
 `sra_validate` checks the FASTQ files, and with `--check-pairs` compares mate read counts, and with
@@ -166,7 +166,7 @@ the command went and exit with status 2.
 Map each selected sample against the target genome and keep only the reads that map.
 
 ```bash
-metaquest extract_target_reads --parsed-containment parsed_containment.txt \
+prepare extract_target_reads --parsed-containment parsed_containment.txt \
     --genome-id GCF_000008025.1 --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1
 ```
 
@@ -192,7 +192,7 @@ resolves it against a shared store the same way the other store-aware commands d
 ## 6. Assemble
 
 ```bash
-metaquest extract_target_reads --parsed-containment parsed_containment.txt \
+prepare extract_target_reads --parsed-containment parsed_containment.txt \
     --genome-id GCF_000008025.1 --genome-fasta genomes/GCF_000008025.1.fna --assemble
 ```
 
@@ -208,7 +208,7 @@ provide; `--temp-folder DIR` points that scratch at a local POSIX filesystem ins
 Without `--temp-folder`, each run creates its own scratch folder directly under `--output-folder`,
 named `.megahit-tmp-<random suffix>`, and removes it once the run finishes, even on failure; the random
 suffix keeps two concurrent runs sharing one output folder from clashing. On such a volume, stray `._*`
-AppleDouble sidecar files are ignored wherever MetaQuest lists a folder's contents. A `fastq/<ACC>`
+AppleDouble sidecar files are ignored wherever PREPARE lists a folder's contents. A `fastq/<ACC>`
 symlink whose target is missing is logged as one WARNING naming every such dangling link found.
 
 `--assembly-preset` sets megahit's `--presets` value: `meta-sensitive` (the default), `meta-large`, or
@@ -224,16 +224,16 @@ above); nothing in the command ordering below enforces this, it is on the user t
 ```bash
 # extract_branchwater_metadata only has real metadata to extract when the CSVs came from the
 # Branchwater web site; a branchwater_search (API) CSV carries only accession, containment and cANI
-metaquest extract_branchwater_metadata --branchwater-folder branchwater --metadata-folder metadata
+prepare extract_branchwater_metadata --branchwater-folder branchwater --metadata-folder metadata
 
 # Richer, and the only route that works when branchwater_search was used: NCBI metadata per
 # accession, then a consolidated table
-metaquest download_metadata --email you@example.org --matches-folder matches --metadata-folder metadata
-metaquest parse_metadata --metadata-folder metadata --metadata-table-file metadata_table.txt
+prepare download_metadata --email you@example.org --matches-folder matches --metadata-folder metadata
+prepare parse_metadata --metadata-folder metadata --metadata-table-file metadata_table.txt
 
 # Summaries
-metaquest count_metadata --metadata-column Sample_Scientific_Name --threshold 0.5
-metaquest plot_metadata_counts --file-path metadata_counts.txt --save-format png
+prepare count_metadata --metadata-column Sample_Scientific_Name --threshold 0.5
+prepare plot_metadata_counts --file-path metadata_counts.txt --save-format png
 ```
 
 `count_metadata` writes `metadata_counts.txt` by default and defaults `--threshold` to 0.5.
@@ -251,14 +251,14 @@ fetched.
 ## Project state at any point
 
 ```bash
-metaquest status                              # inventory and the accession by stage matrix, per genome
-metaquest status --stage extracted --genome GCF_000008025.1
-metaquest status --next                       # commands that would advance the most datasets
-metaquest status --init                       # build the registry for a project created before it existed
-metaquest status --reconcile                  # record files removed by hand, register untracked work
-metaquest status --export-tsv registry        # registry_datasets.tsv and registry_extractions.tsv
-metaquest status --json                       # the same report for scripts
-metaquest results_table --output results.tsv  # one row per accession and genome, the study's results
+prepare status                              # inventory and the accession by stage matrix, per genome
+prepare status --stage extracted --genome GCF_000008025.1
+prepare status --next                       # commands that would advance the most datasets
+prepare status --init                       # build the registry for a project created before it existed
+prepare status --reconcile                  # record files removed by hand, register untracked work
+prepare status --export-tsv registry        # registry_datasets.tsv and registry_extractions.tsv
+prepare status --json                       # the same report for scripts
+prepare results_table --output results.tsv  # one row per accession and genome, the study's results
 ```
 
 `results_table` joins the registry with the parsed containment table into one row per screened
@@ -266,7 +266,7 @@ accession and genome, from containment through read mapping, reference coverage 
 
 Presence is always re-checked on disk, so a folder deleted by hand shows up as missing rather than done.
 Decisions and provenance (why a dataset was selected or excluded, when it was downloaded, how many
-reads mapped) come from the registry. Commit `metaquest_registry.json` with the project if the decisions
+reads mapped) come from the registry. Commit `prepare_registry.json` with the project if the decisions
 should travel with the results.
 
 `status --data-root` reports whether the project uses a shared data store, and if so the store's root,
@@ -288,7 +288,7 @@ metadata, top-N and run filter criteria, instead of suggesting `download_sra` di
 `extract_target_reads`, and a `status --json` check of the registry counts. It also walks through the
 shared data store on the same sample data: `store_init`, a `download_sra --dry-run` against the store
 (so no network access is needed), `store_status --json`, and `select_datasets --top-n`. It needs no
-network access and no external tools; the store steps redirect `HOME` and unset `METAQUEST_DATA` so
+network access and no external tools; the store steps redirect `HOME` and unset `PREPARE_DATA` so
 they never touch a real store or the user's configuration file.
 
 ## External tools by stage
@@ -310,5 +310,5 @@ download, parse, metadata, status and extraction stages above need none of them.
 
 The README's installation section lists them; `environment.yml` installs sra-tools, pigz,
 ncbi-datasets-cli, minimap2, samtools, megahit and sourmash by default (pigz is a real dependency, not
-optional there), comments out `seqkit` as one additional, optional line, and installs MetaQuest
+optional there), comments out `seqkit` as one additional, optional line, and installs PREPARE
 with every extra (`-e ".[all]"`).

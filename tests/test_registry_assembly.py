@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from metaquest.data import registry as reg
-from metaquest.data import registry_blocks as rb
-from metaquest.data.registry_assembly import (
+from prepare.data import registry as reg
+from prepare.data import registry_blocks as rb
+from prepare.data.registry_assembly import (
     assembly_predates_extraction,
     legacy_assembly_current,
     set_assembly_inputs,
@@ -16,7 +16,7 @@ INPUTS = {"reads": [{"name": "SRR1_1.fastq", "size": 10, "sha256": "ab"}], "mapp
 
 
 def _registry(tmp_path, assembly_params=None):
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     reg.record_extraction(r, "SRR1", "GCF_A", [], 10, False, {"preset": "sr"})
     reg.record_assembly(r, "SRR1", "GCF_A", tmp_path / "asm", {"contigs": 2}, "v1", assembly_params or {})
     return r
@@ -60,12 +60,12 @@ def test_inputs_survive_a_save_and_load(tmp_path):
     r = _registry(tmp_path)
     set_assembly_inputs(r, "SRR1", "GCF_A", INPUTS)
     reg.save_registry(r)
-    loaded = reg.load_registry(tmp_path / "metaquest_registry.json")
+    loaded = reg.load_registry(tmp_path / "prepare_registry.json")
     assert rb.extraction_block(loaded, "SRR1", "GCF_A").assembly.inputs == INPUTS
 
 
 def test_set_inputs_is_a_noop_without_an_assembly(tmp_path):
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     set_assembly_inputs(r, "SRR1", "GCF_A", INPUTS)
     assert r.datasets == {}
     reg.record_extraction(r, "SRR1", "GCF_A", [], 10, False, {})
@@ -111,7 +111,7 @@ def test_assembly_predates_extraction(tmp_path, extraction_date, assembly_date, 
 
 
 def test_predates_is_false_without_blocks(tmp_path):
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     assert assembly_predates_extraction(r, "SRR1", "GCF_A") is False
     reg.record_extraction(r, "SRR1", "GCF_A", [], 10, False, {})
     assert assembly_predates_extraction(r, "SRR1", "GCF_A") is False
@@ -171,7 +171,7 @@ def test_legacy_assembly_current_dates(tmp_path, extraction_date, assembly_date,
 
 
 def test_legacy_assembly_current_needs_an_assembly(tmp_path):
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     assert legacy_assembly_current(r, "SRR1", "GCF_A", None, None) is False
     reg.record_extraction(r, "SRR1", "GCF_A", [], 10, False, {})
     assert legacy_assembly_current(r, "SRR1", "GCF_A", None, None) is False

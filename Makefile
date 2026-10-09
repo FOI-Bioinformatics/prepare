@@ -2,10 +2,10 @@
 
 help:
 	@echo "Available commands:"
-	@echo "  env         - Create or update the 'metaquest' conda environment (Python 3.12)"
-	@echo "  env-dev     - Install the package with dev extras into the 'metaquest' conda environment"
+	@echo "  env         - Create or update the 'prepare' conda environment (Python 3.12)"
+	@echo "  env-dev     - Install the package with dev extras into the 'prepare' conda environment"
 	@echo "  test        - Run tests with coverage"
-	@echo "  test-perf   - Run only the performance bounds (scale with METAQUEST_PERF_SCALE)"
+	@echo "  test-perf   - Run only the performance bounds (scale with PREPARE_PERF_SCALE)"
 	@echo "  lint        - Run flake8 linting"
 	@echo "  format      - Format code with black"
 	@echo "  check       - Run all quality checks (format, lint, type check, module size, ASCII, atomic writes, docs)"
@@ -20,7 +20,7 @@ env:
 	conda env create -f environment.yml || conda env update -f environment.yml --prune
 
 env-dev:
-	conda run -n metaquest pip install -e ".[dev]"
+	conda run -n prepare pip install -e ".[dev]"
 
 dev-install:
 	python -m pip install -e ".[dev]"
@@ -29,7 +29,7 @@ install:
 	python -m pip install -e .
 
 test:
-	python -m pytest tests/ --cov=metaquest
+	python -m pytest tests/ --cov=prepare
 
 test-perf:
 	python -m pytest -m perf -q
@@ -38,28 +38,28 @@ test-network:
 	python -m pytest tests/test_network_smoke.py -m network -x -v
 
 lint:
-	python -m flake8 metaquest tests
+	python -m flake8 prepare tests
 
 format:
-	python -m black metaquest tests
+	python -m black prepare tests
 
 check:
 	@echo "Running under $$(python --version)..."
 	@echo "Running format check..."
-	python -m black --check --diff metaquest tests
+	python -m black --check --diff prepare tests
 	@echo "Running linting..."
-	python -m flake8 metaquest tests
+	python -m flake8 prepare tests
 	@echo "Running type check..."
-	python -m mypy metaquest
-	@echo "Checking that nothing prints outside metaquest/cli/base.py (commands use self.emit)..."
+	python -m mypy prepare
+	@echo "Checking that nothing prints outside prepare/cli/base.py (commands use self.emit)..."
 	bash scripts/check_no_print.sh
 	@echo "Guarding against the frozen plotly-latest CDN alias..."
-	@if grep -rn "cdn.plot.ly/plotly-latest" metaquest --include='*.py'; then \
-		echo "ERROR: use metaquest.utils.html.plotly_cdn_script() instead of the plotly-latest alias"; \
+	@if grep -rn "cdn.plot.ly/plotly-latest" prepare --include='*.py'; then \
+		echo "ERROR: use prepare.utils.html.plotly_cdn_script() instead of the plotly-latest alias"; \
 		exit 1; \
 	fi
 	@echo "Checking cyclomatic complexity ceiling (fail on rank D or worse)..."
-	@output=$$(python -m radon cc metaquest -n D -s); \
+	@output=$$(python -m radon cc prepare -n D -s); \
 	if [ -n "$$output" ]; then \
 		echo "$$output"; \
 		echo "ERROR: functions at complexity rank D or worse; refactor before merging"; \
@@ -76,7 +76,7 @@ check:
 	@echo "All quality checks passed!"
 
 doctor:
-	python -m metaquest.cli.main doctor
+	python -m prepare.cli.main doctor
 
 build:
 	python -m build

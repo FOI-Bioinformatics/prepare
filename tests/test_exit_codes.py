@@ -6,15 +6,15 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.cli.base import BaseCommand
-from metaquest.cli.commands.sra import DownloadSraCommand
-from metaquest.core.exceptions import (
+from prepare.cli.base import BaseCommand
+from prepare.cli.commands.sra import DownloadSraCommand
+from prepare.core.exceptions import (
     ConfigurationError,
     DataAccessError,
     ExitCode,
     FormatError,
     LockTimeoutError,
-    MetaQuestError,
+    PrepareError,
     NetworkError,
     ProcessingError,
     SecurityError,
@@ -22,15 +22,15 @@ from metaquest.core.exceptions import (
     ValidationError,
     exit_code_for,
 )
-from metaquest.data import registry as reg
-from metaquest.utils.lockfile import LockHeld, LockLost, LockPolicy, held_lock
-from metaquest.utils.logging import ConsoleFormatter
+from prepare.data import registry as reg
+from prepare.utils.lockfile import LockHeld, LockLost, LockPolicy, held_lock
+from prepare.utils.logging import ConsoleFormatter
 
 
 @pytest.mark.parametrize(
     "error, code",
     [
-        (MetaQuestError("x"), 1),
+        (PrepareError("x"), 1),
         (ValidationError("x"), 1),
         (FormatError("x"), 1),
         (DataAccessError("x"), 1),
@@ -105,7 +105,7 @@ class _Failing(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         try:
             raise self.error
-        except MetaQuestError as e:
+        except PrepareError as e:
             return self.fail(e, "Doing the thing")
 
 
@@ -134,9 +134,9 @@ def test_fail_attaches_the_traceback_at_debug(caplog):
 
 
 def _main(argv):
-    from metaquest.cli.main import main
+    from prepare.cli.main import main
 
-    with patch("metaquest.cli.main.setup_logging"):
+    with patch("prepare.cli.main.setup_logging"):
         return main(argv)
 
 
@@ -146,19 +146,19 @@ def _main(argv):
         (ConfigurationError("missing"), 3),
         (LockTimeoutError("waited"), 4),
         (NetworkError("down"), 4),
-        (MetaQuestError("plain"), 1),
+        (PrepareError("plain"), 1),
         (RuntimeError("bug"), 1),
         (KeyboardInterrupt(), 130),
     ],
 )
 def test_main_maps_an_escaping_error_to_its_exit_code(error, code, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    with patch("metaquest.cli.commands.blacklist.BlacklistCommand.execute", side_effect=error):
+    with patch("prepare.cli.commands.blacklist.BlacklistCommand.execute", side_effect=error):
         assert _main(["blacklist", "--list"]) == code
 
 
 def test_main_keyboard_interrupt_without_graceful_shutdown(tmp_path, monkeypatch):
-    from metaquest.cli.commands.blacklist import BlacklistCommand
+    from prepare.cli.commands.blacklist import BlacklistCommand
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(BlacklistCommand, "graceful_shutdown", False)
@@ -167,7 +167,7 @@ def test_main_keyboard_interrupt_without_graceful_shutdown(tmp_path, monkeypatch
 
 
 def test_main_malformed_config_is_a_configuration_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("METAQUEST_PROGRESS_EVERY", "not-a-number")
+    monkeypatch.setenv("PREPARE_PROGRESS_EVERY", "not-a-number")
     assert _main(["blacklist", "--list"]) == 3
 
 
@@ -175,9 +175,9 @@ def test_registry_lock_timeout_through_a_command_gives_4(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(reg, "LOCK_STALE_SECONDS", 600.0)
     monkeypatch.setattr(reg, "LOCK_WAIT_SECONDS", 0.2)
-    registry = tmp_path / "metaquest_registry.json"
+    registry = tmp_path / "prepare_registry.json"
     registry.write_text("{}")
-    (tmp_path / "metaquest_registry.json.lock").write_text("1")
+    (tmp_path / "prepare_registry.json.lock").write_text("1")
     argv = ["blacklist", "--add", "SRR1", "--reason", "test", "--registry", str(registry)]
     assert _main(argv) == 4
 
@@ -198,7 +198,7 @@ def _download_args(tmp_path):
         temp_folder=None,
         blacklist=None,
         report_file=None,
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
         data_root=None,
     )
 
@@ -241,8 +241,8 @@ def _stats(results):
 )
 def test_download_sra_returns_4_only_when_every_failure_is_network(results, code, tmp_path):
     with (
-        patch("metaquest.cli.commands.sra.require_tools"),
-        patch("metaquest.cli.commands.sra.download_sra", return_value=_stats(results)),
+        patch("prepare.cli.commands.sra.require_tools"),
+        patch("prepare.cli.commands.sra.download_sra", return_value=_stats(results)),
     ):
         assert DownloadSraCommand().execute(_download_args(tmp_path)) == code
 
@@ -273,7 +273,7 @@ def _request_errors():
 
 @pytest.mark.parametrize("error, expected", _request_errors())
 def test_ncbi_request_failures_are_network_errors_only_when_retryable(error, expected):
-    from metaquest.data.sra_metadata import SRAMetadataClient
+    from prepare.data.sra_metadata import SRAMetadataClient
 
     client = SRAMetadataClient("someone@example.org")
     with patch.object(client.session, "get", side_effect=error):
@@ -292,7 +292,7 @@ def test_fail_points_to_debug_when_no_log_file_keeps_the_traceback(caplog):
 
 
 def test_fail_gives_no_hint_when_a_log_file_keeps_the_traceback(tmp_path, caplog):
-    from metaquest.utils.logging import _file_handler
+    from prepare.utils.logging import _file_handler
 
     handler = _file_handler(str(tmp_path / "run.log"), logging.INFO)
     logging.getLogger().addHandler(handler)

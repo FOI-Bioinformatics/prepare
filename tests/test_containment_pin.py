@@ -14,8 +14,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from metaquest.data import registry as reg
-from metaquest.data.branchwater import _generate_containment_summary
+from prepare.data import registry as reg
+from prepare.data.branchwater import _generate_containment_summary
 from tests.perf_fixtures import containment_data
 
 PIN = Path(__file__).parent / "fixtures" / "containment_pin"
@@ -100,7 +100,7 @@ def test_summary_counts_at_a_coarse_step(tmp_path):
 @pytest.mark.parametrize("source", ["path", "table"])
 def test_screening_matches_the_pinned_registry(summary, tmp_path, cap, source, ticking_clock):
     expected = json.loads((PIN / "screening_200x4.json").read_text())[cap]
-    r = seeded_registry(tmp_path / "metaquest_registry.json")
+    r = seeded_registry(tmp_path / "prepare_registry.json")
     table = tmp_path / "parsed.txt" if source == "path" else summary.table
     recorded = reg.record_screening_from_table(r, table, "matches", max_screened=int(cap))
     assert recorded == expected["recorded"]
@@ -116,13 +116,13 @@ def test_screening_from_the_in_memory_table_reads_no_file(summary, tmp_path, mon
         raise AssertionError("record_screening_from_table re-read the parsed table")
 
     monkeypatch.setattr(pd, "read_csv", refuse)
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     assert isinstance(summary.table, pd.DataFrame)
     assert reg.record_screening_from_table(r, summary.table, "matches") > 0
 
 
 def test_screening_leaves_nothing_for_cap_screening_to_trim(summary, tmp_path):
-    r = seeded_registry(tmp_path / "metaquest_registry.json")
+    r = seeded_registry(tmp_path / "prepare_registry.json")
     reg.record_screening_from_table(r, summary.table, "matches", max_screened=40)
     for genome in ("GCF_000", "GCF_001", "GCF_002", "GCF_003"):
         assert reg.cap_screening(r, genome, 40) == 0
@@ -132,7 +132,7 @@ def test_parse_containment_command_records_the_in_memory_table(summary, tmp_path
     """The command hands the registry the table it just built instead of reading the file back."""
     import argparse
 
-    from metaquest.cli.commands import containment as command_module
+    from prepare.cli.commands import containment as command_module
 
     monkeypatch.setattr(command_module, "parse_containment_data", lambda *args, **kwargs: summary)
     seen = []
@@ -148,10 +148,10 @@ def test_parse_containment_command_records_the_in_memory_table(summary, tmp_path
         summary_containment_file=str(tmp_path / "summary.txt"),
         step_size=0.001,
         details_file=None,
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
         registry_max_screened=40,
     )
     assert command_module.ParseContainmentCommand().execute(args) == 0
     assert len(seen) == 1 and seen[0] is summary.table
-    written = reg.load_registry(tmp_path / "metaquest_registry.json")
+    written = reg.load_registry(tmp_path / "prepare_registry.json")
     assert all(reg.cap_screening(written, genome, 40) == 0 for genome in ("GCF_000", "GCF_001", "GCF_002"))

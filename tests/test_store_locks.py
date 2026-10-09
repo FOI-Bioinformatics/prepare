@@ -8,10 +8,10 @@ import time
 
 import pytest
 
-from metaquest.core.exceptions import DataAccessError
-from metaquest.store import locks as locks_module
-from metaquest.store.layout import init_store, lock_path
-from metaquest.store.locks import dataset_lock, lock_holder, lock_is_held
+from prepare.core.exceptions import DataAccessError
+from prepare.store import locks as locks_module
+from prepare.store.layout import init_store, lock_path
+from prepare.store.locks import dataset_lock, lock_holder, lock_is_held
 
 
 @pytest.fixture
@@ -119,7 +119,7 @@ class TestDatasetLockStop:
     """A waiter gives up as soon as its stop predicate is true, so Ctrl-C never waits on a lock."""
 
     def test_wait_on_a_held_lock_ends_once_stop_is_requested(self, paths):
-        from metaquest.store.locks import LockWaitStopped
+        from prepare.store.locks import LockWaitStopped
 
         with dataset_lock(paths, "SRR1"):
             started = time.monotonic()
@@ -129,7 +129,7 @@ class TestDatasetLockStop:
             assert time.monotonic() - started < 1.0
 
     def test_stop_is_a_data_access_error_for_existing_callers(self):
-        from metaquest.store.locks import LockWaitStopped
+        from prepare.store.locks import LockWaitStopped
 
         assert issubclass(LockWaitStopped, DataAccessError)
 

@@ -1,4 +1,4 @@
-"""Tests for metaquest.data.branchwater_search (no network; sourmash optional)."""
+"""Tests for prepare.data.branchwater_search (no network; sourmash optional)."""
 
 import json
 import random
@@ -10,9 +10,9 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 import requests
 
-from metaquest.core.exceptions import ConfigurationError, DataAccessError
-from metaquest.data import branchwater_search
-from metaquest.data.branchwater_search import (
+from prepare.core.exceptions import ConfigurationError, DataAccessError
+from prepare.data import branchwater_search
+from prepare.data.branchwater_search import (
     BRANCHWATER_COLUMNS,
     DEFAULT_SERVER,
     load_signature,
@@ -64,7 +64,7 @@ class TestSketchFasta:
         monkeypatch.setitem(sys.modules, "sourmash", None)
         fasta = tmp_path / "x.fna"
         _write_fasta(fasta)
-        with pytest.raises(ConfigurationError, match=r"metaquest\[sourmash\]"):
+        with pytest.raises(ConfigurationError, match=r"prepare\[sourmash\]"):
             sketch_fasta(fasta)
 
     def test_missing_sourmash_hint_names_the_interpreter(self, tmp_path, monkeypatch):
@@ -75,7 +75,7 @@ class TestSketchFasta:
         with pytest.raises(ConfigurationError) as exc_info:
             sketch_fasta(fasta)
         assert sys.executable in str(exc_info.value)
-        assert "-m pip install 'metaquest[sourmash]'" in str(exc_info.value)
+        assert "-m pip install 'prepare[sourmash]'" in str(exc_info.value)
         assert str(exc_info.value).startswith("Sketching a genome needs the 'sourmash' package.")
 
 
@@ -147,7 +147,7 @@ class TestSessionFactory:
 
 
 class TestSearchIndex:
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_posts_signature_and_parses_csv(self, mock_session_factory):
         session = _mock_session(text="SRA accession,containment\nSRR1,0.5\nSRR2,0.9\n")
         mock_session_factory.return_value = session
@@ -159,11 +159,11 @@ class TestSearchIndex:
         assert kwargs["timeout"] == 600
         assert kwargs["stream"] is True
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_a_response_without_a_charset_is_still_parsed(self, mock_session_factory):
         """requests leaves ``encoding`` unset when the response declares no charset, and
         ``iter_lines(decode_unicode=True)`` then yields bytes, which csv.reader rejects with
-        an error that is not a MetaQuestError."""
+        an error that is not a PrepareError."""
         text = "SRA accession,containment\nSRR1,0.5\n"
         session = MagicMock()
         response = Mock(status_code=200, text=text, encoding=None)
@@ -181,13 +181,13 @@ class TestSearchIndex:
         assert search_index(SIG_OBJECT, 0.1) == [("SRR1", 0.5)]
         assert response.encoding == "utf-8"
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_http_error_raises(self, mock_session_factory):
         mock_session_factory.return_value = _mock_session(status_code=500, text="boom")
         with pytest.raises(DataAccessError, match="HTTP 500"):
             search_index(SIG_OBJECT, 0.1)
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_404_raises_without_retry(self, mock_session_factory):
         session = _mock_session(status_code=404, text="not found")
         mock_session_factory.return_value = session
@@ -195,7 +195,7 @@ class TestSearchIndex:
             search_index(SIG_OBJECT, 0.1)
         assert session.post.call_count == 1
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_connection_error_raises(self, mock_session_factory):
         session = MagicMock()
         session.post.side_effect = requests.exceptions.ConnectionError("down")
@@ -203,18 +203,18 @@ class TestSearchIndex:
         with pytest.raises(DataAccessError, match="search failed"):
             search_index(SIG_OBJECT, 0.1, server="https://example.org/")
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_unexpected_header_raises(self, mock_session_factory):
         mock_session_factory.return_value = _mock_session(text="<html>redirect</html>")
         with pytest.raises(DataAccessError, match="Unexpected Branchwater response"):
             search_index(SIG_OBJECT, 0.1)
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_empty_result(self, mock_session_factory):
         mock_session_factory.return_value = _mock_session(text="SRA accession,containment\n")
         assert search_index(SIG_OBJECT, 0.1) == []
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_rows_below_threshold_are_dropped(self, mock_session_factory):
         mock_session_factory.return_value = _mock_session(
             text="SRA accession,containment\nSRR1,0.0009\nSRR2,0.5\nSRR3,0.1\n"
@@ -222,14 +222,14 @@ class TestSearchIndex:
         matches = search_index(SIG_OBJECT, 0.1)
         assert matches == [("SRR2", 0.5), ("SRR3", 0.1)]
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_all_rows_below_threshold_gives_empty(self, mock_session_factory):
         mock_session_factory.return_value = _mock_session(text="SRA accession,containment\nSRR1,0.0009\nSRR2,0.001\n")
         assert search_index(SIG_OBJECT, 0.1) == []
 
 
 class TestSearchIndexCache:
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_cache_write_then_hit_without_request(self, mock_session_factory, tmp_path):
         mock_session_factory.return_value = _mock_session(text="SRA accession,containment\nSRR1,0.5\n")
         cache_dir = tmp_path / "cache"
@@ -242,7 +242,7 @@ class TestSearchIndexCache:
         assert second == [("SRR1", 0.5)]
         assert mock_session_factory.call_count == 1
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_cache_hit_logs_message(self, mock_session_factory, tmp_path, caplog):
         mock_session_factory.return_value = _mock_session(text="SRA accession,containment\nSRR1,0.5\n")
         cache_dir = tmp_path / "cache"
@@ -251,7 +251,7 @@ class TestSearchIndexCache:
             search_index(SIG_OBJECT, 0.1, cache_dir=cache_dir)
         assert "using cached Branchwater result from" in caplog.text
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_refresh_bypasses_cache(self, mock_session_factory, tmp_path):
         mock_session_factory.return_value = _mock_session(text="SRA accession,containment\nSRR1,0.5\n")
         cache_dir = tmp_path / "cache"
@@ -259,7 +259,7 @@ class TestSearchIndexCache:
         search_index(SIG_OBJECT, 0.1, cache_dir=cache_dir, refresh=True)
         assert mock_session_factory.call_count == 2
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_stale_cache_by_age_refetches(self, mock_session_factory, tmp_path):
         mock_session_factory.return_value = _mock_session(text="SRA accession,containment\nSRR1,0.5\n")
         cache_dir = tmp_path / "cache"
@@ -275,7 +275,7 @@ class TestSearchIndexCache:
         search_index(SIG_OBJECT, 0.1, cache_dir=cache_dir, max_cache_age_days=1)
         assert mock_session_factory.call_count == 1
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_fresh_cache_within_max_age_is_used(self, mock_session_factory, tmp_path):
         mock_session_factory.return_value = _mock_session(text="SRA accession,containment\nSRR1,0.5\n")
         cache_dir = tmp_path / "cache"
@@ -292,7 +292,7 @@ class TestSearchIndexCache:
         assert matches == [("SRR1", 0.5)]
         assert mock_session_factory.call_count == 0
 
-    @patch("metaquest.data.branchwater_search._session")
+    @patch("prepare.data.branchwater_search._session")
     def test_cache_write_failure_is_logged_and_ignored(self, mock_session_factory, tmp_path, caplog, monkeypatch):
         mock_session_factory.return_value = _mock_session(text="SRA accession,containment\nSRR1,0.5\n")
         cache_dir = tmp_path / "cache"

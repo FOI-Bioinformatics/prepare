@@ -1,5 +1,5 @@
 """
-Comprehensive unit tests for MetaQuest plugin system.
+Comprehensive unit tests for PREPARE plugin system.
 
 This module provides comprehensive testing for the plugin system including:
 - Plugin registry operations
@@ -19,18 +19,18 @@ import tempfile
 from unittest.mock import Mock, patch
 from typing import List
 
-from metaquest.core.exceptions import ConfigurationError, PluginError, ValidationError, VisualizationError
-from metaquest.core.models import Containment, SRAMetadata
-from metaquest.plugins.base import (
+from prepare.core.exceptions import ConfigurationError, PluginError, ValidationError, VisualizationError
+from prepare.core.models import Containment, SRAMetadata
+from prepare.plugins.base import (
     Plugin,
     PluginRegistry,
     format_registry,
     visualizer_registry,
 )
-from metaquest.plugins.formats.branchwater import BranchWaterFormatPlugin
-from metaquest.plugins.visualizers.bar import BarChartPlugin
-from metaquest.plugins.visualizers.heatmap import HeatmapPlugin
-from metaquest.plugins.visualizers.map import MapVisualizerPlugin
+from prepare.plugins.formats.branchwater import BranchWaterFormatPlugin
+from prepare.plugins.visualizers.bar import BarChartPlugin
+from prepare.plugins.visualizers.heatmap import HeatmapPlugin
+from prepare.plugins.visualizers.map import MapVisualizerPlugin
 
 
 # Test Plugin Classes
@@ -339,7 +339,7 @@ class TestBarChartPlugin:
 
     @patch("matplotlib.pyplot.subplots")
     @patch("matplotlib.pyplot.tight_layout")
-    @patch("metaquest.plugins.visualizers.bar._create_horizontal_bar")
+    @patch("prepare.plugins.visualizers.bar._create_horizontal_bar")
     def test_create_plot_basic(self, mock_create_horizontal_bar, mock_tight_layout, mock_subplots):
         """Test basic plot creation."""
         mock_fig = Mock()
@@ -358,7 +358,7 @@ class TestBarChartPlugin:
 
     @patch("matplotlib.pyplot.subplots")
     @patch("matplotlib.pyplot.tight_layout")
-    @patch("metaquest.plugins.visualizers.bar._create_horizontal_bar")
+    @patch("prepare.plugins.visualizers.bar._create_horizontal_bar")
     def test_create_plot_horizontal(self, mock_create_horizontal_bar, mock_tight_layout, mock_subplots):
         """Test horizontal bar chart creation."""
         mock_fig = Mock()
@@ -373,7 +373,7 @@ class TestBarChartPlugin:
 
     @patch("matplotlib.pyplot.subplots")
     @patch("matplotlib.pyplot.tight_layout")
-    @patch("metaquest.plugins.visualizers.bar._create_vertical_bar")
+    @patch("prepare.plugins.visualizers.bar._create_vertical_bar")
     def test_create_plot_vertical(self, mock_create_vertical_bar, mock_tight_layout, mock_subplots):
         """Test vertical bar chart creation."""
         mock_fig = Mock()
@@ -390,8 +390,8 @@ class TestBarChartPlugin:
 
     @patch("matplotlib.pyplot.subplots")
     @patch("matplotlib.pyplot.tight_layout")
-    @patch("metaquest.plugins.visualizers.bar._create_horizontal_bar")
-    @patch("metaquest.plugins.visualizers.bar._prepare_plot_data")
+    @patch("prepare.plugins.visualizers.bar._create_horizontal_bar")
+    @patch("prepare.plugins.visualizers.bar._prepare_plot_data")
     def test_create_plot_with_limit(
         self, mock_prepare_plot_data, mock_create_horizontal_bar, mock_tight_layout, mock_subplots
     ):
@@ -412,7 +412,7 @@ class TestBarChartPlugin:
 
     @patch("matplotlib.pyplot.subplots")
     @patch("matplotlib.pyplot.tight_layout")
-    @patch("metaquest.plugins.visualizers.bar._create_horizontal_bar")
+    @patch("prepare.plugins.visualizers.bar._create_horizontal_bar")
     def test_create_plot_save_file(self, mock_create_horizontal_bar, mock_tight_layout, mock_subplots):
         """Test plot creation with file saving."""
         mock_fig = Mock()
@@ -487,10 +487,10 @@ class TestHeatmapPlugin:
         """Clustering needs scipy; without it the error names the analysis extra."""
         import sys
 
-        from metaquest.core.exceptions import ConfigurationError
+        from prepare.core.exceptions import ConfigurationError
 
         monkeypatch.setitem(sys.modules, "scipy", None)
-        with pytest.raises(ConfigurationError, match=r"metaquest\[analysis\]"):
+        with pytest.raises(ConfigurationError, match=r"prepare\[analysis\]"):
             HeatmapPlugin.create_plot(data=self.test_data, cluster=True)
 
     def test_create_plot_save_file(self, tmp_path):
@@ -559,11 +559,11 @@ class TestMapVisualizerPlugin:
         assert "map" in MapVisualizerPlugin.description.lower()
         assert MapVisualizerPlugin.version == "0.1.0"
 
-    @patch("metaquest.plugins.visualizers.map._require_cartopy")
-    @patch("metaquest.plugins.visualizers.map._plot_points")
-    @patch("metaquest.plugins.visualizers.map._add_map_features")
-    @patch("metaquest.plugins.visualizers.map._create_map_figure")
-    @patch("metaquest.plugins.visualizers.map._extract_coordinates")
+    @patch("prepare.plugins.visualizers.map._require_cartopy")
+    @patch("prepare.plugins.visualizers.map._plot_points")
+    @patch("prepare.plugins.visualizers.map._add_map_features")
+    @patch("prepare.plugins.visualizers.map._create_map_figure")
+    @patch("prepare.plugins.visualizers.map._extract_coordinates")
     def test_create_plot_basic(
         self, mock_extract_coords, mock_create_figure, mock_add_features, mock_plot_points, _mock_require
     ):
@@ -587,11 +587,11 @@ class TestMapVisualizerPlugin:
             with pytest.raises(ConfigurationError, match="Map visualization needs the 'cartopy' package"):
                 MapVisualizerPlugin.create_plot(data=self.test_data, lat_lon_column="lat_lon")
 
-    @patch("metaquest.plugins.visualizers.map._require_cartopy")
-    @patch("metaquest.plugins.visualizers.map._plot_points")
-    @patch("metaquest.plugins.visualizers.map._add_map_features")
-    @patch("metaquest.plugins.visualizers.map._create_map_figure")
-    @patch("metaquest.plugins.visualizers.map._extract_coordinates")
+    @patch("prepare.plugins.visualizers.map._require_cartopy")
+    @patch("prepare.plugins.visualizers.map._plot_points")
+    @patch("prepare.plugins.visualizers.map._add_map_features")
+    @patch("prepare.plugins.visualizers.map._create_map_figure")
+    @patch("prepare.plugins.visualizers.map._extract_coordinates")
     def test_create_plot_with_save(
         self, mock_extract_coords, mock_create_figure, mock_add_features, mock_plot_points, _mock_require
     ):
@@ -614,7 +614,7 @@ class TestMapVisualizerPlugin:
 
     def test_parse_coordinate_string(self):
         """Test coordinate string parsing."""
-        from metaquest.plugins.visualizers.map import _parse_coordinate_string
+        from prepare.plugins.visualizers.map import _parse_coordinate_string
 
         # Test standard format
         lat, lon = _parse_coordinate_string("40.7128, -74.0060")
@@ -636,7 +636,7 @@ class TestMapVisualizerPlugin:
         assert lat is None
         assert lon is None
 
-    @patch("metaquest.plugins.visualizers.map._require_cartopy")
+    @patch("prepare.plugins.visualizers.map._require_cartopy")
     @patch("matplotlib.pyplot.figure")
     def test_create_plot_error_handling(self, mock_figure, _mock_require):
         """Test map creation error handling."""
@@ -708,7 +708,7 @@ SRR789012,0.85,Salmonella enterica
 
     @patch("matplotlib.pyplot.subplots")
     @patch("matplotlib.pyplot.tight_layout")
-    @patch("metaquest.plugins.visualizers.bar._create_horizontal_bar")
+    @patch("prepare.plugins.visualizers.bar._create_horizontal_bar")
     def test_end_to_end_visualizer_plugin_workflow(self, mock_create_horizontal_bar, mock_tight_layout, mock_subplots):
         """Test complete workflow with visualizer plugin."""
         mock_fig = Mock()
@@ -746,8 +746,8 @@ SRR789012,0.85,Salmonella enterica
 
 
 def test_missing_cartopy_message_names_the_extra():
-    from metaquest.plugins.visualizers import map as map_module
+    from prepare.plugins.visualizers import map as map_module
 
     with patch.dict(sys.modules, {"cartopy": None}):
-        with pytest.raises(ConfigurationError, match=r"-m pip install 'metaquest\[maps\]'"):
+        with pytest.raises(ConfigurationError, match=r"-m pip install 'prepare\[maps\]'"):
             map_module._require_cartopy()

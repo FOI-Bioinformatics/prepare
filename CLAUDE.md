@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MetaQuest is a command-line bioinformatics toolkit for analyzing metagenomic datasets based on genome containment. The software processes Branchwater CSV files, downloads SRA metadata from NCBI, and provides advanced visualization capabilities for containment analysis, including intelligent SRA management with resume capability and comprehensive quality profiling.
+PREPARE is a command-line bioinformatics toolkit for analyzing metagenomic datasets based on genome containment. The software processes Branchwater CSV files, downloads SRA metadata from NCBI, and provides advanced visualization capabilities for containment analysis, including intelligent SRA management with resume capability and comprehensive quality profiling.
 
 ## Development Commands
 
@@ -33,7 +33,7 @@ MetaQuest is a command-line bioinformatics toolkit for analyzing metagenomic dat
   parser with only these (`tests/test_optional_imports.py` blocks every optional module and checks this).
 - Extras: `analysis` (scikit-learn, scipy), `interactive` (plotly, jinja2), `maps` (cartopy), `sourmash`;
   `all` installs them all and `dev` depends on `all`.
-- Import an optional package at the point of use with `metaquest.core.optional.require(module, extra, purpose)`,
+- Import an optional package at the point of use with `prepare.core.optional.require(module, extra, purpose)`,
   never at module top level and never behind a silent `*_AVAILABLE` flag: a missing package is a
   `ConfigurationError` naming the extra, not a degraded output file. A command that catches broad exceptions
   must re-raise `ConfigurationError` (see `cli/commands/advanced_analysis.py`).
@@ -42,44 +42,44 @@ MetaQuest is a command-line bioinformatics toolkit for analyzing metagenomic dat
 
 ## Architecture
 
-MetaQuest follows a layered architecture with clear separation of concerns. As of 0.9.0,
-`metaquest --help` lists 44 commands in seven groups (Containment, Metadata, Genomes, Reads,
+PREPARE follows a layered architecture with clear separation of concerns. As of 0.9.0,
+`prepare --help` lists 44 commands in seven groups (Containment, Metadata, Genomes, Reads,
 Store, Analysis, Environment; the Environment group holds `doctor`, `runs` and `project_report`); the four commands
 `sra_profile`/`sra_report` replaced (`sra_stats`, `sra_profile_quality`, `sra_dashboard`,
 `sra_compare`) still parse but are hidden from that listing (see "Advanced SRA Commands" below).
 
 ### Core Components
-- **CLI Layer** (`metaquest/cli/`): Command-line interface with modular command architecture using a
-  registry pattern. Most commands are one module under `metaquest/cli/commands/`; the store and
-  status commands are packages instead (`metaquest/cli/commands/store/`, one module per command, and
-  `metaquest/cli/commands/status/`, split into `command.py`, `suggest.py`, `render_text.py`). Every
+- **CLI Layer** (`prepare/cli/`): Command-line interface with modular command architecture using a
+  registry pattern. Most commands are one module under `prepare/cli/commands/`; the store and
+  status commands are packages instead (`prepare/cli/commands/store/`, one module per command, and
+  `prepare/cli/commands/status/`, split into `command.py`, `suggest.py`, `render_text.py`). Every
   command writes to stdout through `BaseCommand.emit`/`emit_raw`/`emit_json` (`cli/base.py`); no
-  other module in `metaquest/` calls `print(`.
-- **Core Logic** (`metaquest/core/`): Domain models, validation, exceptions, and constants.
+  other module in `prepare/` calls `print(`.
+- **Core Logic** (`prepare/core/`): Domain models, validation, exceptions, and constants.
   `core/optional.py` is the one place an optional dependency (scikit-learn, scipy, plotly, jinja2,
   cartopy, sourmash) is imported, at the point of use, raising `ConfigurationError` naming its extra
   when the package is missing. `core/settings.py` resolves every runtime setting (flag,
-  `METAQUEST_<NAME>`, `config.toml [runtime]`, default); see `docs/configuration.md`.
-- **Utilities** (`metaquest/utils/`): `tools.py` (the external tool table, `require_tools`),
+  `PREPARE_<NAME>`, `config.toml [runtime]`, default); see `docs/configuration.md`.
+- **Utilities** (`prepare/utils/`): `tools.py` (the external tool table, `require_tools`),
   `resources.py` (CPUs and memory limit of the job), `progress.py` (progress summaries), `logging.py`,
   `xml.py` (the hardened lxml parser), `http.py` (retrying HTTP sessions), `security.py`
   (`SecureSubprocess.run_secure`), `lockfile.py`, `termination.py`.
-- **Data Layer** (`metaquest/data/`): File I/O, Branchwater processing, metadata handling, basic SRA
+- **Data Layer** (`prepare/data/`): File I/O, Branchwater processing, metadata handling, basic SRA
   operations. `data/sra/` is a package (`fastq`, `cleanup`, `accession`, `retry`, `store_handoff`,
   `download`, `space`, `spots`, `run_report`), not a single module; `run_report` builds the
   `download_sra` report CSV and `download_run.json`. `data/registry.py` is the project journal;
   `data/registry_blocks.py` holds the typed dataclass for each block the registry file stores, with
   unknown-key preservation on a round trip. `data/run_log.py` is the per-project run log
-  (`<project>/.metaquest/runs/`, see "Run log rules" below).
-- **Advanced SRA Package** (`metaquest/sra/`): Quality profiling and interactive reporting, described
+  (`<project>/.prepare/runs/`, see "Run log rules" below).
+- **Advanced SRA Package** (`prepare/sra/`): Quality profiling and interactive reporting, described
   under "Advanced SRA Commands" below.
-- **Processing** (`metaquest/processing/`): Containment analysis, statistical processing, counting
+- **Processing** (`prepare/processing/`): Containment analysis, statistical processing, counting
   algorithms, and `status_report.py` (builds the `status` command's report from the registry and the
   filesystem, with no dependency on the CLI layer). `project_funnel.py` (the cross-stage funnel of
   `status` and `project_report`), `run_diff.py` (run comparison for `runs`), `project_report.py` (the
   `project_report` dict) and `project_report_markdown.py` (its Markdown rendering) follow the same rule.
-- **Plugins** (`metaquest/plugins/`): Extensible plugin system for formats and visualizers
-- **Visualization** (`metaquest/visualization/`): Plotting functionality; `project_report.py` renders
+- **Plugins** (`prepare/plugins/`): Extensible plugin system for formats and visualizers
+- **Visualization** (`prepare/visualization/`): Plotting functionality; `project_report.py` renders
   the `project_report` HTML page (the `interactive` extra). The unused report generator
   `visualization/reporting.py` was removed in 0.9.0.
 
@@ -114,7 +114,7 @@ New commands should:
 
 ### Advanced SRA Commands
 Two analysis commands, both in the "Reads" group, share one statistics path
-(`metaquest/sra/`: `dataset_stats` finds an accession's mate files and loads the cached statistics
+(`prepare/sra/`: `dataset_stats` finds an accession's mate files and loads the cached statistics
 record, `quality` samples per-read figures, `analytics.SRADatasetAnalyzer.profile_dataset_quality`
 combines them, `profiles.profile_accession` is the one entry point both commands call):
 - `sra_profile` (`cli/commands/sra_profile.py`) - statistics table, one profile JSON per accession,
@@ -132,8 +132,8 @@ the old `"sra_stats"`/`"quality"` ones of a registry written before 0.5.0
 `accessions_from_args` and `resolve_command_store` live in `cli/base.py`.
 
 ### Store Commands
-`metaquest/store/` (package: `resolve`, `layout`, `sidecar`, `catalog`, `link`, `adopt`, `usage`,
-`locks`, `stats`, `journal`) and `metaquest/cli/commands/store/` implement a shared data store: one
+`prepare/store/` (package: `resolve`, `layout`, `sidecar`, `catalog`, `link`, `adopt`, `usage`,
+`locks`, `stats`, `journal`) and `prepare/cli/commands/store/` implement a shared data store: one
 copy of each downloaded SRA accession, reused by every project that links into it. Nine commands,
 registered under the "Store" group in `cli/main.py`:
 - `store_init` - create a store at `--data-root`, record the project's use of it
@@ -171,18 +171,18 @@ registered under the "Store" group in `cli/main.py`:
 
 Store discovery rules for agents:
 1. **Store required before linking**: `download_sra` only links a dataset and `store_adopt` only
-   runs once a store exists, found via `--data-root`, `METAQUEST_DATA`, `store.root` in the project
-   registry, or `~/.config/metaquest/config.toml`. A project that never runs `store_init` (and has
+   runs once a store exists, found via `--data-root`, `PREPARE_DATA`, `store.root` in the project
+   registry, or `~/.config/prepare/config.toml`. A project that never runs `store_init` (and has
    none of those set) behaves exactly as it did before the store existed; do not assume a store is
    present.
 2. **Tests never touch a real store**: every store test uses a `tmp_path` store and monkeypatches
-   `METAQUEST_DATA` and `XDG_CONFIG_HOME`/`HOME`, so a test run never reads or writes the developer's
-   actual store or `~/.config/metaquest/config.toml`. Follow this pattern for any new store test.
+   `PREPARE_DATA` and `XDG_CONFIG_HOME`/`HOME`, so a test run never reads or writes the developer's
+   actual store or `~/.config/prepare/config.toml`. Follow this pattern for any new store test.
 3. **Explicit-path staging**: `store_adopt` copies a dataset into the store before removing anything
    from the project, so adoption briefly holds up to three copies of one accession (the project's
    original, a staging copy, and the store's copy) and needs at least twice the folder's size free on
-   the store's filesystem before it starts (`_has_room_for` in `metaquest/store/adopt.py`, through
-   `room_shortfall` in `metaquest/store/link.py`), only replacing the project folder with a symlink once
+   the store's filesystem before it starts (`_has_room_for` in `prepare/store/adopt.py`, through
+   `room_shortfall` in `prepare/store/link.py`), only replacing the project folder with a symlink once
    the store copy is verified (and never for `--copy`, which leaves the project folder alone). A
    copy-mode link (`--link-mode copy`) stages the same way in the project: the new copy is made under a
    hidden name after the same free-space check, the earlier copy is moved aside only then, and put back
@@ -207,9 +207,9 @@ Store discovery rules for agents:
 ### Concurrency rules
 - Never hold the registry lock across ranking, profiling, read counting, or a store catalogue write;
   do that work against a snapshot loaded without the lock, then record the outcome through
-  `registry_update` (`metaquest/data/registry_batch.py`) or a `RegistryBatch`, both of which hold the
+  `registry_update` (`prepare/data/registry_batch.py`) or a `RegistryBatch`, both of which hold the
   lock only for the write itself.
-- Write every output file through `metaquest/data/file_io.py`'s atomic helpers (`write_text_atomic`,
+- Write every output file through `prepare/data/file_io.py`'s atomic helpers (`write_text_atomic`,
   `write_bytes_atomic`, `open_atomic`, `write_csv`, `atomic_path`, `copy_file`), never a direct
   `.write_text`, `.write_bytes`, `.to_csv`, `shutil.copy2`/`copyfile`, or `open(path, "w..."/"x...")`;
   `scripts/check_atomic_writes.sh`, part of `make check`, enforces this outside the small allowlist in
@@ -219,7 +219,7 @@ Store discovery rules for agents:
   `Termination.stop` (from `args._termination`, set by `BaseCommand.run`) down to every
   `SecureSubprocess.run_secure` call as `stop=`, the same way the download workers do, or an interrupt
   on the main thread will not stop that thread's tools.
-- New lock files reuse `metaquest.utils.lockfile.held_lock`/`LockPolicy`, never a hand-written
+- New lock files reuse `prepare.utils.lockfile.held_lock`/`LockPolicy`, never a hand-written
   `O_EXCL` file; see "Locking" in `docs/ARCHITECTURE.md`.
 - Process-level concurrency tests live in `tests/test_concurrency_processes.py` (spawning the real CLI
   with fake tools on `PATH`, no real tool or network); a test that starts a real subprocess carries the
@@ -230,7 +230,7 @@ Store discovery rules for agents:
   returning False for an invocation that should leave no record (a dry run, `--no-record`, a read-only
   mode); read flags there with `getattr(args, name, False)`. `cli/main.py` writes the record after the
   command returns; a command never calls `record_run` itself.
-- Note figures from `execute` with `metaquest.data.run_log.note_run(args, summary=..., detail=...)`, or
+- Note figures from `execute` with `prepare.data.run_log.note_run(args, summary=..., detail=...)`, or
   `note_rows(args, rows, *section)` for rows noted one item at a time. Keep the summary small: counts,
   totals and a few settings, never one entry per accession.
 - A detail holds rows only: mappings of plain values (no nested mapping inside a row) keyed by the
@@ -246,20 +246,20 @@ Store discovery rules for agents:
 - **Errors**: a command reports an expected error with `return self.fail(error, "context")`
   (`BaseCommand.fail`, `cli/base.py`), never `self.logger.error(...); return 1`. `fail` logs one line
   with the traceback attached for the log file and returns the exception's exit code: 1 for a
-  `MetaQuestError`, 3 for `ConfigurationError`, 4 for `TransientError` (`NetworkError`,
+  `PrepareError`, 3 for `ConfigurationError`, 4 for `TransientError` (`NetworkError`,
   `LockTimeoutError`), 130 for an interrupt. Raise the matching class rather than choosing a number;
   exit codes other than 0, 1, 2, 3, 4 and 130 are not used.
 - **Per-item logging**: a line logged once per accession, sample or request is logged at
-  `metaquest.utils.progress.item_level(settings.active().progress_every)` (DEBUG by default), and a long
+  `prepare.utils.progress.item_level(settings.active().progress_every)` (DEBUG by default), and a long
   loop reports through a `ProgressReporter`; INFO is for summaries and for what a user acts on.
   Warnings and errors about one item keep their level.
 - **Settings**: a new tunable value is one entry in `SETTINGS` (`_SPECS` in `core/settings.py`) plus a
   field in `RuntimeSettings`, read with `settings.active().<name>` or, in a command,
   `setting_for(args, name)`; a flag for it uses `default=None` and the spec's `cli_dest`. Never read a
-  `METAQUEST_*` variable or the config file directly; the store root is the one exception
+  `PREPARE_*` variable or the config file directly; the store root is the one exception
   (`store/resolve.py`). Add the setting to the table in `docs/configuration.md`.
 - **External tools**: a command checks the tools it needs with
-  `metaquest.utils.tools.require_tools([...])` before any work (skipped for `--dry-run`); a new tool, or
+  `prepare.utils.tools.require_tools([...])` before any work (skipped for `--dry-run`); a new tool, or
   a new floor, is one entry in `TOOLS` (`utils/tools.py`), which `doctor`, the README's tool table and
   `environment.yml` (checked by `tests/test_environment_pins.py`) must agree with. Tools are run only
   through `SecureSubprocess.run_secure`, whose default timeout is the `subprocess_timeout` setting.
@@ -280,8 +280,8 @@ The typical workflow involves:
 6. Advanced SRA operations (`download_sra`, `sra_profile`, `sra_report`)
 7. Checking project state (`status`)
 
-Each step records its outcome in the project registry (`metaquest_registry.json`, see
-`metaquest/data/registry.py`); `status` reads it back and re-checks the filesystem.
+Each step records its outcome in the project registry (`prepare_registry.json`, see
+`prepare/data/registry.py`); `status` reads it back and re-checks the filesystem.
 
 ### Code Quality Standards & Current Status
 
@@ -298,32 +298,32 @@ Every gate below runs as part of `make check`, in this order; each also runs alo
 command shown.
 
 - **Formatting**: Black, no reformatting needed; 120 character line length (pyproject.toml).
-  `python -m black --check --diff metaquest tests`
+  `python -m black --check --diff prepare tests`
 - **Linting**: flake8 clean. `B902` (bare `except Exception`) and `D101`/`D102`/`D103` (a
   docstring on every public class, method and function) are enforced only on the modules listed
   in `setup.cfg`; every other module has D101-D103 switched off there rather than by a wildcard.
-  `python -m flake8 metaquest tests`
-- **Type hints**: mypy clean. `python -m mypy metaquest`
-- **No print**: no `print(` or `sys.stdout.write` outside `metaquest/cli/base.py`; commands write
+  `python -m flake8 prepare tests`
+- **Type hints**: mypy clean. `python -m mypy prepare`
+- **No print**: no `print(` or `sys.stdout.write` outside `prepare/cli/base.py`; commands write
   their result through `self.emit`/`emit_raw`/`emit_json`, everything else logs.
   `bash scripts/check_no_print.sh`
 - **Plotly CDN**: no reference to the frozen `cdn.plot.ly/plotly-latest` alias; use
-  `metaquest.utils.html.plotly_cdn_script()` instead.
-  `grep -rn "cdn.plot.ly/plotly-latest" metaquest --include='*.py'`
+  `prepare.utils.html.plotly_cdn_script()` instead.
+  `grep -rn "cdn.plot.ly/plotly-latest" prepare --include='*.py'`
 - **Complexity**: no function at radon cyclomatic-complexity rank D or worse.
-  `python -m radon cc metaquest -n D -s`
+  `python -m radon cc prepare -n D -s`
 - **Module size and maintainability**: 800 lines and a maintainability index of 20 or higher per
-  module under `metaquest/`. `tests/test_module_sizes.py` holds a short, shrink-only
+  module under `prepare/`. `tests/test_module_sizes.py` holds a short, shrink-only
   `KNOWN_EXCEPTIONS` list for modules that were already over a ceiling when the guard was added.
   `python tests/test_module_sizes.py --check`
-- **ASCII only**: no non-ASCII byte in `metaquest/`, `tests/`, `scripts/`, `Makefile`,
+- **ASCII only**: no non-ASCII byte in `prepare/`, `tests/`, `scripts/`, `Makefile`,
   `setup.cfg` or `pyproject.toml`, aside from the documented exemptions in
   `scripts/check_ascii.sh`: single lines marked `# ascii-ok` with a reason (the package
   author's name, Unicode test fixtures). `bash scripts/check_ascii.sh`
-- **Atomic writes**: every file under `metaquest/` is written through `write_text_atomic`, `write_csv`,
+- **Atomic writes**: every file under `prepare/` is written through `write_text_atomic`, `write_csv`,
   `open_atomic` or `atomic_path` (`data/file_io.py`), never `.write_text(`, `.to_csv(<path>` or
   `open(<path>, "w")`, outside `scripts/atomic_writes_allowlist.txt`. `bash scripts/check_atomic_writes.sh`
-- **Documented commands**: every command visible in `metaquest --help` is mentioned in
+- **Documented commands**: every command visible in `prepare --help` is mentioned in
   README.md, and README.md invokes no command the CLI registry does not have.
   `python scripts/check_docs_commands.py`
 - **Coverage**: minimum 80% for new code, 60% project-wide target; checked by `make test`
@@ -338,7 +338,7 @@ command shown.
 4. **Consider pre-commit hooks** for automated quality checks
 
 ### Error Handling
-- Custom exception hierarchy starts with `MetaQuestError` in `core/exceptions.py`; each class carries
+- Custom exception hierarchy starts with `PrepareError` in `core/exceptions.py`; each class carries
   its exit code (`ExitCode`: 0, 1, 2, 3, 4, 130), see "Exit-code policy" in `docs/ARCHITECTURE.md`
 - Each layer handles errors appropriate to its level
 - CLI layer formats errors for user display through `BaseCommand.fail`
@@ -371,7 +371,7 @@ synthetic fixtures in `tests/perf_fixtures.py` (a 20,000-dataset registry, a lar
 folder of metadata XML files, and a containment table). Each bound was set to about three times
 the time measured on the development machine when the fix it guards landed, so a failure means
 either a real regression or a slower machine, not a fixed threshold that was guessed in advance.
-The time bounds (not the memory bound) are multiplied by the `METAQUEST_PERF_SCALE` environment
+The time bounds (not the memory bound) are multiplied by the `PREPARE_PERF_SCALE` environment
 variable (default 1, values below 1 are rejected); CI sets it to 4 for its shared runners. The bounds
 run by default as part of `make test`; run just these checks with `make test-perf`
 (`python -m pytest -m perf`).
@@ -420,7 +420,7 @@ run by default as part of `make test`; run just these checks with `make test-per
 # Example test pattern for CLI commands
 @pytest.fixture
 def mock_file_operations():
-    with patch('metaquest.data.file_io.read_file') as mock:
+    with patch('prepare.data.file_io.read_file') as mock:
         yield mock
 
 def test_command_execution(mock_file_operations):
@@ -468,7 +468,7 @@ CI job that touches the network; the same chain runs locally via `make test-netw
 
 ### Recommended Development Approach
 
-When working on MetaQuest, follow this priority order:
+When working on PREPARE, follow this priority order:
 
 #### 1. Maintenance Tasks (Ongoing Priority)
 - **Maintain quality standards**: Run `make format` and ensure `make check` passes
@@ -514,25 +514,25 @@ When working on MetaQuest, follow this priority order:
 ### File-Specific Guidance
 
 #### Well-Tested Files (Reference Implementations)
-- `metaquest/cli/commands/*.py` - comprehensive CLI testing patterns
-- `metaquest/cli/commands/sra_profile.py`, `sra_report.py` - SRA analysis commands
-- `metaquest/data/file_io.py` - robust file operations
-- `metaquest/data/branchwater.py` - format handling exemplar
-- `metaquest/data/metadata.py` - external API integration
-- `metaquest/data/sra_metadata.py` - XML parsing and NCBI API
-- `metaquest/data/taxonomy.py` - taxonomy validation and NCBI integration
-- `metaquest/processing/statistics.py` - statistical analysis
-- `metaquest/plugins/visualizers/bar.py` - bar chart visualization
-- `metaquest/sra/reporting.py` - interactive dashboard generation
-- `metaquest/sra/` - comprehensive test coverage for advanced SRA features
+- `prepare/cli/commands/*.py` - comprehensive CLI testing patterns
+- `prepare/cli/commands/sra_profile.py`, `sra_report.py` - SRA analysis commands
+- `prepare/data/file_io.py` - robust file operations
+- `prepare/data/branchwater.py` - format handling exemplar
+- `prepare/data/metadata.py` - external API integration
+- `prepare/data/sra_metadata.py` - XML parsing and NCBI API
+- `prepare/data/taxonomy.py` - taxonomy validation and NCBI integration
+- `prepare/processing/statistics.py` - statistical analysis
+- `prepare/plugins/visualizers/bar.py` - bar chart visualization
+- `prepare/sra/reporting.py` - interactive dashboard generation
+- `prepare/sra/` - comprehensive test coverage for advanced SRA features
 
 **Test Files**: Extensive test suites in `tests/test_*_extended.py`, `tests/test_integration_simple.py`, and `tests/test_performance_simple.py` provide patterns for comprehensive testing with mocking, fixtures, and edge cases.
 
 #### Remaining Enhancement Opportunities
-- `metaquest/visualization/plots.py` - Plotting functionality
-- `metaquest/visualization/interactive.py` - Interactive plotting
-- `metaquest/processing/containment.py` - Core containment algorithms
-- `metaquest/processing/diversity.py` - Diversity analysis
+- `prepare/visualization/plots.py` - Plotting functionality
+- `prepare/visualization/interactive.py` - Interactive plotting
+- `prepare/processing/containment.py` - Core containment algorithms
+- `prepare/processing/diversity.py` - Diversity analysis
 
 ### Success Metrics for Development Work
 
@@ -569,7 +569,7 @@ When working on MetaQuest, follow this priority order:
 ### Recent Architecture Enhancements
 
 #### SRA Package Structure
-The advanced SRA package (`metaquest.sra`) provides specialized functionality:
+The advanced SRA package (`prepare.sra`) provides specialized functionality:
 - **analytics.py** - Comprehensive quality analysis and statistical testing
 - **reporting.py** - Interactive dashboard generation with Plotly integration
 - **__init__.py** - Clean API exposure with proper imports

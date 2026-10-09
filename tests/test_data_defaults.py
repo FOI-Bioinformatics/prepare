@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from metaquest.core.exceptions import DataAccessError
-from metaquest.data.defaults import read_matrix, read_table, resolve_metadata_table
+from prepare.core.exceptions import DataAccessError
+from prepare.data.defaults import read_matrix, read_table, resolve_metadata_table
 
 
 class TestResolveMetadataTable:
@@ -72,7 +72,7 @@ class TestReadTable:
 
 class TestReadRecords:
     def test_tsv_keeps_first_column(self, tmp_path):
-        from metaquest.data.defaults import read_records
+        from prepare.data.defaults import read_records
 
         f = tmp_path / "taxonomy.tsv"
         f.write_text("genome_id\tgenus\nGCF_1\tWolbachia\n")
@@ -81,7 +81,7 @@ class TestReadRecords:
         assert df.loc[0, "genome_id"] == "GCF_1"
 
     def test_csv(self, tmp_path):
-        from metaquest.data.defaults import read_records
+        from prepare.data.defaults import read_records
 
         f = tmp_path / "v.csv"
         f.write_text("original_name,is_valid\nE. coli,True\n")

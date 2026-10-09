@@ -1,4 +1,4 @@
-"""Tests for the per-project dataset registry (metaquest.data.registry)."""
+"""Tests for the per-project dataset registry (prepare.data.registry)."""
 
 import gzip
 import json
@@ -8,12 +8,12 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.core.exceptions import DataAccessError
-from metaquest.data import registry as reg
-from metaquest.data import registry_batch as batch_mod
-from metaquest.data import registry_blocks as rb
-from metaquest.data.read_extraction import summarise_contigs
-from metaquest.processing.status_report import to_dataframes
+from prepare.core.exceptions import DataAccessError
+from prepare.data import registry as reg
+from prepare.data import registry_batch as batch_mod
+from prepare.data import registry_blocks as rb
+from prepare.data.read_extraction import summarise_contigs
+from prepare.processing.status_report import to_dataframes
 
 
 def _fastq(path: Path, reads: int = 2, gz: bool = False) -> Path:
@@ -39,11 +39,11 @@ def _project(tmp_path: Path) -> reg.ProjectPaths:
 
 class TestLoadSave:
     def test_absent_registry_is_empty(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
-        assert r.datasets == {} and r.version == reg.SCHEMA_VERSION and r.path == tmp_path / "metaquest_registry.json"
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
+        assert r.datasets == {} and r.version == reg.SCHEMA_VERSION and r.path == tmp_path / "prepare_registry.json"
 
     def test_round_trip_and_atomic_write(self, tmp_path):
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         r = reg.load_registry(target)
         reg.record_exclusion(r, "SRR1", "amplicon", source="user")
         reg.save_registry(r)
@@ -54,14 +54,14 @@ class TestLoadSave:
         assert json.loads(target.read_text())["version"] == reg.SCHEMA_VERSION
 
     def test_invalid_json_raises(self, tmp_path):
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         target.write_text("{not json")
         with pytest.raises(DataAccessError, match="not valid JSON"):
             reg.load_registry(target)
 
     def test_load_registry_wraps_os_error(self, tmp_path):
         """A read failure (permissions, I/O error) surfaces as DataAccessError, not a raw traceback."""
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         target.write_text("{}")
         with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
             with pytest.raises(DataAccessError, match="Cannot read registry"):
@@ -69,7 +69,7 @@ class TestLoadSave:
 
     def test_save_registry_wraps_os_error(self, tmp_path):
         """A write failure (disk full, permissions) surfaces as DataAccessError, not a raw traceback."""
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         r = reg.load_registry(target)
         with patch("os.replace", side_effect=OSError("disk full")):
             with pytest.raises(DataAccessError, match="Cannot write registry"):
@@ -79,15 +79,15 @@ class TestLoadSave:
         assert not list(tmp_path.glob("*.tmp.*"))
 
     def test_registry_path_walks_up(self, tmp_path, monkeypatch):
-        (tmp_path / "metaquest_registry.json").write_text("{}")
+        (tmp_path / "prepare_registry.json").write_text("{}")
         sub = tmp_path / "targeted" / "SRR1"
         sub.mkdir(parents=True)
-        assert reg.registry_path(start=sub).resolve() == (tmp_path / "metaquest_registry.json").resolve()
+        assert reg.registry_path(start=sub).resolve() == (tmp_path / "prepare_registry.json").resolve()
         assert reg.registry_path(explicit=str(tmp_path / "x.json")) == tmp_path / "x.json"
 
     def test_stale_lock_is_removed_and_fresh_lock_times_out(self, tmp_path, monkeypatch):
-        target = tmp_path / "metaquest_registry.json"
-        lock = tmp_path / "metaquest_registry.json.lock"
+        target = tmp_path / "prepare_registry.json"
+        lock = tmp_path / "prepare_registry.json.lock"
         monkeypatch.setattr(reg, "LOCK_STALE_SECONDS", 5.0)  # well apart from the wait window
         monkeypatch.setattr(reg, "LOCK_WAIT_SECONDS", 0.3)
         lock.write_text("1")
@@ -101,8 +101,8 @@ class TestLoadSave:
 
     def test_wait_deadline_is_its_own_constant(self, tmp_path, monkeypatch):
         """A long staleness window still gives up after the (separate) wait deadline."""
-        target = tmp_path / "metaquest_registry.json"
-        lock = tmp_path / "metaquest_registry.json.lock"
+        target = tmp_path / "prepare_registry.json"
+        lock = tmp_path / "prepare_registry.json.lock"
         monkeypatch.setattr(reg, "LOCK_STALE_SECONDS", 600.0)
         monkeypatch.setattr(reg, "LOCK_WAIT_SECONDS", 0.2)
         lock.write_text("1")
@@ -114,13 +114,13 @@ class TestLoadSave:
 
 class TestRegistrySchemaV2:
     def test_fresh_registry_has_empty_project_and_store(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         assert r.project == {}
         assert r.store == {}
         assert r.version == reg.SCHEMA_VERSION == 2
 
     def test_v1_file_loads_with_empty_project_and_store(self, tmp_path):
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         v1_payload = {
             "version": 1,
             "created": "2026-01-01T00:00:00",
@@ -137,7 +137,7 @@ class TestRegistrySchemaV2:
         assert r.store == {}
 
     def test_v1_file_is_upgraded_to_v2_on_save(self, tmp_path):
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         v1_payload = {
             "version": 1,
             "created": "2026-01-01T00:00:00",
@@ -156,7 +156,7 @@ class TestRegistrySchemaV2:
         assert written["store"] == {}
 
     def test_project_and_store_round_trip(self, tmp_path):
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         r = reg.load_registry(target)
         r.project = {"id": "abc-123", "name": "Wolbachia", "path": "/projects/wolbachia", "created": "2026-01-01"}
         r.store = {"root": "/data/store", "mode": "symlink", "linked": []}
@@ -171,7 +171,7 @@ class TestRegistrySchemaV2:
 class TestRegistryTransaction:
     def test_transaction_reloads_before_writing(self, tmp_path):
         """A change made between transactions survives, because each one loads from disk."""
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         reg.save_registry(reg.load_registry(target))
         other = reg.load_registry(target)
         reg.record_exclusion(other, "SRR9", "amplicon")
@@ -186,9 +186,9 @@ class TestRegistryTransaction:
         assert not list(tmp_path.glob("*.lock")) and not list(tmp_path.glob("*.tmp.*"))
 
     def test_a_lock_taken_over_during_the_transaction_writes_nothing(self, tmp_path):
-        from metaquest.utils.lockfile import LockLost
+        from prepare.utils.lockfile import LockLost
 
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         reg.save_registry(reg.load_registry(target))
         before = target.read_text()
         lock = target.with_name(target.name + ".lock")
@@ -202,9 +202,9 @@ class TestRegistryTransaction:
         assert json.loads(lock.read_text())["token"] == "feedbeef"
 
     def test_a_batch_keeps_its_queue_when_the_lock_was_lost(self, tmp_path):
-        from metaquest.utils.lockfile import LockLost
+        from prepare.utils.lockfile import LockLost
 
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         lock = target.with_name(target.name + ".lock")
         other = {"pid": 4242, "host": "otherhost", "started": "2026-01-01T00:00:00+00:00", "token": "feedbeef"}
         batch = batch_mod.RegistryBatch(target, flush_every=None, flush_seconds=None)
@@ -220,7 +220,7 @@ class TestRegistryTransaction:
         assert not target.exists()
 
     def test_transaction_writes_nothing_on_error(self, tmp_path):
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         with pytest.raises(ValueError, match="boom"):
             with reg.registry_transaction(target) as r:
                 reg.record_exclusion(r, "SRR1", "amplicon")
@@ -239,7 +239,7 @@ class TestProjectRelativePaths:
     """A registry's paths are recorded relative to its own file, so a project can be moved."""
 
     def test_project_root_is_the_registry_files_parent(self, tmp_path):
-        r = reg.load_registry(tmp_path / "sub" / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "sub" / "prepare_registry.json")
         assert reg.project_root(r) == (tmp_path / "sub").resolve()
 
     def test_project_root_falls_back_to_cwd_when_unbound(self, monkeypatch, tmp_path):
@@ -249,19 +249,19 @@ class TestProjectRelativePaths:
         assert reg.project_root(r) == tmp_path.resolve()
 
     def test_resolve_project_path_round_trip(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         inside = tmp_path / "genomes" / "GCF_1.fna"
         stored = reg._project_relative(inside, reg.project_root(r))
         assert not Path(stored).is_absolute()
         assert reg.resolve_project_path(r, stored) == inside.resolve()
 
     def test_resolve_project_path_leaves_an_absolute_value_unchanged(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         outside = tmp_path.parent / "elsewhere" / "GCF_2.fna"
         assert reg.resolve_project_path(r, str(outside)) == outside
 
     def test_record_genome_stores_a_relative_path_under_the_project_root(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         fasta = tmp_path / "genomes" / "GCF_1.fna"
         manifest = tmp_path / "manifest.csv"
         reg.record_genome(r, "GCF_1", fasta, manifest)
@@ -273,13 +273,13 @@ class TestProjectRelativePaths:
     def test_record_genome_with_empty_manifest_stores_empty_string(self, tmp_path):
         """A genome fetched without a manifest (e.g. genome_download) must not record a
         meaningless path resolved from wherever the process happened to run."""
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         fasta = tmp_path / "GCF_1.fna"
         reg.record_genome(r, "GCF_1", fasta, "")
         assert r.genomes["GCF_1"]["manifest"] == ""
 
     def test_record_genome_keeps_an_absolute_path_outside_the_project_root(self, tmp_path):
-        r = reg.load_registry(tmp_path / "project" / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "project" / "prepare_registry.json")
         outside_fasta = tmp_path / "shared_refs" / "GCF_1.fna"
         reg.record_genome(r, "GCF_1", outside_fasta, outside_fasta)
         recorded = r.genomes["GCF_1"]["fasta"]
@@ -287,14 +287,14 @@ class TestProjectRelativePaths:
         assert Path(recorded) == outside_fasta.resolve()
 
     def test_recorded_download_files_are_project_relative(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         _fastq(tmp_path / "fastq" / "SRR1" / "SRR1_1.fastq")
         reg.record_download(r, "SRR1", "downloaded", tmp_path / "fastq")
         path = r.datasets["SRR1"]["download"]["files"][0]["path"]
         assert path == "fastq/SRR1/SRR1_1.fastq"
 
     def test_recorded_metadata_analysis_extraction_assembly_are_project_relative(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_metadata(r, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {})
         reg.record_analysis(r, "SRR1", "sra_stats", tmp_path / "reports" / "sra_statistics.csv", {})
         reg.record_extraction(
@@ -319,7 +319,7 @@ class TestProjectRelativePaths:
     def test_absolute_entries_from_an_older_registry_still_resolve(self, tmp_path):
         """A pre-existing registry with absolute paths (written before this change) is
         unaffected: resolve_project_path returns an absolute value unchanged."""
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         absolute_fasta = tmp_path / "genomes" / "GCF_1.fna"
         target.write_text(
             json.dumps(
@@ -338,7 +338,7 @@ class TestProjectRelativePaths:
 
 class TestRecords:
     def test_screening_selection_exclusion(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_screening(r, "SRR1", "GCF_1", 0.94611, 0.9974, "branchwater", 0.1, tmp_path / "bw.csv")
         reg.record_screening(r, "SRR1", "GCF_2", 0.2, None, "branchwater", 0.1, None)
         reg.record_selection(r, ["SRR1"], {"column": "GCF_1", "threshold": 0.5}, tmp_path / "accessions.txt")
@@ -354,7 +354,7 @@ class TestRecords:
         assert reg.query(r, "excluded") == []
 
     def test_download_records_files_and_attempts(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         _fastq(tmp_path / "fastq" / "SRR1" / "SRR1_1.fastq")
         _fastq(tmp_path / "fastq" / "SRR1" / "SRR1_2.fastq")
         reg.record_download(r, "SRR1", "failed", tmp_path / "fastq", message="timeout")
@@ -383,7 +383,7 @@ class TestRecords:
         assert r.datasets["SRR4"]["download"]["attempts"] == 0
 
     def test_record_download_stores_and_preserves_the_completeness_verdict(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         verdict = {"verdict": "truncated", "reads_r1": 300000, "expected_spots": 48000000, "ratio": 0.0063}
         reg.record_download(r, "SRR1", "downloaded", tmp_path / "fastq", complete=verdict)
         assert r.datasets["SRR1"]["download"]["complete"] == verdict
@@ -397,7 +397,7 @@ class TestRecords:
         """The mate counts extract_target_reads caches describe the files this outcome
         replaces. A pair counted from a truncated download surviving the re-download that
         fixed it would force single-end mapping of a now-complete pair."""
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         download = reg.upsert_dataset(r, "SRR1").setdefault("download", {"attempts": 0})
         download["mate_reads"] = [10, 9]
         download["mate_reads_signature"] = [["SRR1_1.fastq.gz", 1, 1.0], ["SRR1_2.fastq.gz", 1, 1.0]]
@@ -410,7 +410,7 @@ class TestRecords:
     def test_set_download_verdict_only_touches_complete(self, tmp_path):
         """Unlike record_download, set_download_verdict must not reset date, files, bytes_total,
         message, source or store_name; it only sets the completeness verdict."""
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_download(
             r, "SRR1", "downloaded", tmp_path / "fastq", message="original", source="store", store_name="SRR1"
         )
@@ -431,7 +431,7 @@ class TestRecords:
 
     def test_screening_source_and_threshold_are_per_genome(self, tmp_path):
         """A later screening from another source must not overwrite the first genome's provenance."""
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_screening(r, "SRR1", "GCF_1", 0.9, 0.99, "branchwater", 0.1, tmp_path / "bw.csv")
         reg.record_screening(r, "SRR1", "GCF_2", 0.3, None, "matches", 0.0, tmp_path / "m.csv")
         screening = r.datasets["SRR1"]["screening"]
@@ -442,17 +442,17 @@ class TestRecords:
         assert screening["date"]
 
     def test_record_extraction_stores_mapped_total(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_extraction(r, "SRR1", "GCF_1", [], 80, False, {}, mapped_total=100)
         assert r.datasets["SRR1"]["extractions"]["GCF_1"]["mapped_total"] == 100
 
     def test_record_extraction_mapped_total_defaults_to_none(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_extraction(r, "SRR1", "GCF_1", [], 80, False, {})
         assert r.datasets["SRR1"]["extractions"]["GCF_1"]["mapped_total"] is None
 
     def test_record_extraction_stores_reference_coverage(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         tsv = tmp_path / "targeted" / "SRR1" / "GCF_1_coverage.tsv"
         coverage = {"breadth": 0.875, "mean_depth": 8.0, "covered_bases": 350, "reference_bp": 400, "coverage_tsv": tsv}
         reg.record_extraction(r, "SRR1", "GCF_1", [], 80, False, {}, coverage=coverage)
@@ -461,13 +461,13 @@ class TestRecords:
         assert entry["coverage_tsv"] == "targeted/SRR1/GCF_1_coverage.tsv"
 
     def test_record_extraction_coverage_defaults_to_none(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_extraction(r, "SRR1", "GCF_1", [], 80, False, {})
         entry = r.datasets["SRR1"]["extractions"]["GCF_1"]
         assert entry["breadth"] is None and entry["mean_depth"] is None and entry["coverage_tsv"] is None
 
     def test_record_assembly_passes_the_whole_stats_dict_through(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_extraction(r, "SRR1", "GCF_1", [], 100, False, {})
         reg.record_assembly(
             r,
@@ -506,7 +506,7 @@ class TestRecords:
 
     def test_record_assembly_defaults_the_four_required_keys(self, tmp_path):
         """A stats dict missing some of the four required keys still gets them, defaulted to 0."""
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_extraction(r, "SRR1", "GCF_1", [], 0, False, {})
         reg.record_assembly(r, "SRR1", "GCF_1", tmp_path / "asm", {"contigs": 1}, "v1.2.9", {})
         assembly = r.datasets["SRR1"]["extractions"]["GCF_1"]["assembly"]
@@ -514,7 +514,7 @@ class TestRecords:
         assert assembly["total_bp"] == 0 and assembly["n50"] == 0 and assembly["largest"] == 0
 
     def test_clear_assembly_removes_the_block_but_keeps_the_extraction(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_extraction(r, "SRR1", "GCF_1", [tmp_path / "r.fastq.gz"], 10, False, {})
         reg.record_assembly(r, "SRR1", "GCF_1", tmp_path / "asm", {"contigs": 1}, "v1.2.9", {})
         reg.clear_assembly(r, "SRR1", "GCF_1")
@@ -524,12 +524,12 @@ class TestRecords:
 
     def test_clear_assembly_is_a_no_op_without_an_existing_record(self, tmp_path):
         """Nothing to clear (no extraction record at all yet) must not raise or create one."""
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.clear_assembly(r, "SRR1", "GCF_1")
         assert "SRR1" not in r.datasets
 
     def test_real_records_clear_the_inferred_flag(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_screening(r, "SRR1", "GCF_1", 0.5, None, "matches", 0.0, None)
         r.datasets["SRR1"]["screening"]["inferred"] = True
         reg.record_screening(r, "SRR1", "GCF_1", 0.9, 0.99, "branchwater", 0.1, None)
@@ -541,7 +541,7 @@ class TestRecords:
         assert "inferred" not in r.datasets["SRR1"]["extractions"]["GCF_1"]
 
     def test_screening_cap_keeps_the_best(self, tmp_path, caplog):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         table = tmp_path / "parsed_containment.txt"
         table.write_text("\tGCF_A\nSRR1\t0.9\nSRR2\t0.2\nSRR3\t0.5\n")
         with caplog.at_level("WARNING"):
@@ -551,7 +551,7 @@ class TestRecords:
         assert "2" in caplog.text and "screen" in caplog.text.lower()
 
     def test_screening_cap_keeps_accessions_with_other_records(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_exclusion(r, "SRR2", "16S amplicon")
         table = tmp_path / "parsed_containment.txt"
         table.write_text("\tGCF_A\nSRR1\t0.9\nSRR2\t0.2\n")
@@ -560,7 +560,7 @@ class TestRecords:
         assert r.datasets["SRR2"]["exclusion"]["excluded"] is True and "screening" not in r.datasets["SRR2"]
 
     def test_screening_from_table_skips_non_numeric_cells(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         table = tmp_path / "parsed_containment.txt"
         table.write_text("\tGCF_A\tGCF_B\nSRR1\t0.9\tnot-a-number\n")
         count = reg.record_screening_from_table(r, table, tmp_path / "matches")
@@ -568,16 +568,16 @@ class TestRecords:
         assert list(r.datasets["SRR1"]["screening"]["genomes"]) == ["GCF_A"]
 
     def test_registry_path_logs_a_registry_above_the_working_directory(self, tmp_path, caplog):
-        (tmp_path / "metaquest_registry.json").write_text("{}")
+        (tmp_path / "prepare_registry.json").write_text("{}")
         sub = tmp_path / "targeted"
         sub.mkdir()
         with caplog.at_level("INFO"):
             found = reg.registry_path(start=sub)
-        assert found.resolve() == (tmp_path / "metaquest_registry.json").resolve()
+        assert found.resolve() == (tmp_path / "prepare_registry.json").resolve()
         assert str(found) in caplog.text
 
     def test_record_screening_from_table(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         table = tmp_path / "parsed_containment.txt"
         table.write_text(
             "\tGCF_A\tGCF_B\tmax_containment\tmax_containment_annotation\n"
@@ -595,13 +595,13 @@ class TestRecords:
         assert "GCF_A" not in r.datasets["SRR2"]["screening"]["genomes"]
 
     def test_record_screening_from_table_missing_returns_zero(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         count = reg.record_screening_from_table(r, tmp_path / "missing.txt", tmp_path / "matches")
         assert count == 0
         assert r.datasets == {}
 
     def test_metadata_analysis_extraction_assembly(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_metadata(
             r, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {"run_size": "1234", "organism": "x"}
         )
@@ -633,7 +633,7 @@ class TestRecords:
         assert rb.extraction_block(r, "SRR1", "GCF_1").assembly is None
 
     def test_record_metadata_keeps_spots_bases_layout_platform_as_int(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_metadata(
             r,
             "SRR1",
@@ -658,7 +658,7 @@ class TestRecords:
         assert metadata["library_strategy"] == "WGS"
 
     def test_record_metadata_with_a_given_root_records_the_same_path(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         xml = tmp_path / "metadata" / "SRR1_metadata.xml"
         reg.record_metadata(r, "SRR1", xml, {})
         reg.record_metadata(r, "SRR2", xml, {}, root=reg.project_root(r))
@@ -666,7 +666,7 @@ class TestRecords:
         assert r.datasets["SRR2"]["metadata"]["xml"] == "metadata/SRR1_metadata.xml"
 
     def test_record_metadata_spots_none_when_not_numeric(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_metadata(r, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {})
         metadata = r.datasets["SRR1"]["metadata"]
         assert metadata["run_total_spots"] is None
@@ -676,7 +676,7 @@ class TestRecords:
         assert metadata["library_strategy"] is None
 
     def test_query_and_stage_counts(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         for acc, cont in (("SRR1", 0.9), ("SRR2", 0.5), ("SRR3", 0.05)):
             reg.record_screening(r, acc, "GCF_1", cont, None, "branchwater", 0.01, None)
         reg.record_selection(r, ["SRR1", "SRR2"], {"threshold": 0.1}, Path("accessions.txt"))
@@ -852,7 +852,7 @@ class TestScanners:
         elsewhere.mkdir()
         monkeypatch.chdir(elsewhere)
 
-        registry_file = tmp_path / "metaquest_registry.json"
+        registry_file = tmp_path / "prepare_registry.json"
         r = reg.bootstrap_from_disk(paths, target_path=registry_file)
         reg.save_registry(r)
 
@@ -912,7 +912,7 @@ class TestScanners:
         assert "SRR2_temp" not in r.datasets
 
     def test_to_dataframes(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_selection(r, ["SRR1"], {"threshold": 0.1}, Path("a.txt"))
         reg.record_extraction(r, "SRR1", "GCF_1", [], 7, False, {"preset": "sr"})
         datasets, extractions = to_dataframes(r)
@@ -921,14 +921,14 @@ class TestScanners:
         assert "breadth" in extractions.columns and "mean_depth" in extractions.columns
 
     def test_to_dataframes_carries_breadth_and_mean_depth(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         coverage = {"breadth": 0.5, "mean_depth": 3.25, "coverage_tsv": tmp_path / "c.tsv"}
         reg.record_extraction(r, "SRR1", "GCF_1", [], 7, False, {}, coverage=coverage)
         _, extractions = to_dataframes(r)
         assert extractions.loc[0, "breadth"] == 0.5 and extractions.loc[0, "mean_depth"] == 3.25
 
     def test_to_dataframes_reads_the_profile_or_an_old_quality_analysis(self, tmp_path):
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_analysis(r, "SRR1", "profile", tmp_path / "p.json", {"total_reads": 10, "gc_percent": 40.0})
         reg.record_analysis(r, "SRR2", "quality", tmp_path / "q.json", {"grade": "good", "gc_content": 0.5})
         datasets, _ = to_dataframes(r)
@@ -940,7 +940,7 @@ class TestStoreLinksInTheRegistry:
     """Store-backed downloads: recorded source, and dangling links reported as drift."""
 
     def _store_dataset(self, tmp_path, accession="SRR1"):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         paths = init_store(tmp_path / "store")
         _fastq(paths.sra / accession / f"{accession}_1.fastq")
@@ -949,11 +949,11 @@ class TestStoreLinksInTheRegistry:
     def test_record_download_keeps_source_and_store_name(self, tmp_path):
         paths = self._store_dataset(tmp_path)
         project = _project(tmp_path)
-        from metaquest.store.link import link_dataset
+        from prepare.store.link import link_dataset
 
         link_dataset(project.fastq, "SRR1", paths)
 
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_download(
             r,
             "SRR1",
@@ -975,7 +975,7 @@ class TestStoreLinksInTheRegistry:
     def test_record_download_without_a_source_clears_a_stale_one(self, tmp_path):
         project = _project(tmp_path)
         _fastq(project.fastq / "SRR1" / "SRR1_1.fastq")
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_download(r, "SRR1", "downloaded", project.fastq, source="store", store_name="SRR1")
 
         reg.record_download(r, "SRR1", "downloaded", project.fastq)
@@ -986,12 +986,12 @@ class TestStoreLinksInTheRegistry:
     def test_reconcile_reports_dangling_links(self, tmp_path):
         import shutil
 
-        from metaquest.store.link import link_dataset
+        from prepare.store.link import link_dataset
 
         paths = self._store_dataset(tmp_path)
         project = _project(tmp_path)
         link_dataset(project.fastq, "SRR1", paths)
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_download(r, "SRR1", "downloaded", project.fastq, source="store", store_name="SRR1")
         shutil.rmtree(paths.sra / "SRR1")
 
@@ -1001,12 +1001,12 @@ class TestStoreLinksInTheRegistry:
         assert report.recorded_missing == ["SRR1"]
 
     def test_reconcile_reports_no_dangling_links_for_a_healthy_link(self, tmp_path):
-        from metaquest.store.link import link_dataset
+        from prepare.store.link import link_dataset
 
         paths = self._store_dataset(tmp_path)
         project = _project(tmp_path)
         link_dataset(project.fastq, "SRR1", paths)
-        r = reg.load_registry(tmp_path / "metaquest_registry.json")
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
 
         report = reg.reconcile(r, project)
 
@@ -1018,10 +1018,10 @@ class TestStoreBackedVerdictBackfill:
     """A record linked from the store gets its verdict from the store's own sidecar."""
 
     def test_a_store_backed_record_is_filled_in_from_the_sidecar(self, tmp_path):
-        from metaquest.data.registry import ProjectPaths, Registry
-        from metaquest.data.registry_reconcile import _fill_missing_download_verdicts
-        from metaquest.store.layout import init_store, sidecar_path
-        from metaquest.store.sidecar import Sidecar, write_sidecar
+        from prepare.data.registry import ProjectPaths, Registry
+        from prepare.data.registry_reconcile import _fill_missing_download_verdicts
+        from prepare.store.layout import init_store, sidecar_path
+        from prepare.store.sidecar import Sidecar, write_sidecar
 
         paths_store = init_store(tmp_path / "store")
         write_sidecar(
@@ -1035,7 +1035,7 @@ class TestStoreBackedVerdictBackfill:
             ),
         )
 
-        registry = Registry(path=tmp_path / "metaquest_registry.json")
+        registry = Registry(path=tmp_path / "prepare_registry.json")
         registry.store = {"root": str(tmp_path / "store")}
         registry.datasets = {"SRR1": {"download": {"state": "downloaded", "source": "store"}}}
 
@@ -1047,12 +1047,12 @@ class TestStoreBackedVerdictBackfill:
         assert complete["reads_r1"] == 100
 
     def test_a_store_backed_record_without_a_sidecar_is_left_alone(self, tmp_path):
-        from metaquest.data.registry import ProjectPaths, Registry
-        from metaquest.data.registry_reconcile import _fill_missing_download_verdicts
-        from metaquest.store.layout import init_store
+        from prepare.data.registry import ProjectPaths, Registry
+        from prepare.data.registry_reconcile import _fill_missing_download_verdicts
+        from prepare.store.layout import init_store
 
         init_store(tmp_path / "store")
-        registry = Registry(path=tmp_path / "metaquest_registry.json")
+        registry = Registry(path=tmp_path / "prepare_registry.json")
         registry.store = {"root": str(tmp_path / "store")}
         registry.datasets = {"SRR1": {"download": {"state": "downloaded", "source": "store"}}}
 
@@ -1103,7 +1103,7 @@ class TestScannersIgnoreHiddenEntries:
 
 class TestRecordExport:
     def test_record_export_under_project_exports(self, tmp_path):
-        path = tmp_path / "metaquest_registry.json"
+        path = tmp_path / "prepare_registry.json"
         r = reg.load_registry(path)
         r.project = {"id": "p1", "name": "demo"}
         reg.record_export(r, "results_table", tmp_path / "out" / "results.tsv", {"rows": 3})

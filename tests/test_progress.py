@@ -11,11 +11,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from metaquest.data import metadata as metadata_mod
-from metaquest.data.sra import download as download_mod
-from metaquest.utils.progress import ProgressReporter, format_duration
+from prepare.data import metadata as metadata_mod
+from prepare.data.sra import download as download_mod
+from prepare.utils.progress import ProgressReporter, format_duration
 
-LOGGER = "metaquest.test_progress"
+LOGGER = "prepare.test_progress"
 
 
 class FakeClock:
@@ -185,12 +185,12 @@ def _fake_project_download(accession, *args, **kwargs):
 
 @pytest.mark.parametrize("every", [25, 0])
 def test_download_sra_logs_summaries_not_one_line_per_accession(tmp_path, caplog, monkeypatch, every):
-    monkeypatch.setenv("METAQUEST_PROGRESS_EVERY", str(every))
+    monkeypatch.setenv("PREPARE_PROGRESS_EVERY", str(every))
     accessions = [f"SRR{100000 + index}" for index in range(200)]
     accessions_file = tmp_path / "accessions.txt"
     accessions_file.write_text("".join(f"{acc}\n" for acc in accessions))
     with (
-        patch("metaquest.data.sra.accession._project_download", side_effect=_fake_project_download),
+        patch("prepare.data.sra.accession._project_download", side_effect=_fake_project_download),
         caplog.at_level(logging.DEBUG),
     ):
         stats = download_mod.download_sra(tmp_path / "fastq", accessions_file, max_workers=4, max_retries=0)
@@ -224,11 +224,11 @@ def _fake_batch(batch, metadata_path, email, api_key):
 
 @pytest.mark.parametrize("every", [100, 0])
 def test_download_metadata_logs_summaries_per_batch(tmp_path, caplog, monkeypatch, every):
-    monkeypatch.setenv("METAQUEST_PROGRESS_EVERY", str(every))
+    monkeypatch.setenv("PREPARE_PROGRESS_EVERY", str(every))
     accessions = [f"SRR{200000 + index}" for index in range(1000)]
     with (
-        patch("metaquest.data.metadata._download_batch_metadata", side_effect=_fake_batch),
-        caplog.at_level(logging.DEBUG, logger="metaquest.data.metadata"),
+        patch("prepare.data.metadata._download_batch_metadata", side_effect=_fake_batch),
+        caplog.at_level(logging.DEBUG, logger="prepare.data.metadata"),
     ):
         result = metadata_mod._download_accessions_metadata(accessions, tmp_path, "a@b.c", 1000, batch_size=200)
     assert len(result) == 900
@@ -251,7 +251,7 @@ def test_download_metadata_logs_summaries_per_batch(tmp_path, caplog, monkeypatc
 
 @pytest.mark.parametrize("every, level", [(50, logging.DEBUG), (0, logging.INFO)])
 def test_download_metadata_request_lines_follow_the_progress_setting(tmp_path, caplog, monkeypatch, every, level):
-    monkeypatch.setenv("METAQUEST_PROGRESS_EVERY", str(every))
+    monkeypatch.setenv("PREPARE_PROGRESS_EVERY", str(every))
 
     class Handle:
         def read(self):
@@ -261,9 +261,9 @@ def test_download_metadata_request_lines_follow_the_progress_setting(tmp_path, c
             pass
 
     with (
-        patch("metaquest.data.metadata.Entrez.efetch", return_value=Handle()),
-        patch("metaquest.data.metadata._pace_requests"),
-        caplog.at_level(logging.DEBUG, logger="metaquest.data.metadata"),
+        patch("prepare.data.metadata.Entrez.efetch", return_value=Handle()),
+        patch("prepare.data.metadata._pace_requests"),
+        caplog.at_level(logging.DEBUG, logger="prepare.data.metadata"),
     ):
         metadata_mod._download_batch_metadata(["SRR1", "SRR2"], tmp_path, "a@b.c", None)
         metadata_mod._download_single_metadata("SRR3", tmp_path, "a@b.c", None)
@@ -275,28 +275,28 @@ def test_download_metadata_request_lines_follow_the_progress_setting(tmp_path, c
 
 
 def test_a_bad_progress_setting_stops_downloads_before_any_starts(tmp_path, monkeypatch):
-    from metaquest.core.exceptions import ConfigurationError
-    from metaquest.data.sra import retry as retry_mod
+    from prepare.core.exceptions import ConfigurationError
+    from prepare.data.sra import retry as retry_mod
 
-    monkeypatch.setenv("METAQUEST_PROGRESS_EVERY", "abc")
+    monkeypatch.setenv("PREPARE_PROGRESS_EVERY", "abc")
     worker = MagicMock(return_value=(True, "ok"))
-    with pytest.raises(ConfigurationError, match="METAQUEST_PROGRESS_EVERY"):
+    with pytest.raises(ConfigurationError, match="PREPARE_PROGRESS_EVERY"):
         retry_mod._download_with_retries(["SRR1", "SRR2"], tmp_path, 1, 2, False, None, 1, downloader=worker)
     worker.assert_not_called()
 
 
 def test_a_bad_progress_setting_stops_metadata_before_any_request(tmp_path, monkeypatch):
-    from metaquest.core.exceptions import ConfigurationError
+    from prepare.core.exceptions import ConfigurationError
 
-    monkeypatch.setenv("METAQUEST_PROGRESS_EVERY", "abc")
-    with patch("metaquest.data.metadata._download_batch_metadata") as batch:
+    monkeypatch.setenv("PREPARE_PROGRESS_EVERY", "abc")
+    with patch("prepare.data.metadata._download_batch_metadata") as batch:
         with pytest.raises(ConfigurationError):
             metadata_mod._download_accessions_metadata(["SRR1"], tmp_path, "a@b.c", 1)
     batch.assert_not_called()
 
 
 def test_download_closing_line_follows_the_retry_pass(tmp_path, caplog):
-    from metaquest.data.sra import retry as retry_mod
+    from prepare.data.sra import retry as retry_mod
 
     attempts = {}
 

@@ -4,9 +4,9 @@ import argparse
 import json
 import logging
 
-from metaquest.cli.commands.results import ResultsTableCommand
-from metaquest.data.registry import load_registry, record_extraction, record_screening, save_registry
-from metaquest.processing.results import RESULTS_COLUMNS
+from prepare.cli.commands.results import ResultsTableCommand
+from prepare.data.registry import load_registry, record_extraction, record_screening, save_registry
+from prepare.processing.results import RESULTS_COLUMNS
 
 
 def _args(tmp_path, **kwargs):
@@ -15,7 +15,7 @@ def _args(tmp_path, **kwargs):
         genome_id=None,
         parsed_containment=str(tmp_path / "parsed_containment.txt"),
         min_containment=0.0,
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
         no_record=False,
     )
     base.update(kwargs)
@@ -23,11 +23,11 @@ def _args(tmp_path, **kwargs):
 
 
 def _seed(tmp_path):
-    registry = load_registry(tmp_path / "metaquest_registry.json")
+    registry = load_registry(tmp_path / "prepare_registry.json")
     record_screening(registry, "SRR1", "GCF_A", 0.9, None, "matches", 0.0, None)
     record_extraction(registry, "SRR1", "GCF_A", [], 10, False, {})
     save_registry(registry)
-    return tmp_path / "metaquest_registry.json"
+    return tmp_path / "prepare_registry.json"
 
 
 def test_writes_header_and_rows(tmp_path, monkeypatch):
@@ -87,13 +87,13 @@ def test_zero_rows_warns_and_writes_header_only(tmp_path, monkeypatch, caplog):
 def test_no_registry_is_not_created_and_the_table_is_still_written(tmp_path, monkeypatch, caplog):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.95\t0.95\n")
-    registry_path = tmp_path / "metaquest_registry.json"
+    registry_path = tmp_path / "prepare_registry.json"
     assert not registry_path.exists()
     with caplog.at_level(logging.INFO):
         rc = ResultsTableCommand().execute(_args(tmp_path))
     assert rc == 0
     assert not registry_path.exists()
-    assert not (tmp_path / "metaquest_registry.json.lock").exists()
+    assert not (tmp_path / "prepare_registry.json.lock").exists()
     assert (tmp_path / "results.tsv").read_text().splitlines()[1].startswith("SRR1\tGCF_A\t0.95\t")
     assert f"no project registry at {registry_path}; export not recorded" in caplog.text
 
@@ -124,7 +124,7 @@ def test_unparseable_parsed_table_returns_1(tmp_path, monkeypatch, caplog):
 
 
 def test_command_is_registered():
-    from metaquest.cli.main import create_parser, register_all_commands
+    from prepare.cli.main import create_parser, register_all_commands
 
     register_all_commands()
     parser = create_parser()

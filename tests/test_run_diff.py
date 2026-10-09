@@ -1,14 +1,14 @@
-"""Tests for comparing recorded runs (``metaquest/processing/run_diff.py``)."""
+"""Tests for comparing recorded runs (``prepare/processing/run_diff.py``)."""
 
 import argparse
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from metaquest.core import settings
-from metaquest.data import run_log
-from metaquest.data.registry import REGISTRY_FILENAME
-from metaquest.processing.run_diff import (
+from prepare.core import settings
+from prepare.data import run_log
+from prepare.data.registry import REGISTRY_FILENAME
+from prepare.processing.run_diff import (
     accession_history,
     detail_kept,
     detail_rows,

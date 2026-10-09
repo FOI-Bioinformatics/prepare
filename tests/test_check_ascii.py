@@ -34,10 +34,10 @@ def _gate(root):
 
 
 def test_an_export_without_git_is_still_checked(tmp_path):
-    root = _export(tmp_path, {"metaquest/x.py": f'LABEL = "caf{E_ACUTE}"\n', "Makefile": "all:\n\ttrue\n"})
+    root = _export(tmp_path, {"prepare/x.py": f'LABEL = "caf{E_ACUTE}"\n', "Makefile": "all:\n\ttrue\n"})
     result = _gate(root)
     assert result.returncode == 1
-    assert "metaquest/x.py" in result.stdout
+    assert "prepare/x.py" in result.stdout
 
 
 def test_a_clean_export_without_git_passes(tmp_path):

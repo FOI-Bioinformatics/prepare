@@ -2,7 +2,7 @@
 
 The conda ``megahit`` is a wrapper that runs ``megahit_core`` as a child holding the inherited
 output pipes. The fake tool here does the same with ``sleep 60``: its child records its own
-process id and then becomes ``sleep``, so the test can check that this grandchild of MetaQuest
+process id and then becomes ``sleep``, so the test can check that this grandchild of PREPARE
 is gone, not only the tool itself.
 """
 
@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from metaquest.core.exceptions import SecurityError
-from metaquest.utils.security import SecureSubprocess
+from prepare.core.exceptions import SecurityError
+from prepare.utils.security import SecureSubprocess
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX only")
 

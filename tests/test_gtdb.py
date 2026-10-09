@@ -6,9 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-import metaquest.data.gtdb as gtdb
-from metaquest.core.exceptions import DataAccessError
-from metaquest.data.gtdb import (
+import prepare.data.gtdb as gtdb
+from prepare.core.exceptions import DataAccessError
+from prepare.data.gtdb import (
     get_accessions_for_genus,
     get_accessions_for_species,
     get_session,
@@ -290,7 +290,7 @@ class TestSearchTaxon:
 
 
 class TestGetAccessionsForSpecies:
-    @patch("metaquest.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_species")
     def test_representative_only(self, mock_search):
         mock_search.return_value = SPECIES_RESULT_LIST
 
@@ -298,7 +298,7 @@ class TestGetAccessionsForSpecies:
 
         assert result == ["GCF_000005845.2"]
 
-    @patch("metaquest.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_species")
     def test_all_genomes(self, mock_search):
         mock_search.return_value = SPECIES_RESULT_LIST
 
@@ -308,7 +308,7 @@ class TestGetAccessionsForSpecies:
         assert "GCF_000008865.2" in result
         assert len(result) == 2
 
-    @patch("metaquest.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_species")
     def test_no_representative_falls_back_to_first(self, mock_search):
         """When representative_only but none flagged, returns the first accession."""
         mock_search.return_value = [
@@ -320,7 +320,7 @@ class TestGetAccessionsForSpecies:
 
         assert result == ["GCF_111111111.1"]
 
-    @patch("metaquest.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_species")
     def test_empty_results(self, mock_search):
         mock_search.return_value = []
 
@@ -328,7 +328,7 @@ class TestGetAccessionsForSpecies:
 
         assert result == []
 
-    @patch("metaquest.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_species")
     def test_alternative_accession_keys(self, mock_search):
         """Tests gid and ncbi_accession fallback keys."""
         mock_search.return_value = [
@@ -339,7 +339,7 @@ class TestGetAccessionsForSpecies:
 
         assert result == ["GCF_000005845.2"]
 
-    @patch("metaquest.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_species")
     def test_is_representative_key(self, mock_search):
         """Tests the is_representative key variant."""
         mock_search.return_value = [
@@ -350,7 +350,7 @@ class TestGetAccessionsForSpecies:
 
         assert result == ["GCF_000005845.2"]
 
-    @patch("metaquest.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_species")
     def test_records_without_accession(self, mock_search):
         mock_search.return_value = [
             {"species": "E. coli", "isRep": True},
@@ -365,7 +365,7 @@ class TestGetAccessionsForSpecies:
 
 
 class TestGetAccessionsForGenus:
-    @patch("metaquest.data.gtdb.search_taxon")
+    @patch("prepare.data.gtdb.search_taxon")
     def test_representative_only(self, mock_search):
         mock_search.return_value = TAXON_RESULT_LIST
 
@@ -376,7 +376,7 @@ class TestGetAccessionsForGenus:
         assert "GCF_000240185.1" in result
         assert len(result) == 2
 
-    @patch("metaquest.data.gtdb.search_taxon")
+    @patch("prepare.data.gtdb.search_taxon")
     def test_deduplicates_species(self, mock_search):
         """Only one accession per unique species name."""
         mock_search.return_value = TAXON_RESULT_LIST
@@ -386,7 +386,7 @@ class TestGetAccessionsForGenus:
         # E. fergusonii appears twice but only the representative should be included
         assert result.count("GCF_000240185.1") == 1
 
-    @patch("metaquest.data.gtdb.search_taxon")
+    @patch("prepare.data.gtdb.search_taxon")
     def test_empty_results(self, mock_search):
         mock_search.return_value = []
 
@@ -394,7 +394,7 @@ class TestGetAccessionsForGenus:
 
         assert result == []
 
-    @patch("metaquest.data.gtdb.search_taxon")
+    @patch("prepare.data.gtdb.search_taxon")
     def test_no_representatives_falls_back(self, mock_search):
         """When no records are flagged as representative, collects all accessions."""
         mock_search.return_value = [
@@ -407,7 +407,7 @@ class TestGetAccessionsForGenus:
         assert "GCF_111111111.1" in result
         assert "GCF_222222222.1" in result
 
-    @patch("metaquest.data.gtdb.search_taxon")
+    @patch("prepare.data.gtdb.search_taxon")
     def test_all_genomes(self, mock_search):
         """With representative_only=False, no filtering happens."""
         mock_search.return_value = [
@@ -420,7 +420,7 @@ class TestGetAccessionsForGenus:
         # First record included; second has same species so skipped by dedup
         assert result == ["GCF_000005845.2"]
 
-    @patch("metaquest.data.gtdb.search_taxon")
+    @patch("prepare.data.gtdb.search_taxon")
     def test_uses_name_key_for_species(self, mock_search):
         """Falls back to 'name' key when 'species' is missing."""
         mock_search.return_value = [
@@ -458,14 +458,14 @@ class TestLiveApiShapes:
 
         assert [r["name"] for r in result] == TAXON_MATCHES_RESPONSE["matches"]
 
-    @patch("metaquest.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_species")
     def test_species_rep_key_recognised(self, mock_search):
         mock_search.return_value = SPECIES_GENOMES_RESPONSE["genomes"]
 
         assert get_accessions_for_species("Wolbachia pipientis") == ["GCA_021378375.1"]
 
-    @patch("metaquest.data.gtdb.search_species")
-    @patch("metaquest.data.gtdb.search_taxon")
+    @patch("prepare.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_taxon")
     def test_genus_fans_out_to_species(self, mock_taxon, mock_species):
         mock_taxon.return_value = [{"name": n} for n in TAXON_MATCHES_RESPONSE["matches"]]
         mock_species.side_effect = lambda name: [
@@ -478,8 +478,8 @@ class TestLiveApiShapes:
         assert mock_species.call_args_list[0][0][0] == "Wolbachia massiliensis"
         assert all(acc.startswith("GCA_") for acc in accessions)
 
-    @patch("metaquest.data.gtdb.search_species")
-    @patch("metaquest.data.gtdb.search_taxon")
+    @patch("prepare.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_taxon")
     def test_genus_skips_failing_species(self, mock_taxon, mock_species, caplog):
         mock_taxon.return_value = [
             {"name": "s__Wolbachia massiliensis"},
@@ -500,8 +500,8 @@ class TestLiveApiShapes:
         assert len(accessions) == 2
         assert "Skipping species" in caplog.text
 
-    @patch("metaquest.data.gtdb.search_species")
-    @patch("metaquest.data.gtdb.search_taxon")
+    @patch("prepare.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_taxon")
     def test_genus_raises_when_every_species_fails(self, mock_taxon, mock_species):
         mock_taxon.return_value = [
             {"name": "s__Wolbachia massiliensis"},
@@ -513,8 +513,8 @@ class TestLiveApiShapes:
         with pytest.raises(DataAccessError, match="All 3 species lookups"):
             get_accessions_for_genus("Wolbachia")
 
-    @patch("metaquest.data.gtdb.search_species")
-    @patch("metaquest.data.gtdb.search_taxon")
+    @patch("prepare.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_taxon")
     def test_genus_fanout_excludes_other_genera(self, mock_taxon, mock_species):
         """GTDB /taxon/search is a name-contains search; only the target genus's
         species should be resolved, not every genus whose species name contains it."""
@@ -530,8 +530,8 @@ class TestLiveApiShapes:
         assert accessions == ["GCF_000009045.1"]
         mock_species.assert_called_once_with("Bacillus subtilis")
 
-    @patch("metaquest.data.gtdb.search_species")
-    @patch("metaquest.data.gtdb.search_taxon")
+    @patch("prepare.data.gtdb.search_species")
+    @patch("prepare.data.gtdb.search_taxon")
     def test_genus_dedupes_accessions_shared_across_species(self, mock_taxon, mock_species):
         """Two species resolving to the same accession should yield it only once."""
         mock_taxon.return_value = [
@@ -603,7 +603,7 @@ class TestRetriesReturnTheFinalResponse:
         assert adapter.max_retries.raise_on_status is False
 
     def test_genome_endpoint_500_falls_back_to_search(self, monkeypatch):
-        from metaquest.data.genome_taxonomy import _lookup_genome_taxonomy_gtdb
+        from prepare.data.genome_taxonomy import _lookup_genome_taxonomy_gtdb
         from tests.fake_http import serve
 
         body = (

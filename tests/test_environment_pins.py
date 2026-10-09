@@ -1,8 +1,8 @@
-"""``environment.yml``'s version floors match ``metaquest.utils.tools.TOOLS`` exactly.
+"""``environment.yml``'s version floors match ``prepare.utils.tools.TOOLS`` exactly.
 
-Parsed with a regex rather than a YAML library, since MetaQuest has no YAML dependency and this
+Parsed with a regex rather than a YAML library, since PREPARE has no YAML dependency and this
 file's shape (a flat top-level ``dependencies:`` list, one package per line) does not need one.
-``TOOLS`` is the single source of truth for which tool needs which floor (``metaquest doctor`` and
+``TOOLS`` is the single source of truth for which tool needs which floor (``prepare doctor`` and
 every command's ``require_tools`` check read it); this test is the guard against the two files
 drifting apart silently.
 """
@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 from typing import Dict, Optional
 
-from metaquest.utils.tools import TOOLS
+from prepare.utils.tools import TOOLS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENVIRONMENT_YML = REPO_ROOT / "environment.yml"
@@ -88,7 +88,7 @@ def test_pigz_and_datasets_floors_are_pinned_explicitly():
 
     Both used to have ``min_version=None`` in ``TOOLS`` (any version accepted) while
     ``environment.yml`` already pinned ``pigz>=2.4``/``ncbi-datasets-cli>=16`` as documentation
-    only: neither floor was actually enforced by ``require_tools``/``metaquest doctor``. Named
+    only: neither floor was actually enforced by ``require_tools``/``prepare doctor``. Named
     explicitly here (on top of the generic comparison in ``test_pinned_floors_match_tools_table``)
     so a future change that quietly drops either floor back to ``None`` fails immediately with a
     clear message, rather than only via the generic mismatch loop above.

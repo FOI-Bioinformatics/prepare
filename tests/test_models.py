@@ -1,8 +1,8 @@
 """
-Unit tests for MetaQuest data models.
+Unit tests for PREPARE data models.
 """
 
-from metaquest.core.models import (
+from prepare.core.models import (
     Containment,
     GenomeInfo,
     SRAMetadata,

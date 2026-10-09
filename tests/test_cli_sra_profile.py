@@ -1,7 +1,7 @@
 """Tests for ``sra_profile``, which replaces ``sra_stats`` and ``sra_profile_quality``.
 
 One statistics path: read and base totals and GC come from the dataset's shared statistics
-record (``metaquest.store.stats.compute_dataset_stats``), per-read quality from a sample of
+record (``prepare.store.stats.compute_dataset_stats``), per-read quality from a sample of
 every mate file. GC is reported in percent (0-100) in the CSV, the per-accession JSON and the
 registry summary.
 """
@@ -14,11 +14,11 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from metaquest.cli.commands.sra_profile import SRAProfileCommand
-from metaquest.sra.analytics import QualityProfile, SRADatasetAnalyzer
-from metaquest.sra.profiles import load_quality_profiles
-from metaquest.store.stats import compute_dataset_stats
-from metaquest.utils.logging import ConsoleFormatter
+from prepare.cli.commands.sra_profile import SRAProfileCommand
+from prepare.sra.analytics import QualityProfile, SRADatasetAnalyzer
+from prepare.sra.profiles import load_quality_profiles
+from prepare.store.stats import compute_dataset_stats
+from prepare.utils.logging import ConsoleFormatter
 
 
 def _write_fastq(path, reads):
@@ -34,7 +34,7 @@ def _args(tmp_path, **overrides):
     args.fastq_folder = str(tmp_path / "fastq")
     args.output_report = str(tmp_path / "sra_statistics.csv")
     args.output_dir = str(tmp_path / "profiles")
-    args.registry = str(tmp_path / "metaquest_registry.json")
+    args.registry = str(tmp_path / "prepare_registry.json")
     for key, value in overrides.items():
         setattr(args, key, value)
     return args
@@ -65,7 +65,7 @@ def test_gc_percent_and_totals_come_from_the_shared_statistics_record(tmp_path):
     assert "gc_content" not in profile
     assert "sequence_complexity" not in profile and "complexity_score" in profile
 
-    registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    registry = json.loads((tmp_path / "prepare_registry.json").read_text())
     summary = registry["datasets"]["SRR1"]["analyses"]["profile"]["summary"]
     assert summary["gc_percent"] == record["gc_content"] * 100
     assert summary["total_reads"] == 6
@@ -89,7 +89,7 @@ def test_accession_restricts_the_run(tmp_path):
 
     table = pd.read_csv(tmp_path / "sra_statistics.csv")
     assert list(table["accession"]) == ["SRR1"]
-    registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    registry = json.loads((tmp_path / "prepare_registry.json").read_text())
     assert set(registry["datasets"]) == {"SRR1"}
 
 
@@ -115,7 +115,7 @@ def test_signal_between_accessions_stops_before_the_next_one(tmp_path):
 
     assert rc == 130
     assert seen == ["SRR1"]
-    registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    registry = json.loads((tmp_path / "prepare_registry.json").read_text())
     assert set(registry["datasets"]) == {"SRR1"}
     assert not (tmp_path / "profiles" / "SRR2_quality_profile.json").exists()
 
@@ -275,7 +275,7 @@ def test_nothing_profiled_writes_no_table_and_a_null_summary(tmp_path):
 
 def _store_linked(tmp_path, accession="SRR1", reads=("ATCG", "GCTA"), record=None):
     """A dataset in a store folder with a sidecar, linked from the project's fastq folder."""
-    from metaquest.store.sidecar import Sidecar, write_sidecar
+    from prepare.store.sidecar import Sidecar, write_sidecar
 
     store_acc_dir = tmp_path / "store" / "sra" / accession
     store_acc_dir.mkdir(parents=True)
@@ -289,7 +289,7 @@ def _store_linked(tmp_path, accession="SRR1", reads=("ATCG", "GCTA"), record=Non
 
 def test_the_totals_are_the_cached_record_not_the_sample(tmp_path, capsys):
     """A store link with a matching cached record reuses it: its totals are reported."""
-    from metaquest.store.sidecar import Sidecar, write_sidecar
+    from prepare.store.sidecar import Sidecar, write_sidecar
 
     store_acc_dir, sidecar_path = _store_linked(tmp_path, reads=["ACGT"] * 4)
     record = compute_dataset_stats([store_acc_dir / "SRR1.fastq"], use_seqkit=False)
@@ -302,13 +302,13 @@ def test_the_totals_are_the_cached_record_not_the_sample(tmp_path, capsys):
     profile = json.loads((tmp_path / "profiles" / "SRR1_quality_profile.json").read_text())
     assert (profile["total_reads"], profile["total_bases"]) == (1724338, 258650700)
     assert (profile["reads_sampled"], profile["sampled"]) == (2, False)
-    registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    registry = json.loads((tmp_path / "prepare_registry.json").read_text())
     summary = registry["datasets"]["SRR1"]["analyses"]["profile"]["summary"]
     assert (summary["total_reads"], summary["reads_sampled"]) == (1724338, 2)
 
 
 def test_a_computed_record_is_written_back_to_the_sidecar(tmp_path):
-    from metaquest.store.sidecar import read_sidecar
+    from prepare.store.sidecar import read_sidecar
 
     _, sidecar_path = _store_linked(tmp_path)
 
@@ -325,7 +325,7 @@ def test_the_cache_survives_a_zero_byte_extra_file(tmp_path):
     (store_acc_dir / "SRR1_2.fastq").write_text("")
 
     assert SRAProfileCommand().execute(_args(tmp_path)) == 0
-    with patch("metaquest.sra.dataset_stats.compute_dataset_stats") as recompute:
+    with patch("prepare.sra.dataset_stats.compute_dataset_stats") as recompute:
         assert SRAProfileCommand().execute(_args(tmp_path)) == 0
     recompute.assert_not_called()
 
@@ -333,7 +333,7 @@ def test_the_cache_survives_a_zero_byte_extra_file(tmp_path):
 def test_a_cache_that_cannot_be_written_is_reported_once(tmp_path, caplog):
     _store_linked(tmp_path)
     with caplog.at_level(logging.WARNING):
-        with patch("metaquest.sra.dataset_stats.store_stats", side_effect=OSError("read-only store")):
+        with patch("prepare.sra.dataset_stats.store_stats", side_effect=OSError("read-only store")):
             assert SRAProfileCommand().execute(_args(tmp_path)) == 0
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "Could not cache" in r.message]
     assert len(warnings) == 1
@@ -456,7 +456,7 @@ def test_registry_records_the_profile_relative_to_the_project(tmp_path):
     _paired_dataset(tmp_path)
     assert SRAProfileCommand().execute(_args(tmp_path)) == 0
 
-    analysis = json.loads((tmp_path / "metaquest_registry.json").read_text())["datasets"]["SRR1"]["analyses"]
+    analysis = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]["SRR1"]["analyses"]
     assert set(analysis) == {"profile"}
     assert analysis["profile"]["output"] == "profiles/SRR1_quality_profile.json"
     assert set(analysis["profile"]["summary"]) == {
@@ -471,20 +471,20 @@ def test_registry_records_the_profile_relative_to_the_project(tmp_path):
 
 
 def _project_with_store(tmp_path):
-    from metaquest.data.registry import load_registry, save_registry
-    from metaquest.store.layout import init_store
+    from prepare.data.registry import load_registry, save_registry
+    from prepare.store.layout import init_store
 
     store_root = tmp_path / "store_root"
     init_store(store_root)
-    registry = load_registry(tmp_path / "metaquest_registry.json")
+    registry = load_registry(tmp_path / "prepare_registry.json")
     registry.project = {"id": "proj1", "name": "demo", "path": str(tmp_path), "created": "now"}
     save_registry(registry)
     return store_root
 
 
 def test_usage_is_recorded_in_the_store_catalogue(tmp_path):
-    from metaquest.store.catalog import Catalog
-    from metaquest.store.layout import store_paths
+    from prepare.store.catalog import Catalog
+    from prepare.store.layout import store_paths
 
     _paired_dataset(tmp_path)
     store_root = _project_with_store(tmp_path)
@@ -502,9 +502,9 @@ def test_usage_is_recorded_in_the_store_catalogue(tmp_path):
 def test_a_catalogue_failure_leaves_the_outcome_unchanged(tmp_path):
     _paired_dataset(tmp_path)
     store_root = _project_with_store(tmp_path)
-    with patch("metaquest.store.usage.catalog_write", side_effect=RuntimeError("locked")):
+    with patch("prepare.store.usage.catalog_write", side_effect=RuntimeError("locked")):
         assert SRAProfileCommand().execute(_args(tmp_path, data_root=str(store_root))) == 0
-    registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    registry = json.loads((tmp_path / "prepare_registry.json").read_text())
     assert registry["datasets"]["SRR1"]["analyses"]["profile"]["summary"]["total_reads"] == 6
 
 
@@ -532,7 +532,7 @@ def test_an_expected_error_is_one_line_without_traceback(caplog, tmp_path):
 
 def test_a_bug_while_profiling_one_accession_is_not_counted_as_a_failed_accession(tmp_path, caplog):
     _paired_dataset(tmp_path)
-    with patch("metaquest.cli.commands.sra_profile.profile_accession", side_effect=TypeError("bug")):
+    with patch("prepare.cli.commands.sra_profile.profile_accession", side_effect=TypeError("bug")):
         with caplog.at_level("ERROR"):
             assert SRAProfileCommand().execute(_args(tmp_path)) == 1
     assert any(r.exc_info for r in caplog.records)
@@ -556,7 +556,7 @@ def test_a_corrupt_gzip_fails_its_accession_and_the_run_continues(tmp_path):
     _write_corrupt_gzip_fastq(fastq / "SRR1" / "SRR1.fastq.gz")
     _paired_dataset(tmp_path, "SRR2")
 
-    with patch("metaquest.store.stats.shutil.which", return_value=None):
+    with patch("prepare.store.stats.shutil.which", return_value=None):
         assert SRAProfileCommand().execute(_args(tmp_path)) == 1
 
     summary = json.loads((tmp_path / "profiles" / "quality_summary.json").read_text())
@@ -564,21 +564,21 @@ def test_a_corrupt_gzip_fails_its_accession_and_the_run_continues(tmp_path):
 
 
 def test_load_dataset_stats_is_none_for_unreadable_files_and_a_bug_propagates(tmp_path):
-    from metaquest.sra.dataset_stats import load_dataset_stats
+    from prepare.sra.dataset_stats import load_dataset_stats
 
     acc_dir = tmp_path / "SRR1"
     acc_dir.mkdir()
     corrupt = _write_corrupt_gzip_fastq(acc_dir / "SRR1.fastq.gz")
-    with patch("metaquest.store.stats.shutil.which", return_value=None):
+    with patch("prepare.store.stats.shutil.which", return_value=None):
         assert load_dataset_stats([corrupt]) is None
     good = _write_fastq(acc_dir / "SRR1_1.fastq", ["ACGT"])
-    with patch("metaquest.sra.dataset_stats.compute_dataset_stats", side_effect=TypeError("bug")):
+    with patch("prepare.sra.dataset_stats.compute_dataset_stats", side_effect=TypeError("bug")):
         with pytest.raises(TypeError):
             load_dataset_stats([good])
 
 
 def test_load_dataset_stats_cache_write_failure_is_logged_and_a_bug_propagates(tmp_path, caplog):
-    from metaquest.sra import dataset_stats
+    from prepare.sra import dataset_stats
 
     acc_dir = tmp_path / "SRR1"
     acc_dir.mkdir()

@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "metaquest"
+name = "prepare"
 version = "0.9.0"
 description = "A toolkit for analyzing metagenomic datasets based on genome containment"
 readme = "README.md"
@@ -57,11 +57,11 @@ sourmash = [
     "sourmash>=4.8",
 ]
 all = [
-    "metaquest[analysis,interactive,maps,sourmash]",
+    "prepare[analysis,interactive,maps,sourmash]",
 ]
 # The test suite exercises every optional path, so the development extra includes them all.
 dev = [
-    "metaquest[all]",
+    "prepare[all]",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-benchmark>=3.0.0",
@@ -75,24 +75,24 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/FOI-Bioinformatics/metaquest"
-Repository = "https://github.com/FOI-Bioinformatics/metaquest"
-Issues = "https://github.com/FOI-Bioinformatics/metaquest/issues"
+Homepage = "https://github.com/FOI-Bioinformatics/prepare"
+Repository = "https://github.com/FOI-Bioinformatics/prepare"
+Issues = "https://github.com/FOI-Bioinformatics/prepare/issues"
 
 [project.scripts]
-metaquest = "metaquest.cli.main:main"
+prepare = "prepare.cli.main:main"
 
 [project.entry-points."sourmash.cli_script"]
-metaquest_parse = "metaquest.plugins.sourmash_plugin:MetaquestParsePlugin"
-metaquest_plot = "metaquest.plugins.sourmash_plugin:MetaquestPlotPlugin"
-metaquest_diversity = "metaquest.plugins.sourmash_plugin:MetaquestDiversityPlugin"
-metaquest_taxonomy = "metaquest.plugins.sourmash_plugin:MetaquestTaxonomyPlugin"
+prepare_parse = "prepare.plugins.sourmash_plugin:PrepareParsePlugin"
+prepare_plot = "prepare.plugins.sourmash_plugin:PreparePlotPlugin"
+prepare_diversity = "prepare.plugins.sourmash_plugin:PrepareDiversityPlugin"
+prepare_taxonomy = "prepare.plugins.sourmash_plugin:PrepareTaxonomyPlugin"
 
 [tool.setuptools.packages.find]
-include = ["metaquest*"]
+include = ["prepare*"]
 
 [tool.setuptools.package-data]
-metaquest = ["py.typed"]
+prepare = ["py.typed"]
 
 [tool.black]
 line-length = 120
@@ -158,7 +158,7 @@ ignore_missing_imports = true
 
 # Modules held to fully annotated definitions.
 [[tool.mypy.overrides]]
-module = ["metaquest.data.registry_blocks"]
+module = ["prepare.data.registry_blocks"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 
@@ -171,12 +171,12 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "network: calls NCBI or SRA over the internet; run explicitly with 'pytest -m network'",
-    "perf: timing or memory bound, runs by default; time bounds scale with METAQUEST_PERF_SCALE (CI sets 4)",
+    "perf: timing or memory bound, runs by default; time bounds scale with PREPARE_PERF_SCALE (CI sets 4)",
     "multiprocess: starts real processes (the CLI with fake tools on PATH, no network); runs by default",
 ]
 
 [tool.coverage.run]
-source = ["metaquest"]
+source = ["prepare"]
 
 [tool.coverage.report]
 exclude_lines = [

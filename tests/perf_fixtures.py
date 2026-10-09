@@ -16,7 +16,7 @@ from xml.sax.saxutils import escape
 
 import numpy as np
 
-from metaquest.data.registry import (
+from prepare.data.registry import (
     Registry,
     record_assembly,
     record_download,

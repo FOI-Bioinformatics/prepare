@@ -1,4 +1,4 @@
-"""Tests for the re-verification part of ``status --reconcile`` (metaquest.data.registry_reconcile).
+"""Tests for the re-verification part of ``status --reconcile`` (prepare.data.registry_reconcile).
 
 Covers re-checking ``unverified`` download verdicts once a spot count is known, filling registry
 metadata from the XML folder before the verdicts, and leaving the records of a store that is not
@@ -16,13 +16,13 @@ from typing import List
 
 import pytest
 
-import metaquest.data.registry_reconcile as rr
-from metaquest.data import registry as reg
-from metaquest.data import registry_blocks as rb
-from metaquest.data.registry_batch import registry_update
-from metaquest.data.registry_reconcile import StoreReconcileReport, apply_reconcile, reconcile, scan_reconcile
-from metaquest.data.sra import fastq as fastq_module
-from metaquest.data.sra.spots import verdict_for_count
+import prepare.data.registry_reconcile as rr
+from prepare.data import registry as reg
+from prepare.data import registry_blocks as rb
+from prepare.data.registry_batch import registry_update
+from prepare.data.registry_reconcile import StoreReconcileReport, apply_reconcile, reconcile, scan_reconcile
+from prepare.data.sra import fastq as fastq_module
+from prepare.data.sra.spots import verdict_for_count
 
 _UNVERIFIED = {"method": "unverified", "ratio": None, "verdict": "unverified", "expected_spots": None, "reads_r1": None}
 
@@ -49,7 +49,7 @@ _XML = """<?xml version="1.0"?>
 @pytest.fixture(autouse=True)
 def isolated_env(tmp_path, monkeypatch):
     """Keep every test away from the developer's store and configuration."""
-    monkeypatch.setenv("METAQUEST_DATA", str(tmp_path / "no-store"))
+    monkeypatch.setenv("PREPARE_DATA", str(tmp_path / "no-store"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setattr(reg, "_now", lambda: "2026-10-01T00:00:00+00:00")
@@ -87,8 +87,8 @@ def _paired_download(registry: reg.Registry, paths: reg.ProjectPaths, acc: str, 
 
 def _store_with(tmp_path: Path, acc: str, reads_per_mate=None, spots=None, under: str = "vol"):
     """A store under ``tmp_path/<under>`` holding ``acc``, with a sidecar recording an unverified verdict."""
-    from metaquest.store.layout import init_store, sidecar_path
-    from metaquest.store.sidecar import Sidecar, write_sidecar
+    from prepare.store.layout import init_store, sidecar_path
+    from prepare.store.sidecar import Sidecar, write_sidecar
 
     store = init_store(tmp_path / under / "store")
     _fastq(store.sra / acc / f"{acc}_1.fastq", reads_per_mate or 1)
@@ -106,7 +106,7 @@ def _store_with(tmp_path: Path, acc: str, reads_per_mate=None, spots=None, under
 
 
 def _linked_download(tmp_path: Path, acc: str, reads_per_mate=None, spots=None, under: str = "vol"):
-    from metaquest.store.link import link_dataset
+    from prepare.store.link import link_dataset
 
     paths = _paths(tmp_path)
     store = _store_with(tmp_path, acc, reads_per_mate=reads_per_mate, spots=spots, under=under)
@@ -297,7 +297,7 @@ class TestReRecordKeepsTheStoreSource:
         download.state = "missing"
         rb.set_download_block(registry, "SRR1", download)
         reg.update_linked(registry, "SRR1", add=False)
-        # Outside MetaQuest, the link was replaced by a folder of the project's own reads.
+        # Outside PREPARE, the link was replaced by a folder of the project's own reads.
         (paths.fastq / "SRR1").unlink()
         _fastq(paths.fastq / "SRR1" / "SRR1_1.fastq", 2)
 
@@ -334,8 +334,8 @@ class TestScanApplySplit:
         return registry, paths
 
     def test_apply_reads_no_fastq_sidecar_or_xml(self, tmp_path, monkeypatch):
-        import metaquest.data.metadata_fields as mf
-        import metaquest.data.sra.spots as spots_module
+        import prepare.data.metadata_fields as mf
+        import prepare.data.sra.spots as spots_module
 
         registry, paths = self._project(tmp_path)
         expected = copy.deepcopy(registry)

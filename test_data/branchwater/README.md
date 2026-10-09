@@ -1,6 +1,6 @@
 # Branchwater Test Data
 
-This directory contains test datasets for MetaQuest Branchwater functionality.
+This directory contains test datasets for PREPARE Branchwater functionality.
 
 ## Files
 

@@ -10,7 +10,7 @@ import pandas as pd
 import importlib.util
 import pytest
 
-from metaquest.cli.commands.advanced_analysis import (
+from prepare.cli.commands.advanced_analysis import (
     DiversityAnalysisCommand,
     InteractivePlotCommand,
     TaxonomyValidationCommand,
@@ -18,11 +18,11 @@ from metaquest.cli.commands.advanced_analysis import (
 )
 
 requires_analysis = pytest.mark.skipif(
-    not all(importlib.util.find_spec(m) for m in ("sklearn", "scipy")), reason="needs metaquest[analysis]"
+    not all(importlib.util.find_spec(m) for m in ("sklearn", "scipy")), reason="needs prepare[analysis]"
 )
 
 requires_interactive = pytest.mark.skipif(
-    not all(importlib.util.find_spec(m) for m in ("plotly", "jinja2")), reason="needs metaquest[interactive]"
+    not all(importlib.util.find_spec(m) for m in ("plotly", "jinja2")), reason="needs prepare[interactive]"
 )
 
 
@@ -79,9 +79,9 @@ class TestDiversityAnalysisCommand:
         assert args.permanova_formula == "treatment + site"
 
     @requires_analysis
-    @patch("metaquest.processing.diversity.calculate_alpha_diversity")
-    @patch("metaquest.processing.diversity.calculate_beta_diversity")
-    @patch("metaquest.cli.commands.advanced_analysis.read_matrix")
+    @patch("prepare.processing.diversity.calculate_alpha_diversity")
+    @patch("prepare.processing.diversity.calculate_beta_diversity")
+    @patch("prepare.cli.commands.advanced_analysis.read_matrix")
     def test_execute_success_basic(self, mock_read_matrix, mock_beta_div, mock_alpha_div, tmp_path):
         """Test successful execution without PERMANOVA."""
         # Setup mocks
@@ -116,9 +116,9 @@ class TestDiversityAnalysisCommand:
         ]
 
     @requires_analysis
-    @patch("metaquest.processing.diversity.calculate_alpha_diversity")
-    @patch("metaquest.processing.diversity.calculate_beta_diversity")
-    @patch("metaquest.processing.diversity.perform_permanova")
+    @patch("prepare.processing.diversity.calculate_alpha_diversity")
+    @patch("prepare.processing.diversity.calculate_beta_diversity")
+    @patch("prepare.processing.diversity.perform_permanova")
     @patch("pandas.read_csv")
     def test_execute_success_with_permanova(
         self, mock_read_csv, mock_permanova, mock_beta_div, mock_alpha_div, tmp_path
@@ -284,9 +284,9 @@ class TestInteractivePlotCommand:
         assert args.no_show is True
 
     @requires_interactive
-    @patch("metaquest.cli.commands.advanced_analysis.read_table")
-    @patch("metaquest.cli.commands.advanced_analysis.read_matrix")
-    @patch("metaquest.visualization.interactive.create_interactive_pca")
+    @patch("prepare.cli.commands.advanced_analysis.read_table")
+    @patch("prepare.cli.commands.advanced_analysis.read_matrix")
+    @patch("prepare.visualization.interactive.create_interactive_pca")
     def test_execute_pca_plot(self, mock_create_pca, mock_read_matrix, mock_read_table):
         """Test PCA plot creation."""
         mock_data_df = pd.DataFrame({"gene1": [1, 2], "gene2": [3, 4]})
@@ -320,8 +320,8 @@ class TestInteractivePlotCommand:
         )
 
     @requires_interactive
-    @patch("metaquest.cli.commands.advanced_analysis.read_matrix")
-    @patch("metaquest.visualization.interactive.create_interactive_heatmap")
+    @patch("prepare.cli.commands.advanced_analysis.read_matrix")
+    @patch("prepare.visualization.interactive.create_interactive_heatmap")
     def test_execute_heatmap_plot(self, mock_create_heatmap, mock_read_matrix):
         """Test heatmap plot creation."""
         mock_data_df = pd.DataFrame({"gene1": [1, 2], "gene2": [3, 4]})
@@ -347,10 +347,10 @@ class TestInteractivePlotCommand:
         )
 
     @requires_interactive
-    @patch("metaquest.cli.commands.advanced_analysis.read_table")
-    @patch("metaquest.cli.commands.advanced_analysis.read_matrix")
-    @patch("metaquest.processing.diversity.calculate_alpha_diversity")
-    @patch("metaquest.visualization.interactive.create_diversity_comparison_plot")
+    @patch("prepare.cli.commands.advanced_analysis.read_table")
+    @patch("prepare.cli.commands.advanced_analysis.read_matrix")
+    @patch("prepare.processing.diversity.calculate_alpha_diversity")
+    @patch("prepare.visualization.interactive.create_diversity_comparison_plot")
     def test_execute_diversity_plot(self, mock_create_diversity, mock_calc_alpha, mock_read_matrix, mock_read_table):
         """Test diversity plot creation."""
         mock_data_df = pd.DataFrame({"gene1": [1, 2], "gene2": [3, 4]})
@@ -409,8 +409,8 @@ class TestInteractivePlotCommand:
         assert result == 1
 
     @requires_interactive
-    @patch("metaquest.visualization.interactive.create_interactive_tsne")
-    @patch("metaquest.cli.commands.advanced_analysis.read_matrix")
+    @patch("prepare.visualization.interactive.create_interactive_tsne")
+    @patch("prepare.cli.commands.advanced_analysis.read_matrix")
     def test_execute_tsne_plot(self, mock_read, mock_tsne, tmp_path):
         import pandas as pd
 
@@ -452,7 +452,7 @@ class TestTaxonomyValidationCommand:
         assert args.output_file == "taxonomy_validation.csv"
         assert args.cache_file == "taxonomy_cache.csv"
 
-    @patch("metaquest.cli.commands.advanced_analysis.validate_taxonomic_assignments")
+    @patch("prepare.cli.commands.advanced_analysis.validate_taxonomic_assignments")
     def test_execute_success_text_file(self, mock_validate, capsys):
         """Test successful execution with text file."""
         mock_results = pd.DataFrame(
@@ -484,7 +484,7 @@ class TestTaxonomyValidationCommand:
         assert "Total species: 2" in out
 
     @patch("pandas.read_csv")
-    @patch("metaquest.cli.commands.advanced_analysis.validate_taxonomic_assignments")
+    @patch("prepare.cli.commands.advanced_analysis.validate_taxonomic_assignments")
     def test_execute_success_csv_file_with_column(self, mock_validate, mock_read_csv, capsys):
         """Test successful execution with CSV file and specified column."""
         mock_df = pd.DataFrame({"species_name": ["Escherichia coli", "Salmonella enterica"], "abundance": [100, 50]})
@@ -541,7 +541,7 @@ class TestTaxonomyValidationCommand:
         assert result == 1
 
     @patch("pandas.read_csv")
-    @patch("metaquest.cli.commands.advanced_analysis.validate_taxonomic_assignments")
+    @patch("prepare.cli.commands.advanced_analysis.validate_taxonomic_assignments")
     def test_execute_success_csv_first_column(self, mock_validate, mock_read_csv, capsys):
         """Test successful execution with CSV file using first column."""
         mock_df = pd.DataFrame(
@@ -623,9 +623,9 @@ class TestTaxonomicSummaryCommand:
         assert args.levels == ["phylum", "genus"]
         assert args.min_abundance == 0.01
 
-    @patch("metaquest.cli.commands.advanced_analysis.read_records")
-    @patch("metaquest.cli.commands.advanced_analysis.read_matrix")
-    @patch("metaquest.cli.commands.advanced_analysis.analyze_taxonomic_composition")
+    @patch("prepare.cli.commands.advanced_analysis.read_records")
+    @patch("prepare.cli.commands.advanced_analysis.read_matrix")
+    @patch("prepare.cli.commands.advanced_analysis.analyze_taxonomic_composition")
     def test_execute_success(self, mock_analyze, mock_read_matrix, mock_read_records, capsys):
         """Test successful execution."""
         mock_abundance_df = pd.DataFrame({"sample1": [10, 20], "sample2": [15, 25]})
@@ -681,7 +681,7 @@ class TestAdvancedAnalysisIntegration:
 
     def test_all_commands_inherit_base_command(self):
         """Test that all command classes inherit from BaseCommand."""
-        from metaquest.cli.base import BaseCommand
+        from prepare.cli.base import BaseCommand
 
         commands = [
             DiversityAnalysisCommand(),
@@ -724,7 +724,7 @@ class TestAdvancedAnalysisIntegration:
             command.configure_parser(parser)
 
     @requires_analysis
-    @patch("metaquest.cli.commands.advanced_analysis.logger")
+    @patch("prepare.cli.commands.advanced_analysis.logger")
     def test_logging_behavior(self, mock_logger):
         """Test that commands use logging appropriately."""
         command = DiversityAnalysisCommand()
@@ -748,7 +748,7 @@ class TestAdvancedAnalysisIntegration:
 
 class TestTaxonomicSummaryWithEnrichMap:
     def test_parsed_containment_plus_taxonomy_tsv(self, tmp_path):
-        from metaquest.cli.commands.advanced_analysis import TaxonomicSummaryCommand
+        from prepare.cli.commands.advanced_analysis import TaxonomicSummaryCommand
 
         cont = tmp_path / "parsed_containment.txt"
         cont.write_text(

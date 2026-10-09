@@ -1,4 +1,4 @@
-"""Tests for the ``runs`` command (``metaquest/cli/commands/runs.py``)."""
+"""Tests for the ``runs`` command (``prepare/cli/commands/runs.py``)."""
 
 import argparse
 import json
@@ -7,10 +7,10 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from metaquest.cli.main import main
-from metaquest.core import settings
-from metaquest.data import run_log
-from metaquest.data.registry import REGISTRY_FILENAME
+from prepare.cli.main import main
+from prepare.core import settings
+from prepare.data import run_log
+from prepare.data.registry import REGISTRY_FILENAME
 
 STARTED = datetime(2026, 10, 1, 12, 5, 1, tzinfo=timezone.utc)
 

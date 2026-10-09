@@ -1,4 +1,4 @@
-"""Tests for metaquest.data.registry_reconcile and registry_update.
+"""Tests for prepare.data.registry_reconcile and registry_update.
 
 ``reconcile`` was split into ``scan_reconcile`` (reads the disk, no lock) and ``apply_reconcile``
 (fast, under the lock). ``_reference_reconcile`` below is the single-step function as it stood
@@ -16,19 +16,19 @@ from typing import Any, Dict, Optional
 
 import pytest
 
-from metaquest.core.exceptions import DataAccessError
-from metaquest.data import registry as reg
-from metaquest.data import registry_blocks as rb
-from metaquest.data.registry_batch import registry_update
-from metaquest.data.registry_reconcile import StoreReconcileReport, apply_reconcile, reconcile, scan_reconcile
-from metaquest.data.sra import verify_download
-from metaquest.data.sra.spots import expected_spots, verdict_for_count
+from prepare.core.exceptions import DataAccessError
+from prepare.data import registry as reg
+from prepare.data import registry_blocks as rb
+from prepare.data.registry_batch import registry_update
+from prepare.data.registry_reconcile import StoreReconcileReport, apply_reconcile, reconcile, scan_reconcile
+from prepare.data.sra import verify_download
+from prepare.data.sra.spots import expected_spots, verdict_for_count
 
 # ------------------------------------------------------------- reference (pre-split)
 
 
 def _reference_reconcile(registry: reg.Registry, paths: reg.ProjectPaths) -> reg.ReconcileReport:
-    from metaquest.store.link import dangling_links
+    from prepare.store.link import dangling_links
 
     report = StoreReconcileReport()
     on_disk = reg.scan_downloads(paths.fastq)
@@ -84,8 +84,8 @@ def _reference_fill(registry: reg.Registry, paths: reg.ProjectPaths) -> None:
 
 
 def _reference_store_verdict(registry: reg.Registry, accession: str) -> Optional[Dict[str, Any]]:
-    from metaquest.store.layout import sidecar_path, store_paths
-    from metaquest.store.sidecar import sidecar_completeness
+    from prepare.store.layout import sidecar_path, store_paths
+    from prepare.store.sidecar import sidecar_completeness
 
     root = rb.store_block(registry).root
     if not root:
@@ -127,9 +127,9 @@ def fixed_clock(monkeypatch):
 
 def _drifted_project(tmp_path: Path):
     """A registry and a disk that disagree in every way reconcile looks at."""
-    from metaquest.store.layout import init_store, sidecar_path
-    from metaquest.store.link import link_dataset
-    from metaquest.store.sidecar import Sidecar, write_sidecar
+    from prepare.store.layout import init_store, sidecar_path
+    from prepare.store.link import link_dataset
+    from prepare.store.sidecar import Sidecar, write_sidecar
 
     paths = _project(tmp_path)
     for acc in ("SRR1", "SRR2", "SRR3", "SRR4"):
@@ -220,7 +220,7 @@ class TestScanApplyMatchesTheOldReconcile:
 
 class TestApplyRechecksAgainstTheRegistryItIsGiven:
     def test_apply_reads_no_fastq(self, tmp_path, fixed_clock, monkeypatch):
-        import metaquest.data.registry_reconcile as rr
+        import prepare.data.registry_reconcile as rr
 
         registry, paths = _drifted_project(tmp_path)
         plan = scan_reconcile(registry, paths)

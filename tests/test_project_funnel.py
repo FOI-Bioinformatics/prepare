@@ -1,6 +1,6 @@
-"""Tests for `metaquest.processing.project_funnel.funnel`."""
+"""Tests for `prepare.processing.project_funnel.funnel`."""
 
-from metaquest.data.registry import (
+from prepare.data.registry import (
     Registry,
     record_assembly,
     record_download,
@@ -10,13 +10,13 @@ from metaquest.data.registry import (
     record_selection,
     stage_members,
 )
-from metaquest.data.registry_timing import set_assembly_timing, set_download_timing, set_extraction_timing
-from metaquest.processing.project_funnel import funnel
+from prepare.data.registry_timing import set_assembly_timing, set_download_timing, set_extraction_timing
+from prepare.processing.project_funnel import funnel
 
 
 def _registry(tmp_path):
     """8 accessions moving through screening, selection, exclusion, download, extraction and assembly."""
-    r = Registry(path=tmp_path / "metaquest_registry.json")
+    r = Registry(path=tmp_path / "prepare_registry.json")
     for n in range(1, 9):
         record_screening(r, f"SRR{n}", "G1", 0.1 * n, None, "matches", 0.0, None)
     record_selection(r, ["SRR1", "SRR2", "SRR3", "SRR5"], {"min_containment": 0.1}, tmp_path / "sel.txt")
@@ -58,7 +58,7 @@ def test_funnel_downloaded_bytes_are_summed_from_bytes_total(tmp_path):
         path = d / f"{acc}_1.fastq"
         path.write_text("@r\nACGT\n+\nIIII\n")
         sizes[acc] = path.stat().st_size
-    r = Registry(path=root / "metaquest_registry.json")
+    r = Registry(path=root / "prepare_registry.json")
     record_download(r, "SRR1", "downloaded", root / "fastq")
     record_download(r, "SRR2", "downloaded", root / "fastq")
     f = funnel(r)
@@ -66,7 +66,7 @@ def test_funnel_downloaded_bytes_are_summed_from_bytes_total(tmp_path):
 
 
 def test_funnel_counts_failed_downloads_separately_from_downloaded(tmp_path):
-    r = Registry(path=tmp_path / "metaquest_registry.json")
+    r = Registry(path=tmp_path / "prepare_registry.json")
     record_download(r, "SRR1", "downloaded", tmp_path / "fastq", attempt=False)
     record_download(r, "SRR2", "failed", tmp_path / "fastq")
     f = funnel(r)
@@ -84,7 +84,7 @@ def test_funnel_untimed_datasets_leave_seconds_none(tmp_path):
 
 
 def test_funnel_sums_seconds_only_over_timed_records(tmp_path):
-    r = Registry(path=tmp_path / "metaquest_registry.json")
+    r = Registry(path=tmp_path / "prepare_registry.json")
     record_download(r, "SRR1", "downloaded", tmp_path / "fastq", attempt=False)
     record_download(r, "SRR2", "failed", tmp_path / "fastq")
     record_download(r, "SRR3", "downloaded", tmp_path / "fastq", attempt=False)  # left untimed
@@ -105,7 +105,7 @@ def test_funnel_sums_seconds_only_over_timed_records(tmp_path):
 
 
 def test_funnel_extraction_and_assembly_pairs_can_exceed_accessions(tmp_path):
-    r = Registry(path=tmp_path / "metaquest_registry.json")
+    r = Registry(path=tmp_path / "prepare_registry.json")
     record_extraction(r, "SRR1", "G1", [], 10, False, {})
     record_extraction(r, "SRR1", "G2", [], 20, False, {})
     record_assembly(r, "SRR1", "G1", tmp_path / "asm1", {"contigs": 3, "total_bp": 100}, "v1", {})
@@ -119,7 +119,7 @@ def test_funnel_extraction_and_assembly_pairs_can_exceed_accessions(tmp_path):
 
 
 def test_funnel_extraction_with_zero_mapped_reads_does_not_count(tmp_path):
-    r = Registry(path=tmp_path / "metaquest_registry.json")
+    r = Registry(path=tmp_path / "prepare_registry.json")
     record_extraction(r, "SRR1", "G1", [], 0, False, {})
     f = funnel(r)
     assert f["extracted"]["accessions"] == 0
@@ -127,7 +127,7 @@ def test_funnel_extraction_with_zero_mapped_reads_does_not_count(tmp_path):
 
 
 def test_funnel_assembly_with_zero_contigs_does_not_count(tmp_path):
-    r = Registry(path=tmp_path / "metaquest_registry.json")
+    r = Registry(path=tmp_path / "prepare_registry.json")
     record_extraction(r, "SRR1", "G1", [], 10, False, {})
     record_assembly(r, "SRR1", "G1", tmp_path / "asm", {"contigs": 0}, "v1", {})
     f = funnel(r)
@@ -136,7 +136,7 @@ def test_funnel_assembly_with_zero_contigs_does_not_count(tmp_path):
 
 
 def test_funnel_on_an_empty_registry_is_all_zero_and_untimed(tmp_path):
-    r = Registry(path=tmp_path / "metaquest_registry.json")
+    r = Registry(path=tmp_path / "prepare_registry.json")
     f = funnel(r)
     assert f == {
         "screened": {"accessions": 0},

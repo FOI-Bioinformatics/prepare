@@ -1,6 +1,6 @@
-"""``metaquest doctor``: environment checks with fake tools on PATH, faked disk space and no network.
+"""``prepare doctor``: environment checks with fake tools on PATH, faked disk space and no network.
 
-HOME, XDG_CONFIG_HOME and METAQUEST_DATA are isolated as in the store tests, ``PATH`` holds only
+HOME, XDG_CONFIG_HOME and PREPARE_DATA are isolated as in the store tests, ``PATH`` holds only
 ``tests/helpers_tools.fake_tool`` scripts, and ``shutil.disk_usage`` and ``requests.get`` are
 patched, so no real tool, store, config file or network is touched.
 """
@@ -13,11 +13,11 @@ import pytest
 import requests
 
 from helpers_tools import fake_tool
-from metaquest.cli.main import main
-from metaquest.core import settings
-from metaquest.processing import doctor_report
-from metaquest.processing.doctor_report import FAIL, OK, WARN, Check, overall_status, tools_needed_for
-from metaquest.store.layout import init_store
+from prepare.cli.main import main
+from prepare.core import settings
+from prepare.processing import doctor_report
+from prepare.processing.doctor_report import FAIL, OK, WARN, Check, overall_status, tools_needed_for
+from prepare.store.layout import init_store
 
 Usage = namedtuple("Usage", "total used free")
 GB = 1024**3
@@ -39,16 +39,16 @@ VERSIONS = {
 def _isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    monkeypatch.delenv("METAQUEST_DATA", raising=False)
+    monkeypatch.delenv("PREPARE_DATA", raising=False)
     # conftest sets this to 0 for every test; doctor's free-space checks need the default of 10.
-    monkeypatch.delenv("METAQUEST_MIN_FREE_GB", raising=False)
-    for name in ("SLURM_JOB_ID", "SLURM_CPUS_PER_TASK", "SLURM_MEM_PER_NODE", "METAQUEST_TEMP_FOLDER"):
+    monkeypatch.delenv("PREPARE_MIN_FREE_GB", raising=False)
+    for name in ("SLURM_JOB_ID", "SLURM_CPUS_PER_TASK", "SLURM_MEM_PER_NODE", "PREPARE_TEMP_FOLDER"):
         monkeypatch.delenv(name, raising=False)
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.chdir(project)
     settings.reset_for_tests()
-    with patch("metaquest.processing.doctor_report.shutil.disk_usage", return_value=PLENTY):
+    with patch("prepare.processing.doctor_report.shutil.disk_usage", return_value=PLENTY):
         yield
     settings.reset_for_tests()
 
@@ -77,7 +77,7 @@ def _by_name(report):
 
 def test_every_tool_present_gives_exit_0_and_one_json_document(tmp_path, monkeypatch, capsys):
     _tools_on_path(tmp_path, monkeypatch)
-    with patch("metaquest.processing.doctor_report.requests.get") as get:
+    with patch("prepare.processing.doctor_report.requests.get") as get:
         rc, report = _run_json(capsys)
     assert rc == 0
     assert report["status"] == OK
@@ -88,7 +88,7 @@ def test_every_tool_present_gives_exit_0_and_one_json_document(tmp_path, monkeyp
         assert tool["data"]["version"], tool
         assert tool["data"]["path"].endswith(name)
     assert checks["tool minimap2"]["data"]["min_version"] == "2.17"
-    assert checks["python"]["data"]["metaquest"]
+    assert checks["python"]["data"]["prepare"]
     assert checks["config"]["status"] == OK
     assert checks["config"]["data"]["settings"]["min_free_gb"] == {"value": 10.0, "source": "default"}
     assert checks["store"]["status"] == OK and checks["store"]["data"]["root"] is None
@@ -142,7 +142,7 @@ def test_for_rejects_a_hidden_former_command_name():
 
 def test_low_disk_space_warns(tmp_path, monkeypatch, capsys):
     _tools_on_path(tmp_path, monkeypatch)
-    with patch("metaquest.processing.doctor_report.shutil.disk_usage", return_value=Usage(100 * GB, 98 * GB, 2 * GB)):
+    with patch("prepare.processing.doctor_report.shutil.disk_usage", return_value=Usage(100 * GB, 98 * GB, 2 * GB)):
         rc, report = _run_json(capsys)
     assert rc == 0
     checks = _by_name(report)
@@ -154,8 +154,8 @@ def test_low_disk_space_warns(tmp_path, monkeypatch, capsys):
 
 def test_min_free_gb_zero_turns_the_free_space_warning_off(tmp_path, monkeypatch, capsys):
     _tools_on_path(tmp_path, monkeypatch)
-    monkeypatch.setenv("METAQUEST_MIN_FREE_GB", "0")
-    with patch("metaquest.processing.doctor_report.shutil.disk_usage", return_value=Usage(100 * GB, 98 * GB, 2 * GB)):
+    monkeypatch.setenv("PREPARE_MIN_FREE_GB", "0")
+    with patch("prepare.processing.doctor_report.shutil.disk_usage", return_value=Usage(100 * GB, 98 * GB, 2 * GB)):
         rc, report = _run_json(capsys)
     assert rc == 0
     assert _by_name(report)["free space project"]["status"] == OK
@@ -163,7 +163,7 @@ def test_min_free_gb_zero_turns_the_free_space_warning_off(tmp_path, monkeypatch
 
 def test_malformed_config_is_a_failed_check_and_exit_3_through_main(tmp_path, monkeypatch, capsys):
     _tools_on_path(tmp_path, monkeypatch)
-    config = tmp_path / "xdg" / "metaquest" / "config.toml"
+    config = tmp_path / "xdg" / "prepare" / "config.toml"
     config.parent.mkdir(parents=True)
     config.write_text("[runtime\nnot toml")
     rc, report = _run_json(capsys)
@@ -178,7 +178,7 @@ def test_malformed_config_is_a_failed_check_and_exit_3_through_main(tmp_path, mo
 
 
 def test_malformed_config_still_stops_any_other_command(tmp_path, monkeypatch):
-    config = tmp_path / "xdg" / "metaquest" / "config.toml"
+    config = tmp_path / "xdg" / "prepare" / "config.toml"
     config.parent.mkdir(parents=True)
     config.write_text("[runtime\nnot toml")
     assert main(["store_status"]) == 3
@@ -186,16 +186,16 @@ def test_malformed_config_still_stops_any_other_command(tmp_path, monkeypatch):
 
 def test_a_bad_environment_value_is_reported_by_the_config_check(tmp_path, monkeypatch, capsys):
     _tools_on_path(tmp_path, monkeypatch)
-    monkeypatch.setenv("METAQUEST_TIMEOUT", "soon")
+    monkeypatch.setenv("PREPARE_TIMEOUT", "soon")
     rc, report = _run_json(capsys)
     assert rc == 3
     config = _by_name(report)["config"]
-    assert config["status"] == FAIL and "METAQUEST_TIMEOUT" in config["detail"]
+    assert config["status"] == FAIL and "PREPARE_TIMEOUT" in config["detail"]
 
 
 def test_unknown_config_key_warns(tmp_path, monkeypatch, capsys):
     _tools_on_path(tmp_path, monkeypatch)
-    config = tmp_path / "xdg" / "metaquest" / "config.toml"
+    config = tmp_path / "xdg" / "prepare" / "config.toml"
     config.parent.mkdir(parents=True)
     config.write_text("[runtime]\nmin_free_gb = 5\nno_such_key = 1\n")
     rc, report = _run_json(capsys)
@@ -231,7 +231,7 @@ def test_store_without_marker_fails(tmp_path, monkeypatch, capsys):
 
 def test_a_registry_that_does_not_parse_fails(tmp_path, monkeypatch, capsys):
     _tools_on_path(tmp_path, monkeypatch)
-    (tmp_path / "project" / "metaquest_registry.json").write_text("{not json")
+    (tmp_path / "project" / "prepare_registry.json").write_text("{not json")
     rc, report = _run_json(capsys)
     assert rc == 3
     registry = _by_name(report)["registry"]
@@ -240,7 +240,7 @@ def test_a_registry_that_does_not_parse_fails(tmp_path, monkeypatch, capsys):
 
 def test_the_nearest_registry_above_the_project_folder_is_found(tmp_path, monkeypatch, capsys):
     _tools_on_path(tmp_path, monkeypatch)
-    (tmp_path / "project" / "metaquest_registry.json").write_text('{"version": 2, "datasets": {"SRR1": {}}}')
+    (tmp_path / "project" / "prepare_registry.json").write_text('{"version": 2, "datasets": {"SRR1": {}}}')
     sub = tmp_path / "project" / "fastq"
     sub.mkdir()
     rc, report = _run_json(capsys, "--project", str(sub))
@@ -261,7 +261,7 @@ def test_slurm_variables_are_reported(tmp_path, monkeypatch, capsys):
 
 def test_network_checks_run_only_with_network(tmp_path, monkeypatch, capsys):
     _tools_on_path(tmp_path, monkeypatch)
-    with patch("metaquest.processing.doctor_report.requests.get", return_value=Mock(status_code=200)) as get:
+    with patch("prepare.processing.doctor_report.requests.get", return_value=Mock(status_code=200)) as get:
         rc, report = _run_json(capsys, "--network")
     assert rc == 0
     checks = _by_name(report)
@@ -274,7 +274,7 @@ def test_network_checks_run_only_with_network(tmp_path, monkeypatch, capsys):
 def test_an_unreachable_service_fails_the_network_check(tmp_path, monkeypatch, capsys):
     _tools_on_path(tmp_path, monkeypatch)
     with patch(
-        "metaquest.processing.doctor_report.requests.get", side_effect=requests.ConnectionError("no route to host")
+        "prepare.processing.doctor_report.requests.get", side_effect=requests.ConnectionError("no route to host")
     ):
         rc, report = _run_json(capsys, "--network")
     assert rc == 3
@@ -336,13 +336,13 @@ def test_a_tool_that_cannot_run_is_a_warning_when_not_required(tmp_path, monkeyp
 def test_the_temp_location_is_where_a_download_puts_its_scratch(tmp_path, monkeypatch):
     project = tmp_path / "project"
     locations = dict(doctor_report.space_locations(project, None))
-    assert locations["temp"] == project / "fastq" / ".metaquest-tmp"
+    assert locations["temp"] == project / "fastq" / ".prepare-tmp"
     assert locations["sra-cache"] == project / "fastq" / ".sra-cache"
 
     store_root = tmp_path / "store"
     with_store = dict(doctor_report.space_locations(project, str(store_root)))
     assert with_store["temp"] == store_root / "tmp"
 
-    monkeypatch.setenv("METAQUEST_TEMP_FOLDER", str(tmp_path / "local"))
+    monkeypatch.setenv("PREPARE_TEMP_FOLDER", str(tmp_path / "local"))
     settings.reset_for_tests()
     assert dict(doctor_report.space_locations(project, None))["temp"] == tmp_path / "local"

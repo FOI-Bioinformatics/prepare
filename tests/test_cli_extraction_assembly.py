@@ -12,17 +12,17 @@ from unittest.mock import patch
 
 import pytest
 
-import metaquest.cli.commands.extraction_assembly as asm_mod
-import metaquest.data.registry as registry_mod
+import prepare.cli.commands.extraction_assembly as asm_mod
+import prepare.data.registry as registry_mod
 from helpers_extraction import _fake_tools, tools_present  # noqa: F401 (autouse fixture)
-from metaquest.cli.commands.extraction_assembly import assemble_samples
-from metaquest.cli.commands.read_extraction import ExtractTargetReadsCommand
-from metaquest.data.assembly_identity import MARKER_NAME, read_marker
-from metaquest.data.extraction_locks import sample_extraction_lock
-from metaquest.data.read_extraction import ExtractionResult
-from metaquest.data.registry import load_registry, save_registry
+from prepare.cli.commands.extraction_assembly import assemble_samples
+from prepare.cli.commands.read_extraction import ExtractTargetReadsCommand
+from prepare.data.assembly_identity import MARKER_NAME, read_marker
+from prepare.data.extraction_locks import sample_extraction_lock
+from prepare.data.read_extraction import ExtractionResult
+from prepare.data.registry import load_registry, save_registry
 
-RUN_SECURE = "metaquest.data.read_extraction.SecureSubprocess.run_secure"
+RUN_SECURE = "prepare.data.read_extraction.SecureSubprocess.run_secure"
 
 
 @pytest.fixture(autouse=True)

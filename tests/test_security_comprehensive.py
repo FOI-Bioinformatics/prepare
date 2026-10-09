@@ -18,8 +18,8 @@ import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from metaquest.utils.security import SecureSubprocess
-from metaquest.core.exceptions import SecurityError
+from prepare.utils.security import SecureSubprocess
+from prepare.core.exceptions import SecurityError
 
 
 @pytest.fixture(autouse=True)
@@ -167,7 +167,7 @@ class TestParameterValidation:
         real validator, not a mock, so a gap like this cannot hide behind a mocked
         ``run_secure`` again.
         """
-        from metaquest.data.read_extraction import _megahit_args
+        from prepare.data.read_extraction import _megahit_args
 
         output_folder = tmp_path / "targeted"
         output_folder.mkdir()
@@ -198,7 +198,7 @@ class TestParameterValidation:
         real function's output rather than a hand-maintained list, so it stays correct as
         ``_megahit_args`` changes.
         """
-        from metaquest.data.read_extraction import _megahit_args
+        from prepare.data.read_extraction import _megahit_args
 
         paired_args = _megahit_args(
             [tmp_path / "r1.fastq.gz", tmp_path / "r2.fastq.gz"],
@@ -232,7 +232,7 @@ class TestParameterValidation:
         flag a builder emits but the allow-list rejects would otherwise pass every unit
         test that mocks ``run_secure`` and only surface once minimap2 actually runs.
         """
-        from metaquest.data.read_extraction import _minimap2_index_args, _minimap2_map_args
+        from prepare.data.read_extraction import _minimap2_index_args, _minimap2_map_args
 
         calls = [
             # build_index
@@ -275,7 +275,7 @@ class TestParameterValidation:
         placed right after it (minimap2's own parser permutes options freely, so this can
         legitimately happen) would be swallowed as the flag's value instead of validated
         as its own argument."""
-        from metaquest.utils.security import BOOLEAN_FLAGS
+        from prepare.utils.security import BOOLEAN_FLAGS
 
         assert "--sam-hit-only" in BOOLEAN_FLAGS["minimap2"]
 
@@ -291,7 +291,7 @@ class TestParameterValidation:
         every unit test that mocks ``run_secure`` and only surface once samtools actually
         runs.
         """
-        from metaquest.data.read_extraction import (
+        from prepare.data.read_extraction import (
             _samtools_cat_args,
             _samtools_count_args,
             _samtools_coverage_args,
@@ -715,7 +715,7 @@ class TestDefensiveGuards:
 
 
 class TestFasterqDumpCommandContract:
-    """The exact argument list metaquest.data.sra builds must pass validation unchanged."""
+    """The exact argument list prepare.data.sra builds must pass validation unchanged."""
 
     def test_real_download_argument_order_is_accepted(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -946,7 +946,7 @@ class TestConfigurableTimeout:
         started = time.monotonic()
         with pytest.raises(
             SecurityError,
-            match=r"Command timed out after 1 s \(set --timeout or METAQUEST_TIMEOUT; 0 disables\)",
+            match=r"Command timed out after 1 s \(set --timeout or PREPARE_TIMEOUT; 0 disables\)",
         ):
             SecureSubprocess.run_secure("fasterq-dump", ["--version"], timeout=1)
         # Killed around the 1 s timeout, nowhere near the tool's 5 s sleep.
@@ -954,7 +954,7 @@ class TestConfigurableTimeout:
 
     def test_explicit_timeout_message_is_classified_as_a_network_failure(self, tmp_path, monkeypatch):
         """The timeout message still contains 'timed out', so the download retry logic sees it."""
-        from metaquest.data.sra import classify_download_error
+        from prepare.data.sra import classify_download_error
 
         _write_sleeping_tool(tmp_path, "fasterq-dump", seconds=5.0)
         monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
@@ -979,7 +979,7 @@ class TestConfigurableTimeout:
         proc.communicate.assert_called_once_with(timeout=None)
 
     def test_unset_timeout_defaults_to_no_limit(self):
-        """No --timeout, no METAQUEST_TIMEOUT, no config: the default setting is no limit."""
+        """No --timeout, no PREPARE_TIMEOUT, no config: the default setting is no limit."""
         proc = _fake_proc(stdout="ok")
         with patch("subprocess.Popen", return_value=proc):
             with patch.object(SecureSubprocess, "validate_executable", return_value="echo"):
@@ -988,7 +988,7 @@ class TestConfigurableTimeout:
 
     def test_unset_timeout_uses_the_active_setting(self, monkeypatch):
         """No timeout argument: the value comes from the active run's settings (here, the env var)."""
-        monkeypatch.setenv("METAQUEST_TIMEOUT", "42")
+        monkeypatch.setenv("PREPARE_TIMEOUT", "42")
         proc = _fake_proc(stdout="ok")
         with patch("subprocess.Popen", return_value=proc):
             with patch.object(SecureSubprocess, "validate_executable", return_value="echo"):
@@ -997,7 +997,7 @@ class TestConfigurableTimeout:
 
     def test_explicit_timeout_overrides_the_active_setting(self, monkeypatch):
         """A caller-given timeout (the version probes, for example) wins over the setting."""
-        monkeypatch.setenv("METAQUEST_TIMEOUT", "42")
+        monkeypatch.setenv("PREPARE_TIMEOUT", "42")
         proc = _fake_proc(stdout="ok")
         with patch("subprocess.Popen", return_value=proc):
             with patch.object(SecureSubprocess, "validate_executable", return_value="echo"):
@@ -1017,6 +1017,6 @@ class TestConfigurableTimeout:
 #   pytest tests/test_security_comprehensive.py -v
 #
 # Check coverage:
-#   pytest --cov=metaquest.utils.security --cov-report=term-missing \
+#   pytest --cov=prepare.utils.security --cov-report=term-missing \
 #          tests/test_security_comprehensive.py
 # ============================================================================

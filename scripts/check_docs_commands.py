@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Check that README.md documents exactly the CLI commands the registry exposes.
 
-Every command name visible in ``metaquest --help`` (that is, every registered command whose
-``hidden`` property is false; the pre-0.5.0 renamed pointers in ``metaquest.cli.commands.renamed``
+Every command name visible in ``prepare --help`` (that is, every registered command whose
+``hidden`` property is false; the pre-0.5.0 renamed pointers in ``prepare.cli.commands.renamed``
 are ``hidden`` and excluded) must be mentioned somewhere in README.md. Conversely, every literal
-``metaquest <word>`` invocation shown in README.md must name a command the registry knows about.
+``prepare <word>`` invocation shown in README.md must name a command the registry knows about.
 A renamed command's old name is allowed to appear as an invocation only inside the "Renamed ...
 commands" section that documents the rename; anywhere else it is treated as unknown, the same as
 a typo would be.
@@ -24,22 +24,22 @@ README_PATH = REPO_ROOT / "README.md"
 
 # Running this file as a script (rather than `python -c` or `-m`) does not add the repository
 # root to sys.path, so an unrelated editable install elsewhere (a different checkout or worktree
-# pointed at by the active environment's metaquest.egg-link) would otherwise shadow the copy of
-# metaquest this script ships next to. Put the repository root first so the import always resolves
+# pointed at by the active environment's prepare.egg-link) would otherwise shadow the copy of
+# prepare this script ships next to. Put the repository root first so the import always resolves
 # to this checkout.
 sys.path.insert(0, str(REPO_ROOT))
 
 RENAME_HEADING = re.compile(r"^#{2,6}\s*Renamed\b.*\bcommands\b", re.IGNORECASE | re.MULTILINE)
 ANY_HEADING = re.compile(r"^#{1,6}\s", re.MULTILINE)
-INVOCATION = re.compile(r"^metaquest\s+([A-Za-z][A-Za-z0-9_-]*)", re.MULTILINE)
+INVOCATION = re.compile(r"^prepare\s+([A-Za-z][A-Za-z0-9_-]*)", re.MULTILINE)
 
 
 def _registry_commands():
     """Import the CLI package and return its fully-populated command registry."""
     # Imported here, not at module level, so a package import error is reported as this script's
     # own failure rather than as a confusing collection error somewhere else in `make check`.
-    from metaquest.cli.base import command_registry
-    from metaquest.cli.main import create_parser
+    from prepare.cli.base import command_registry
+    from prepare.cli.main import create_parser
 
     create_parser()  # populates command_registry via register_all_commands()
     return command_registry.get_all_commands()
@@ -96,7 +96,7 @@ def main() -> int:
     if unknown:
         print(f"README.md names {len(unknown)} command(s) the registry does not know about:")
         for line_no, word in unknown:
-            print(f"  README.md:{line_no}: metaquest {word}")
+            print(f"  README.md:{line_no}: prepare {word}")
     return 1
 
 

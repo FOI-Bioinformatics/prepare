@@ -16,13 +16,13 @@ import pandas as pd
 import requests
 from unittest.mock import patch, MagicMock
 
-from metaquest.data.taxonomy import (
+from prepare.data.taxonomy import (
     NCBITaxonomyClient,
     validate_taxonomic_assignments,
     create_taxonomic_summary,
     analyze_taxonomic_composition,
 )
-from metaquest.core.exceptions import ProcessingError
+from prepare.core.exceptions import ProcessingError
 
 # ============================================================================
 # TEST CLASS: get_taxonomy_details Method
@@ -175,7 +175,7 @@ class TestRateLimiting:
 class TestCacheFileHandling:
     """Test cache file operations in validate_taxonomic_assignments."""
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_validate_with_cache_loading(self, mock_client_class, tmp_path):
         """Test loading results from cache file."""
         # Create cache file
@@ -204,7 +204,7 @@ class TestCacheFileHandling:
         assert not mock_client.validate_species_name.called
         assert len(result) == 1
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_validate_with_cache_save(self, mock_client_class, tmp_path):
         """Test saving results to cache file."""
         cache_file = tmp_path / "new_cache.csv"
@@ -230,7 +230,7 @@ class TestCacheFileHandling:
         cache_df = pd.read_csv(cache_file)
         assert len(cache_df) == 1
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_validate_with_invalid_cache(self, mock_client_class, tmp_path, caplog):
         """Test handling of invalid cache file."""
         # Create invalid cache file
@@ -258,7 +258,7 @@ class TestCacheFileHandling:
 class TestIncrementalValidationCache:
     """The cache is appended to after every successful lookup, not written once at the end."""
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_only_successful_lookups_are_cached(self, mock_client_class, tmp_path):
         """A lookup that comes back with confidence 'error' is not written, so it is retried later."""
         cache_file = tmp_path / "cache.csv"
@@ -303,7 +303,7 @@ class TestIncrementalValidationCache:
         assert len(cache_df) == 2
         assert set(cache_df["confidence"]) == {"high"}
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_cache_grows_during_the_run(self, mock_client_class, tmp_path):
         """Each successful lookup is on disk before the next one runs, not batched at the end."""
         cache_file = tmp_path / "cache.csv"
@@ -330,7 +330,7 @@ class TestIncrementalValidationCache:
 
         assert rows_seen_before_each_call == [0, 1, 2]
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_corrupt_cache_is_replaced_on_first_successful_write(self, mock_client_class, tmp_path):
         """A cache file that failed to load is discarded, not appended to, on the next write."""
         cache_file = tmp_path / "cache.csv"
@@ -373,7 +373,7 @@ class TestIncrementalValidationCache:
 class TestOutputFileOperations:
     """Test output file saving in validate_taxonomic_assignments."""
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_validate_with_output_file(self, mock_client_class, tmp_path):
         """Test saving validation results to output file."""
         output_file = tmp_path / "validation_results.csv"
@@ -400,7 +400,7 @@ class TestOutputFileOperations:
         assert len(output_df) == 1
         assert output_df.loc[0, "original_name"] == "Species A"
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_validate_creates_output_directory(self, mock_client_class, tmp_path):
         """Test that output directory is created if it doesn't exist."""
         output_file = tmp_path / "subdir" / "nested" / "results.csv"
@@ -550,7 +550,7 @@ class TestAdditionalEdgeCases:
         with pytest.raises(ProcessingError):
             analyze_taxonomic_composition(invalid_abundance, invalid_taxonomy, levels=["genus"])
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_validate_assignments_progress_logging(self, mock_client_class, caplog):
         """Test progress logging during validation."""
         # Create large species list
@@ -569,7 +569,7 @@ class TestAdditionalEdgeCases:
         }
 
         # Validate; the progress lines are INFO, which caplog records only when asked to.
-        caplog.set_level("INFO", logger="metaquest.data.taxonomy")
+        caplog.set_level("INFO", logger="prepare.data.taxonomy")
         validate_taxonomic_assignments(species_list, email="test@example.com")
 
         # Should log progress
@@ -588,6 +588,6 @@ class TestAdditionalEdgeCases:
 #   pytest tests/test_taxonomy_extended.py -v
 #
 # Check coverage:
-#   pytest --cov=metaquest.data.taxonomy --cov-report=term-missing \
+#   pytest --cov=prepare.data.taxonomy --cov-report=term-missing \
 #          tests/test_taxonomy.py tests/test_taxonomy_extended.py -q
 # ============================================================================

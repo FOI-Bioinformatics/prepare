@@ -1,8 +1,8 @@
 # Modules allowed to write files directly; see scripts/check_atomic_writes.sh.
 # One path per line, then the reason. Keep this list short: it should only shrink.
-metaquest/data/file_io.py  implements the atomic helpers; writes only into the temporary name atomic_path yields
-metaquest/visualization/interactive.py  regenerable figure, overwritten whole (plotly write_html)
-metaquest/visualization/plots.py  regenerable figure, overwritten whole (savefig)
-metaquest/plugins/visualizers/bar.py  regenerable figure, overwritten whole (savefig)
-metaquest/plugins/visualizers/heatmap.py  regenerable figure, overwritten whole (savefig)
-metaquest/plugins/visualizers/map.py  regenerable figure, overwritten whole (savefig)
+prepare/data/file_io.py  implements the atomic helpers; writes only into the temporary name atomic_path yields
+prepare/visualization/interactive.py  regenerable figure, overwritten whole (plotly write_html)
+prepare/visualization/plots.py  regenerable figure, overwritten whole (savefig)
+prepare/plugins/visualizers/bar.py  regenerable figure, overwritten whole (savefig)
+prepare/plugins/visualizers/heatmap.py  regenerable figure, overwritten whole (savefig)
+prepare/plugins/visualizers/map.py  regenerable figure, overwritten whole (savefig)

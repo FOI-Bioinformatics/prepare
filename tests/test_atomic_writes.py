@@ -1,4 +1,4 @@
-"""Tests for the atomic write helpers in metaquest.data.file_io and the state files written through them."""
+"""Tests for the atomic write helpers in prepare.data.file_io and the state files written through them."""
 
 import gzip
 import json
@@ -11,8 +11,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from metaquest.data import file_io
-from metaquest.data.file_io import atomic_path, open_atomic, unique_temp_path, write_csv, write_text_atomic
+from prepare.data import file_io
+from prepare.data.file_io import atomic_path, open_atomic, unique_temp_path, write_csv, write_text_atomic
 
 
 def _no_temp_files(folder: Path) -> bool:
@@ -215,8 +215,8 @@ def test_reader_never_sees_a_partial_file(tmp_path):
 
 
 def test_temporary_fastq_names_are_not_listed(tmp_path):
-    from metaquest.data.registry import scan_downloads
-    from metaquest.data.sra import fastq_files
+    from prepare.data.registry import scan_downloads
+    from prepare.data.sra import fastq_files
 
     acc_dir = tmp_path / "SRR1"
     acc_dir.mkdir()
@@ -228,11 +228,11 @@ def test_temporary_fastq_names_are_not_listed(tmp_path):
 
 
 def test_compress_fastq_fallback_is_atomic(tmp_path):
-    from metaquest.data.sra import compress_fastq
+    from prepare.data.sra import compress_fastq
 
     source = tmp_path / "SRR1_1.fastq"
     source.write_text("@r\nACGT\n+\nIIII\n")
-    with patch("metaquest.data.sra.fastq.shutil.which", return_value=None):
+    with patch("prepare.data.sra.fastq.shutil.which", return_value=None):
         with patch.object(file_io.os, "replace", side_effect=KeyboardInterrupt):
             with pytest.raises(KeyboardInterrupt):
                 compress_fastq(source, 1)
@@ -246,7 +246,7 @@ def test_compress_fastq_fallback_is_atomic(tmp_path):
 
 
 def test_sidecar_write_uses_fsync_and_leaves_no_temp(tmp_path):
-    from metaquest.store.sidecar import Sidecar, read_sidecar, write_sidecar
+    from prepare.store.sidecar import Sidecar, read_sidecar, write_sidecar
 
     target = tmp_path / "SRR1" / "SRR1.json"
     with patch.object(file_io.os, "fsync", wraps=os.fsync) as fsync:
@@ -257,7 +257,7 @@ def test_sidecar_write_uses_fsync_and_leaves_no_temp(tmp_path):
 
 
 def test_write_registry_interrupted_leaves_no_temp(tmp_path):
-    from metaquest.data import registry as reg
+    from prepare.data import registry as reg
 
     target = tmp_path / reg.REGISTRY_FILENAME
     registry = reg.load_registry(target)
@@ -274,7 +274,7 @@ def test_write_registry_interrupted_leaves_no_temp(tmp_path):
 
 
 def test_write_registry_fsyncs(tmp_path):
-    from metaquest.data import registry as reg
+    from prepare.data import registry as reg
 
     target = tmp_path / reg.REGISTRY_FILENAME
     with reg._acquire_lock(target.with_name(target.name + ".lock")) as lock:

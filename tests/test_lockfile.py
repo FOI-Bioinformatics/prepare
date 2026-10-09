@@ -1,4 +1,4 @@
-"""Tests for the one lock-file mechanism every MetaQuest lock is built on."""
+"""Tests for the one lock-file mechanism every PREPARE lock is built on."""
 
 import json
 import logging
@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from metaquest.core.exceptions import DataAccessError, LockTimeoutError
-from metaquest.utils import lockfile
-from metaquest.utils.lockfile import (
+from prepare.core.exceptions import DataAccessError, LockTimeoutError
+from prepare.utils import lockfile
+from prepare.utils.lockfile import (
     LockHeld,
     LockLost,
     LockPolicy,
@@ -69,7 +69,7 @@ class TestExceptions:
             assert issubclass(cls, DataAccessError)
 
     def test_store_locks_re_exports_the_same_stop_error(self):
-        from metaquest.store import locks
+        from prepare.store import locks
 
         assert locks.LockWaitStopped is LockWaitStopped
         assert locks.read_holder is read_holder
@@ -470,7 +470,7 @@ class TestRoundOneFixes:
         def refuse(*args, **kwargs):
             raise PermissionError("read-only file system")
 
-        with caplog.at_level(logging.WARNING, logger="metaquest.utils.lockfile"):
+        with caplog.at_level(logging.WARNING, logger="prepare.utils.lockfile"):
             with held_lock(lock, _policy(heartbeat_seconds=0.02)):
                 monkeypatch.setattr(lockfile.os, "utime", refuse)
                 time.sleep(0.3)
@@ -480,8 +480,8 @@ class TestRoundOneFixes:
     def test_lock_is_held_is_false_when_the_lock_cannot_be_read(self, tmp_path):
         from unittest.mock import patch
 
-        from metaquest.store.layout import init_store
-        from metaquest.store.locks import lock_is_held
+        from prepare.store.layout import init_store
+        from prepare.store.locks import lock_is_held
 
         paths = init_store(tmp_path / "store")
         with patch.object(Path, "stat", side_effect=PermissionError("denied")):
@@ -593,20 +593,20 @@ def _append(path, line):
 
 class TestCallers:
     def test_nested_registry_transaction_raises_reentry_at_once(self, tmp_path):
-        from metaquest.data import registry as reg
+        from prepare.data import registry as reg
 
-        target = tmp_path / "metaquest_registry.json"
+        target = tmp_path / "prepare_registry.json"
         started = time.monotonic()
         with reg.registry_transaction(target):
             with pytest.raises(LockReentry):
                 with reg.registry_transaction(target):
                     pass
         assert time.monotonic() - started < 1.0
-        assert not (tmp_path / "metaquest_registry.json.lock").exists()
+        assert not (tmp_path / "prepare_registry.json.lock").exists()
 
     def test_catalogue_lock_error_names_the_holder(self, tmp_path, monkeypatch):
-        from metaquest.store import catalog as catalog_module
-        from metaquest.store.layout import init_store
+        from prepare.store import catalog as catalog_module
+        from prepare.store.layout import init_store
 
         paths = init_store(tmp_path / "store")
         monkeypatch.setattr(catalog_module, "CATALOG_LOCK_WAIT_SECONDS", 0.2)
@@ -619,8 +619,8 @@ class TestCallers:
         assert isinstance(excinfo.value, LockTimeoutError)  # a wait that gave up: exit code 4
 
     def test_dataset_lock_of_a_dead_local_holder_is_taken_over(self, tmp_path):
-        from metaquest.store.layout import init_store, lock_path
-        from metaquest.store.locks import dataset_lock, lock_is_held
+        from prepare.store.layout import init_store, lock_path
+        from prepare.store.locks import dataset_lock, lock_is_held
 
         paths = init_store(tmp_path / "store")
         lock = lock_path(paths, "SRR1")

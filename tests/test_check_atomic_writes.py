@@ -1,4 +1,4 @@
-"""Tests for scripts/check_atomic_writes.sh, the gate against direct file writes under metaquest/."""
+"""Tests for scripts/check_atomic_writes.sh, the gate against direct file writes under prepare/."""
 
 import subprocess
 from pathlib import Path
@@ -14,13 +14,13 @@ def _run_gate(root: Path) -> subprocess.CompletedProcess:
 
 
 def _fixture_tree(tmp_path: Path, body: str) -> Path:
-    pkg = tmp_path / "metaquest" / "sub"
+    pkg = tmp_path / "prepare" / "sub"
     pkg.mkdir(parents=True)
     (pkg / "mod.py").write_text(body)
     scripts = tmp_path / "scripts"
     scripts.mkdir()
-    (scripts / "atomic_writes_allowlist.txt").write_text("metaquest/allowed.py  test fixture\n")
-    (tmp_path / "metaquest" / "allowed.py").write_text('open(p, "w")\n')
+    (scripts / "atomic_writes_allowlist.txt").write_text("prepare/allowed.py  test fixture\n")
+    (tmp_path / "prepare" / "allowed.py").write_text('open(p, "w")\n')
     return tmp_path
 
 
@@ -49,7 +49,7 @@ def _fixture_tree(tmp_path: Path, body: str) -> Path:
 def test_gate_fails_on_direct_write(tmp_path, line):
     result = _run_gate(_fixture_tree(tmp_path, line))
     assert result.returncode == 1, result.stdout + result.stderr
-    assert "metaquest/sub/mod.py" in result.stdout
+    assert "prepare/sub/mod.py" in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -82,16 +82,16 @@ def test_gate_passes_on_the_real_tree():
 def test_gate_rejects_a_stale_allowlist_entry(tmp_path):
     root = _fixture_tree(tmp_path, "pass\n")
     (root / "scripts" / "atomic_writes_allowlist.txt").write_text(
-        "metaquest/allowed.py  fixture\nmetaquest/gone.py  removed module\n"
+        "prepare/allowed.py  fixture\nprepare/gone.py  removed module\n"
     )
     result = _run_gate(root)
     assert result.returncode == 1
-    assert "metaquest/gone.py" in result.stdout
+    assert "prepare/gone.py" in result.stdout
 
 
 def test_gate_rejects_an_entry_without_reason(tmp_path):
     root = _fixture_tree(tmp_path, "pass\n")
-    (root / "scripts" / "atomic_writes_allowlist.txt").write_text("metaquest/allowed.py\n")
+    (root / "scripts" / "atomic_writes_allowlist.txt").write_text("prepare/allowed.py\n")
     result = _run_gate(root)
     assert result.returncode == 1
     assert "no reason" in result.stdout

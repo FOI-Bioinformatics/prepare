@@ -1,4 +1,4 @@
-"""Tests for the per-project run log (``metaquest/data/run_log.py``) and its hook in ``cli/main.py``."""
+"""Tests for the per-project run log (``prepare/data/run_log.py``) and its hook in ``cli/main.py``."""
 
 import argparse
 import json
@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from metaquest.cli.commands.blacklist import BlacklistCommand
-from metaquest.cli.commands.doctor import DoctorCommand
-from metaquest.cli.commands.metadata import DownloadMetadataCommand
-from metaquest.cli.main import main
-from metaquest.core import settings
-from metaquest.core.exceptions import DataAccessError, ProcessingError, ValidationError
-from metaquest.data import run_log
-from metaquest.data.registry import REGISTRY_FILENAME
+from prepare.cli.commands.blacklist import BlacklistCommand
+from prepare.cli.commands.doctor import DoctorCommand
+from prepare.cli.commands.metadata import DownloadMetadataCommand
+from prepare.cli.main import main
+from prepare.core import settings
+from prepare.core.exceptions import DataAccessError, ProcessingError, ValidationError
+from prepare.data import run_log
+from prepare.data.registry import REGISTRY_FILENAME
 
 STARTED = datetime(2026, 10, 1, 12, 5, 1, tzinfo=timezone.utc)
 
@@ -52,7 +52,7 @@ def _record(project, command="sra_profile", detail=None, summary=None, exit_code
 
 def test_setting_defaults_to_on_and_is_off_in_tests():
     assert settings.SETTINGS["run_log"].default is True
-    assert settings.SETTINGS["run_log"].env == "METAQUEST_RUN_LOG"
+    assert settings.SETTINGS["run_log"].env == "PREPARE_RUN_LOG"
     assert settings.active().run_log is False
 
 
@@ -83,7 +83,7 @@ def test_round_trip(project, run_log_on):
     assert run_log.RunRecord.from_dict(record.to_dict()) == record
     assert run_log.read_detail(project, record) == {"rows": [1, 2]}
     assert (run_log.runs_dir(project) / run_log.RUNS_FILE).is_file()
-    assert run_log.runs_dir(project) == project / ".metaquest" / "runs"
+    assert run_log.runs_dir(project) == project / ".prepare" / "runs"
 
 
 def test_record_without_detail_writes_no_detail_file(project, run_log_on):
@@ -108,14 +108,14 @@ def test_malformed_last_line_is_skipped_with_one_warning(project, run_log_on, ca
     with open(log, "a") as handle:
         handle.write('{"run_id": "2026')  # an interrupted append: no closing brace, no newline
 
-    with caplog.at_level(logging.WARNING, logger="metaquest.data.run_log"):
+    with caplog.at_level(logging.WARNING, logger="prepare.data.run_log"):
         assert len(run_log.read_runs(project)) == 2
     assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
 
     # A later append starts on a line of its own, so the new record is readable.
     third = _record(project)
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="metaquest.data.run_log"):
+    with caplog.at_level(logging.WARNING, logger="prepare.data.run_log"):
         records = run_log.read_runs(project)
     assert len(records) == 3 and records[-1] == third
     assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
@@ -126,7 +126,7 @@ def test_a_byte_that_is_not_utf8_is_skipped_like_a_cut_line(project, run_log_on,
     log = run_log.runs_dir(project) / run_log.RUNS_FILE
     with open(log, "ab") as handle:
         handle.write(b"\xff\xfe not a record\n")
-    with caplog.at_level(logging.WARNING, logger="metaquest.data.run_log"):
+    with caplog.at_level(logging.WARNING, logger="prepare.data.run_log"):
         assert len(run_log.read_runs(project)) == 1
     assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
     # Appending still works, and the earlier records are untouched.
@@ -219,7 +219,7 @@ def test_api_key_masked_in_argv_and_args(project, run_log_on):
 
 def test_setting_off_writes_nothing(project):
     assert _record(project) is None
-    assert not (project / ".metaquest").exists()
+    assert not (project / ".prepare").exists()
 
 
 # --- CLI hook ------------------------------------------------------------------------------
@@ -284,32 +284,32 @@ def test_cli_finds_registry_above_working_directory(project, run_log_on, opting_
     monkeypatch.chdir(nested)
     assert main(["blacklist", "--list"]) == 0
     assert len(run_log.read_runs(project)) == 1
-    assert not (nested / ".metaquest").exists()
+    assert not (nested / ".prepare").exists()
 
 
 def test_cli_no_registry_means_no_folder(tmp_path, run_log_on, opting_blacklist, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert main(["blacklist", "--list"]) == 0
     assert main(["blacklist", "--list", "--registry", str(tmp_path / "missing.json")]) == 0
-    assert not (tmp_path / ".metaquest").exists()
+    assert not (tmp_path / ".prepare").exists()
 
 
 def test_cli_non_opting_command_writes_nothing(project, run_log_on, monkeypatch):
     monkeypatch.setattr(BlacklistCommand, "execute", lambda self, args: 0)
     monkeypatch.chdir(project)
     assert main(["blacklist", "--list"]) == 0
-    assert not (project / ".metaquest").exists()
+    assert not (project / ".prepare").exists()
 
 
 def test_cli_setting_off_writes_nothing(project, opting_blacklist, monkeypatch):
     monkeypatch.chdir(project)
     assert main(["blacklist", "--list"]) == 0
-    assert not (project / ".metaquest").exists()
+    assert not (project / ".prepare").exists()
 
 
 @pytest.mark.parametrize("code", [0, 1, 4])
 def test_cli_unwritable_log_keeps_exit_code(project, run_log_on, opting_blacklist, monkeypatch, caplog, code):
-    (project / ".metaquest").write_text("a file where the folder should be")
+    (project / ".prepare").write_text("a file where the folder should be")
     monkeypatch.chdir(project)
     opting_blacklist[0] = code
     with caplog.at_level(logging.WARNING):

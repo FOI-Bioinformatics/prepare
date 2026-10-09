@@ -1,7 +1,7 @@
 """scripts/smoke_chain.sh removes the scratch project directory it created, but only on success
 outside CI; a failed run, a CI run, or a directory the caller named is left in place.
 
-A stub ``python`` on PATH stands in for every metaquest step, so these tests need no network or
+A stub ``python`` on PATH stands in for every prepare step, so these tests need no network or
 bioinformatics tools.
 """
 
@@ -14,7 +14,7 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "smoke_chain.sh"
 
 STUB = """#!/usr/bin/env bash
-# Stand-in for "python -m metaquest.cli.main <command> ...".
+# Stand-in for "python -m prepare.cli.main <command> ...".
 if [ -n "${SMOKE_STUB_FAIL:-}" ]; then exit 1; fi
 if [ "$3" = "results_table" ]; then printf 'accession\\tgenome_id\\nSRR2517620\\tGCF\\n' >results.tsv; fi
 exit 0
@@ -41,7 +41,7 @@ def _run(env, *args):
 
 
 def _smoke_dirs(scratch):
-    return [p for p in scratch.rglob("metaquest-smoke-*") if p.is_dir()]
+    return [p for p in scratch.rglob("prepare-smoke-*") if p.is_dir()]
 
 
 def test_success_outside_ci_removes_the_scratch_directory(stub_env):

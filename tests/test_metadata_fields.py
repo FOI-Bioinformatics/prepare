@@ -4,9 +4,9 @@ import logging
 
 import pytest
 
-from metaquest.data import registry as reg
-from metaquest.data import registry_blocks as rb
-from metaquest.data.metadata_fields import (
+from prepare.data import registry as reg
+from prepare.data import registry_blocks as rb
+from prepare.data.metadata_fields import (
     FIELD_COLUMNS,
     fill_metadata_from_xml,
     metadata_fields,
@@ -115,7 +115,7 @@ class TestMetadataFieldsFromXml:
         def _failing_parse(_path):
             raise ValueError("no RUN element")
 
-        monkeypatch.setattr("metaquest.data.metadata_fields.parse_metadata_xml", _failing_parse)
+        monkeypatch.setattr("prepare.data.metadata_fields.parse_metadata_xml", _failing_parse)
         with caplog.at_level(logging.WARNING):
             fields = metadata_fields_from_xml(path)
         assert fields == {}
@@ -127,7 +127,7 @@ class TestFillMetadataFromXml:
     """fill_metadata_from_xml: fills registry metadata blocks missing a spot count from the XML folder."""
 
     def test_fills_a_block_missing_spots(self, tmp_path):
-        registry = reg.load_registry(tmp_path / "metaquest_registry.json")
+        registry = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {})
         assert rb.metadata_block(registry, "SRR1").run_total_spots is None
         folder = tmp_path / "metadata"
@@ -142,7 +142,7 @@ class TestFillMetadataFromXml:
         assert block.platform == "ILLUMINA"
 
     def test_block_already_holding_spots_is_left_untouched(self, tmp_path):
-        registry = reg.load_registry(tmp_path / "metaquest_registry.json")
+        registry = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {"run_total_spots": "999"})
         folder = tmp_path / "metadata"
         _write_xml(folder, "SRR1", spots="1")
@@ -154,7 +154,7 @@ class TestFillMetadataFromXml:
 
     @pytest.mark.parametrize("spots_attribute", ["", 'total_spots="0"', 'total_spots="unknown"'])
     def test_xml_without_a_positive_spot_count_changes_nothing(self, tmp_path, monkeypatch, spots_attribute):
-        registry = reg.load_registry(tmp_path / "metaquest_registry.json")
+        registry = reg.load_registry(tmp_path / "prepare_registry.json")
         monkeypatch.setattr(reg, "_now", lambda: "2026-10-01T00:00:00+00:00")
         reg.record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {})
         before = dict(registry.datasets["SRR1"]["metadata"])
@@ -171,7 +171,7 @@ class TestFillMetadataFromXml:
         assert registry.datasets["SRR1"]["metadata"] == before
 
     def test_accession_without_xml_is_skipped(self, tmp_path):
-        registry = reg.load_registry(tmp_path / "metaquest_registry.json")
+        registry = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {})
         folder = tmp_path / "metadata"
         folder.mkdir(parents=True, exist_ok=True)
@@ -182,7 +182,7 @@ class TestFillMetadataFromXml:
         assert rb.metadata_block(registry, "SRR1").run_total_spots is None
 
     def test_unreadable_xml_is_skipped_with_warning(self, tmp_path, caplog):
-        registry = reg.load_registry(tmp_path / "metaquest_registry.json")
+        registry = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {})
         folder = tmp_path / "metadata"
         folder.mkdir(parents=True, exist_ok=True)
@@ -196,7 +196,7 @@ class TestFillMetadataFromXml:
         assert "SRR1_metadata.xml" in caplog.text
 
     def test_accession_without_metadata_block_is_skipped(self, tmp_path):
-        registry = reg.load_registry(tmp_path / "metaquest_registry.json")
+        registry = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_screening(registry, "SRR1", "GCF_1", 0.9, None, "branchwater", 0.01, None)
         folder = tmp_path / "metadata"
         _write_xml(folder, "SRR1")
@@ -207,7 +207,7 @@ class TestFillMetadataFromXml:
         assert rb.metadata_block(registry, "SRR1") is None
 
     def test_inferred_mark_survives_the_fill(self, tmp_path):
-        registry = reg.load_registry(tmp_path / "metaquest_registry.json")
+        registry = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {})
         rb.mark_inferred(registry, "SRR1", "metadata")
         assert rb.metadata_block(registry, "SRR1").inferred is True
@@ -222,7 +222,7 @@ class TestFillMetadataFromXml:
         assert block.inferred is True
 
     def test_returns_only_filled_accessions_in_registry_order(self, tmp_path):
-        registry = reg.load_registry(tmp_path / "metaquest_registry.json")
+        registry = reg.load_registry(tmp_path / "prepare_registry.json")
         reg.record_metadata(registry, "SRR1", tmp_path / "metadata" / "SRR1_metadata.xml", {})
         reg.record_metadata(registry, "SRR2", tmp_path / "metadata" / "SRR2_metadata.xml", {"run_total_spots": "1"})
         reg.record_metadata(registry, "SRR3", tmp_path / "metadata" / "SRR3_metadata.xml", {})

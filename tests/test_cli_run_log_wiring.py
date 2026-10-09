@@ -14,16 +14,16 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.cli.main import main
-from metaquest.core import settings
-from metaquest.data import run_log
-from metaquest.data.read_extraction import ExtractionResult
-from metaquest.data.registry import REGISTRY_FILENAME, load_registry, save_registry
-from metaquest.processing.doctor_report import OK, Check
-from metaquest.store.catalog import catalog_write
-from metaquest.store.layout import init_store, sidecar_path, sra_dir
-from metaquest.store.resolve import STORE_ENV
-from metaquest.store.sidecar import Sidecar, write_sidecar
+from prepare.cli.main import main
+from prepare.core import settings
+from prepare.data import run_log
+from prepare.data.read_extraction import ExtractionResult
+from prepare.data.registry import REGISTRY_FILENAME, load_registry, save_registry
+from prepare.processing.doctor_report import OK, Check
+from prepare.store.catalog import catalog_write
+from prepare.store.layout import init_store, sidecar_path, sra_dir
+from prepare.store.resolve import STORE_ENV
+from prepare.store.sidecar import Sidecar, write_sidecar
 
 from tests.helpers_extraction import tools_present  # noqa: F401 - autouse fixture
 
@@ -96,8 +96,8 @@ def _fake_download(**kwargs):
 def _download(project, *extra):
     (project / "acc.txt").write_text("SRR2\n")
     with (
-        patch("metaquest.cli.commands.sra.require_tools"),
-        patch("metaquest.cli.commands.sra.download_sra", side_effect=_fake_download),
+        patch("prepare.cli.commands.sra.require_tools"),
+        patch("prepare.cli.commands.sra.download_sra", side_effect=_fake_download),
     ):
         return main(["download_sra", "--accessions-file", "acc.txt", "--max-retries", "0", *extra])
 
@@ -135,8 +135,8 @@ def _fake_mixed_download(**kwargs):
 def test_download_sra_detail_has_a_row_per_downloaded_accession(project, capsys):
     (project / "acc.txt").write_text("SRR1\nSRR2\n")
     with (
-        patch("metaquest.cli.commands.sra.require_tools"),
-        patch("metaquest.cli.commands.sra.download_sra", side_effect=_fake_mixed_download),
+        patch("prepare.cli.commands.sra.require_tools"),
+        patch("prepare.cli.commands.sra.download_sra", side_effect=_fake_mixed_download),
     ):
         main(["download_sra", "--accessions-file", "acc.txt", "--max-retries", "0"])
     record = _only_run(project, "download_sra")
@@ -159,7 +159,7 @@ def test_a_dry_run_records_nothing(project):
         return {"total": 1, "to_download": 1, "already_downloaded": 0, "blacklisted": 0}
 
     (project / "acc.txt").write_text("SRR2\n")
-    with patch("metaquest.cli.commands.sra.download_sra", side_effect=fake):
+    with patch("prepare.cli.commands.sra.download_sra", side_effect=fake):
         assert main(["download_sra", "--accessions-file", "acc.txt", "--dry-run"]) == 0
     assert _no_runs(project)
 
@@ -246,7 +246,7 @@ def _extract(project, *extra):
 
     argv = ["extract_target_reads", "--parsed-containment", "parsed_containment.txt", "--genome-id", "G1"]
     argv += ["--genome-fasta", "g1.fasta", "--threshold", "0.1"]
-    with patch("metaquest.cli.commands.read_extraction.extract_target_reads", side_effect=fake):
+    with patch("prepare.cli.commands.read_extraction.extract_target_reads", side_effect=fake):
         return main([*argv, *extra])
 
 
@@ -276,7 +276,7 @@ def test_extract_target_reads_notes_a_skipped_sample_with_its_recorded_values(pr
 
     argv = ["extract_target_reads", "--parsed-containment", "parsed_containment.txt", "--genome-id", "G1"]
     argv += ["--genome-fasta", "g1.fasta", "--threshold", "0.1"]
-    with patch("metaquest.cli.commands.read_extraction.extract_target_reads", side_effect=skipping):
+    with patch("prepare.cli.commands.read_extraction.extract_target_reads", side_effect=skipping):
         assert main(argv) == 0
     assert "SRR1" in seen
     latest = run_log.read_runs(project, "extract_target_reads")[-1]
@@ -427,7 +427,7 @@ def test_status_reconcile_records_drift_counts(project):
 def test_read_only_invocations_record_nothing(project, capsys):
     assert main(["status"]) == 0
     assert main(["status", "--json"]) == 0
-    with patch("metaquest.cli.commands.doctor.run_checks", return_value=[Check("python", OK, "3.12")]):
+    with patch("prepare.cli.commands.doctor.run_checks", return_value=[Check("python", OK, "3.12")]):
         assert main(["doctor"]) == 0
     assert _no_runs(project)
     # runs exits 1 without a run log, and still writes none.
@@ -445,7 +445,7 @@ def test_a_records_run_override_that_raises_keeps_the_exit_code(project, caplog,
     def broken(self, args):
         raise error
 
-    with patch("metaquest.cli.commands.blacklist.BlacklistCommand.records_run", broken):
+    with patch("prepare.cli.commands.blacklist.BlacklistCommand.records_run", broken):
         assert main(argv) == code
     assert _no_runs(project)
     assert "not recorded in the run log" in caplog.text

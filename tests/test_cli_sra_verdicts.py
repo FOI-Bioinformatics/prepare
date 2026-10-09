@@ -1,4 +1,4 @@
-"""Tests for the completeness verdicts download_sra records (metaquest/cli/commands/sra_verdicts.py).
+"""Tests for the completeness verdicts download_sra records (prepare/cli/commands/sra_verdicts.py).
 
 An expected spot count falls back to the metadata XML when the registry has none; a store relink
 never turns a recorded ``truncated`` verdict into ``unverified``; and an accession found on disk
@@ -14,11 +14,11 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.cli.commands import sra_verdicts
-from metaquest.cli.commands.sra import DownloadSraCommand
-from metaquest.data import registry_blocks as rb
-from metaquest.data.registry import Registry, load_registry, save_registry
-from metaquest.store.layout import init_store
+from prepare.cli.commands import sra_verdicts
+from prepare.cli.commands.sra import DownloadSraCommand
+from prepare.data import registry_blocks as rb
+from prepare.data.registry import Registry, load_registry, save_registry
+from prepare.store.layout import init_store
 
 from tests.helpers_processes import FAKE_READS, cli_env, install_fake_tools, run_cli
 from tests.test_store_sidecar import NCBI_XML
@@ -30,10 +30,10 @@ TRUNCATED = {"verdict": "truncated", "ratio": 0.5, "expected_spots": 10, "reads_
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path, monkeypatch):
-    """No developer store or configuration is read: METAQUEST_DATA unset, HOME under tmp_path."""
+    """No developer store or configuration is read: PREPARE_DATA unset, HOME under tmp_path."""
     home = tmp_path / "home"
     (home / ".config").mkdir(parents=True)
-    monkeypatch.delenv("METAQUEST_DATA", raising=False)
+    monkeypatch.delenv("PREPARE_DATA", raising=False)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
     return home
@@ -69,7 +69,7 @@ def _parse(tmp_path, *extra):
             "--fastq-folder",
             str(tmp_path / "fastq"),
             "--registry",
-            str(tmp_path / "metaquest_registry.json"),
+            str(tmp_path / "prepare_registry.json"),
             "--min-free-gb",
             "0",
             *extra,
@@ -79,7 +79,7 @@ def _parse(tmp_path, *extra):
 
 def _write_registry(tmp_path, datasets):
     """Write a registry file holding ``datasets`` under ``tmp_path``."""
-    path = tmp_path / "metaquest_registry.json"
+    path = tmp_path / "prepare_registry.json"
     registry = Registry(path=path)
     registry.datasets.update(json.loads(json.dumps(datasets)))
     return save_registry(registry, path)
@@ -97,7 +97,7 @@ def test_present_accession_without_record_gets_truncated_verdict(tmp_path, monke
 
     assert DownloadSraCommand().execute(_parse(tmp_path)) == 0
 
-    block = rb.download_block(load_registry(tmp_path / "metaquest_registry.json"), ACC)
+    block = rb.download_block(load_registry(tmp_path / "prepare_registry.json"), ACC)
     assert block.state == "downloaded"
     assert block.complete is not None
     assert block.complete.verdict == "truncated"
@@ -119,12 +119,12 @@ def test_store_relink_never_turns_truncated_into_unverified(tmp_path, monkeypatc
         return {"total": 1, "successful": 1, "failed": 0, "failed_accessions": [], "results": {}}
 
     with (
-        patch("metaquest.cli.commands.sra.download_sra", side_effect=fake_download_sra),
+        patch("prepare.cli.commands.sra.download_sra", side_effect=fake_download_sra),
         patch.object(DownloadSraCommand, "_sidecar_completeness", staticmethod(lambda _s, _a: dict(unverified))),
     ):
         assert DownloadSraCommand().execute(_parse(tmp_path, "--data-root", str(store.root))) == 0
 
-    block = rb.download_block(load_registry(tmp_path / "metaquest_registry.json"), ACC)
+    block = rb.download_block(load_registry(tmp_path / "prepare_registry.json"), ACC)
     assert block.source == "store"
     assert block.complete.verdict == "truncated"
     assert block.complete.reads_r1 == 5
@@ -145,7 +145,7 @@ def test_xml_only_spots_verify_a_plain_download(tmp_path):
             "--fastq-folder",
             "fastq",
             "--registry",
-            "metaquest_registry.json",
+            "prepare_registry.json",
             "--min-free-gb",
             "0",
         ],
@@ -155,7 +155,7 @@ def test_xml_only_spots_verify_a_plain_download(tmp_path):
     )
     assert result.returncode == 0, result.stderr
 
-    block = rb.download_block(load_registry(tmp_path / "metaquest_registry.json"), ACC)
+    block = rb.download_block(load_registry(tmp_path / "prepare_registry.json"), ACC)
     assert block.state == "downloaded"
     assert block.complete is not None
     assert block.complete.verdict == "complete"
@@ -166,7 +166,7 @@ def test_present_verdicts_are_computed_outside_the_registry_lock(tmp_path):
     """``verify_download`` reads FASTQ files before the one registry write takes its lock."""
     _write_fastq(tmp_path / "fastq" / ACC, reads=3)
     args = _parse(tmp_path)
-    lock = tmp_path / "metaquest_registry.json.lock"
+    lock = tmp_path / "prepare_registry.json.lock"
     held = []
     real = sra_verdicts.verify_download
 
@@ -193,7 +193,7 @@ def test_registry_inputs_reads_project_xml_before_store_xml(tmp_path):
     _write_xml(store.metadata, total_spots=9)
     _write_xml(store.metadata, total_spots=11, accession="SRR2")
     (tmp_path / "accessions.txt").write_text(f"{ACC}\nSRR2\nSRR3\n")
-    registry = load_registry(tmp_path / "metaquest_registry.json")
+    registry = load_registry(tmp_path / "prepare_registry.json")
 
     _, spots, _, _ = sra_verdicts.registry_inputs(_parse(tmp_path), registry, store)
 
@@ -203,7 +203,7 @@ def test_registry_inputs_reads_project_xml_before_store_xml(tmp_path):
 def test_registry_inputs_prefers_registry_metadata_over_xml(tmp_path):
     _write_registry(tmp_path, {ACC: {"metadata": {"run_total_spots": 5, "run_size": 123}}})
     _write_xml(tmp_path / "metadata", total_spots=7)
-    registry = load_registry(tmp_path / "metaquest_registry.json")
+    registry = load_registry(tmp_path / "prepare_registry.json")
 
     excluded, spots, truncated, sizes = sra_verdicts.registry_inputs(_parse(tmp_path), registry, None)
 
@@ -214,7 +214,7 @@ def test_registry_inputs_prefers_registry_metadata_over_xml(tmp_path):
 
 def test_registry_inputs_without_verification_collects_no_spots(tmp_path):
     _write_xml(tmp_path / "metadata", total_spots=7)
-    registry = load_registry(tmp_path / "metaquest_registry.json")
+    registry = load_registry(tmp_path / "prepare_registry.json")
 
     _, spots, _, _ = sra_verdicts.registry_inputs(_parse(tmp_path, "--no-verify-downloads"), registry, None)
 
@@ -225,7 +225,7 @@ def test_registry_inputs_tolerates_a_missing_accessions_file(tmp_path):
     _write_xml(tmp_path / "metadata", total_spots=7)
     args = _parse(tmp_path)
     (tmp_path / "accessions.txt").unlink()
-    registry = load_registry(tmp_path / "metaquest_registry.json")
+    registry = load_registry(tmp_path / "prepare_registry.json")
 
     _, spots, _, _ = sra_verdicts.registry_inputs(args, registry, None)
 
@@ -234,7 +234,7 @@ def test_registry_inputs_tolerates_a_missing_accessions_file(tmp_path):
 
 def test_registry_inputs_dry_run_is_empty(tmp_path):
     _write_xml(tmp_path / "metadata", total_spots=7)
-    registry = load_registry(tmp_path / "metaquest_registry.json")
+    registry = load_registry(tmp_path / "prepare_registry.json")
 
     assert sra_verdicts.registry_inputs(_parse(tmp_path, "--dry-run"), registry, None) == (set(), {}, set(), {})
 
@@ -343,9 +343,9 @@ def test_present_store_link_keeps_a_recorded_truncated_verdict(tmp_path):
     args = _parse(tmp_path)
 
     with (
-        patch("metaquest.cli.commands.sra.is_store_link", return_value=True),
+        patch("prepare.cli.commands.sra.is_store_link", return_value=True),
         patch.object(DownloadSraCommand, "_sidecar_completeness", staticmethod(lambda _s, _a: dict(UNVERIFIED))),
-        patch("metaquest.cli.commands.sra.record_usage_many"),
+        patch("prepare.cli.commands.sra.record_usage_many"),
     ):
         DownloadSraCommand()._record_run_outcomes(
             args, {"already_downloaded_accessions": [ACC]}, tmp_path / "fastq", store=store
@@ -368,9 +368,9 @@ def _redownload(tmp_path, monkeypatch, message, recorded=TRUNCATED):
         kwargs["on_result"](ACC, True, message)
         return {"total": 1, "successful": 1, "failed": 0, "failed_accessions": [], "results": {}}
 
-    with patch("metaquest.cli.commands.sra.download_sra", side_effect=fake_download_sra):
+    with patch("prepare.cli.commands.sra.download_sra", side_effect=fake_download_sra):
         assert DownloadSraCommand().execute(_parse(tmp_path, "--redownload-truncated")) == 0
-    return rb.download_block(load_registry(tmp_path / "metaquest_registry.json"), ACC)
+    return rb.download_block(load_registry(tmp_path / "prepare_registry.json"), ACC)
 
 
 def test_unverified_redownload_keeps_a_recorded_truncated_verdict(tmp_path, monkeypatch):
@@ -410,7 +410,7 @@ def test_registry_inputs_falls_back_to_the_recorded_verdict_count_last(tmp_path)
     )
     _write_xml(tmp_path / "metadata", total_spots=12, accession="SRR2")
     (tmp_path / "accessions.txt").write_text(f"{ACC}\nSRR2\n")
-    registry = load_registry(tmp_path / "metaquest_registry.json")
+    registry = load_registry(tmp_path / "prepare_registry.json")
 
     _, spots, _, _ = sra_verdicts.registry_inputs(_parse(tmp_path), registry, None)
 

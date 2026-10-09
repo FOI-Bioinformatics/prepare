@@ -21,9 +21,9 @@ from typing import Dict, List, Any
 for _module in ("plotly", "jinja2"):
     pytest.importorskip(_module)
 
-from metaquest.core.exceptions import ConfigurationError  # noqa: E402
-from metaquest.sra.analytics import QualityProfile  # noqa: E402
-from metaquest.sra.reporting import SRAReportGenerator  # noqa: E402
+from prepare.core.exceptions import ConfigurationError  # noqa: E402
+from prepare.sra.analytics import QualityProfile  # noqa: E402
+from prepare.sra.reporting import SRAReportGenerator  # noqa: E402
 
 
 # Mock data classes
@@ -412,7 +412,7 @@ class TestQualityPlotCreation:
         generator = SRAReportGenerator(tmp_output_dir)
         monkeypatch.setitem(sys.modules, "plotly", None)
 
-        with pytest.raises(ConfigurationError, match=r"metaquest\[interactive\]"):
+        with pytest.raises(ConfigurationError, match=r"prepare\[interactive\]"):
             generator._create_quality_plots(mock_quality_profiles)
 
     def test_create_quality_plots_empty_profiles(self, tmp_output_dir):
@@ -451,7 +451,7 @@ class TestComparativePlotCreation:
         generator = SRAReportGenerator(tmp_output_dir)
         monkeypatch.setitem(sys.modules, "plotly", None)
 
-        with pytest.raises(ConfigurationError, match=r"metaquest\[interactive\]"):
+        with pytest.raises(ConfigurationError, match=r"prepare\[interactive\]"):
             generator._create_comparative_plots(mock_comparative_analysis)
 
     def test_create_comparative_plots_no_visualization_data(self, tmp_output_dir):
@@ -538,7 +538,7 @@ class TestJinja2TemplateRendering:
 #   pytest tests/test_sra_reporting_extended.py -v
 #
 # Check coverage:
-#   pytest --cov=metaquest.sra.reporting --cov-report=term-missing \
+#   pytest --cov=prepare.sra.reporting --cov-report=term-missing \
 #          tests/test_sra_reporting_starter.py \
 #          tests/test_sra_reporting_extended.py
 # ============================================================================
@@ -566,7 +566,7 @@ def _real_profile(accession, gc_percent):
 
 def test_generate_report_renders_both_sections_from_the_supplied_profiles(tmp_path):
     """sra_report's one page: the quality section and the comparison, nothing profiled again."""
-    from metaquest.sra.analytics import ComparativeAnalysis
+    from prepare.sra.analytics import ComparativeAnalysis
 
     generator = SRAReportGenerator(tmp_path / "reports")
     profiles = {"SRR1": _real_profile("SRR1", 40.0), "SRR2": _real_profile("SRR2", 60.0)}

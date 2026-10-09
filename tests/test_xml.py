@@ -1,7 +1,7 @@
-"""``metaquest.utils.xml``: the shared lxml parser refuses entity expansion and network access.
+"""``prepare.utils.xml``: the shared lxml parser refuses entity expansion and network access.
 
 Three attacks are checked directly against ``SAFE_PARSER``/``parse_xml_file`` rather than through
-any one caller, since every lxml call site in MetaQuest (currently ``data/metadata.py``) shares
+any one caller, since every lxml call site in PREPARE (currently ``data/metadata.py``) shares
 this one parser: an internal entity expanded many times over ("billion laughs"), an external
 entity reading a local file (XXE), and an external entity trying to reach the network.
 """
@@ -11,7 +11,7 @@ import time
 import pytest
 from lxml import etree
 
-from metaquest.utils.xml import SAFE_PARSER, parse_xml_file
+from prepare.utils.xml import SAFE_PARSER, parse_xml_file
 
 # A small "billion laughs" document: 10 entities each expanding into 10 of the previous one, so
 # the fully expanded text would be 10**9 repetitions of "lol" -- gigabytes from under 1 KB of

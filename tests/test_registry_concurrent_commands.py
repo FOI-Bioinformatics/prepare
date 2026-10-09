@@ -19,17 +19,17 @@ from typing import Any, Callable, Dict
 
 import pytest
 
-from metaquest.cli.commands import sra_profile as sra_profile_module
-from metaquest.cli.commands import sra_report as sra_report_module
-from metaquest.cli.commands.blacklist import BlacklistCommand
-from metaquest.cli.commands.metadata import DownloadMetadataCommand, ParseMetadataCommand
-from metaquest.cli.commands.select import SelectDatasetsCommand
-from metaquest.cli.commands.sra_enhanced import SRAValidateCommand
-from metaquest.cli.commands.sra_profile import SRAProfileCommand
-from metaquest.cli.commands.sra_report import SRAReportCommand
-from metaquest.cli.commands.status import StatusCommand
-from metaquest.cli.commands.status import command as status_module
-from metaquest.data.registry import load_registry, record_download, registry_transaction
+from prepare.cli.commands import sra_profile as sra_profile_module
+from prepare.cli.commands import sra_report as sra_report_module
+from prepare.cli.commands.blacklist import BlacklistCommand
+from prepare.cli.commands.metadata import DownloadMetadataCommand, ParseMetadataCommand
+from prepare.cli.commands.select import SelectDatasetsCommand
+from prepare.cli.commands.sra_enhanced import SRAValidateCommand
+from prepare.cli.commands.sra_profile import SRAProfileCommand
+from prepare.cli.commands.sra_report import SRAReportCommand
+from prepare.cli.commands.status import StatusCommand
+from prepare.cli.commands.status import command as status_module
+from prepare.data.registry import load_registry, record_download, registry_transaction
 from tests.perf_fixtures import write_metadata_folder
 
 WAIT = 20.0
@@ -122,7 +122,7 @@ def _write_fastq(path: Path, reads) -> None:
 @pytest.fixture
 def no_store(tmp_path, monkeypatch):
     """Keep every test away from a real store and the developer's config."""
-    monkeypatch.delenv("METAQUEST_DATA", raising=False)
+    monkeypatch.delenv("PREPARE_DATA", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
 
@@ -131,10 +131,10 @@ pytestmark = pytest.mark.usefixtures("no_store")
 
 
 def test_select_records_its_selection_without_reverting_a_concurrent_download(tmp_path, monkeypatch):
-    from metaquest.cli.commands import select as select_module
+    from prepare.cli.commands import select as select_module
 
     (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.1\t0.1\n")
-    registry_file = tmp_path / "metaquest_registry.json"
+    registry_file = tmp_path / "prepare_registry.json"
     args = argparse.Namespace(
         parsed_containment=str(tmp_path / "parsed_containment.txt"),
         genome_id=None,
@@ -165,9 +165,9 @@ def test_select_records_its_selection_without_reverting_a_concurrent_download(tm
 
 
 def test_blacklist_runs_its_read_modify_write_under_the_registry_lock(tmp_path, monkeypatch):
-    from metaquest.cli.commands import blacklist as blacklist_module
+    from prepare.cli.commands import blacklist as blacklist_module
 
-    registry_file = tmp_path / "metaquest_registry.json"
+    registry_file = tmp_path / "prepare_registry.json"
     args = argparse.Namespace(
         add=["SRR1"],
         remove=None,
@@ -188,11 +188,11 @@ def test_blacklist_runs_its_read_modify_write_under_the_registry_lock(tmp_path, 
 
 
 def test_download_metadata_parses_outside_the_lock_and_keeps_a_concurrent_download(tmp_path, monkeypatch):
-    from metaquest.cli.commands import metadata as metadata_module
+    from prepare.cli.commands import metadata as metadata_module
 
     folder = tmp_path / "metadata"
     paths = write_metadata_folder(folder, count=2, per_file=14, pool=30)
-    registry_file = tmp_path / "metaquest_registry.json"
+    registry_file = tmp_path / "prepare_registry.json"
     args = argparse.Namespace(
         email="a@b.c",
         matches_folder=str(tmp_path / "matches"),
@@ -218,11 +218,11 @@ def test_download_metadata_parses_outside_the_lock_and_keeps_a_concurrent_downlo
 
 
 def test_parse_metadata_records_the_table_without_reverting_a_concurrent_download(tmp_path, monkeypatch):
-    from metaquest.cli.commands import metadata as metadata_module
+    from prepare.cli.commands import metadata as metadata_module
 
     folder = tmp_path / "metadata"
     write_metadata_folder(folder, count=3, per_file=14, pool=30)
-    registry_file = tmp_path / "metaquest_registry.json"
+    registry_file = tmp_path / "prepare_registry.json"
     args = argparse.Namespace(
         metadata_folder=str(folder),
         metadata_table_file=str(tmp_path / "metadata_table.txt"),
@@ -254,7 +254,7 @@ def _assert_lock_released_for_usage(module, monkeypatch, registry_file: Path) ->
 def test_sra_profile_records_analyses_in_one_batch_after_a_concurrent_download(tmp_path, monkeypatch):
     for mate in ("1", "2"):
         _write_fastq(tmp_path / "fastq" / "SRR1" / f"SRR1_{mate}.fastq", ["GGGGCCCCAT", "GCGCATATAT"])
-    registry_file = tmp_path / "metaquest_registry.json"
+    registry_file = tmp_path / "prepare_registry.json"
     parser = argparse.ArgumentParser()
     SRAProfileCommand().configure_parser(parser)
     args = parser.parse_args([])
@@ -277,7 +277,7 @@ def test_sra_profile_records_analyses_in_one_batch_after_a_concurrent_download(t
 def test_sra_report_records_analyses_in_one_batch_after_a_concurrent_download(tmp_path, monkeypatch):
     for i, accession in enumerate(("SRR1", "SRR2")):
         _write_fastq(tmp_path / "fastq" / accession / f"{accession}.fastq", ["GGCCATATCG"[: 8 + i], "ATATATGCAA"])
-    registry_file = tmp_path / "metaquest_registry.json"
+    registry_file = tmp_path / "prepare_registry.json"
     parser = argparse.ArgumentParser()
     SRAReportCommand().configure_parser(parser)
     args = parser.parse_args([])
@@ -302,10 +302,10 @@ def test_sra_report_records_analyses_in_one_batch_after_a_concurrent_download(tm
 
 
 def test_sra_validate_records_results_after_a_concurrent_download(tmp_path, monkeypatch):
-    from metaquest.cli.commands import sra_enhanced as sra_enhanced_module
+    from prepare.cli.commands import sra_enhanced as sra_enhanced_module
 
     _write_fastq(tmp_path / "fastq" / "SRR1" / "SRR1.fastq", ["ACGT"])
-    registry_file = tmp_path / "metaquest_registry.json"
+    registry_file = tmp_path / "prepare_registry.json"
     parser = argparse.ArgumentParser()
     SRAValidateCommand().configure_parser(parser)
     args = parser.parse_args([])
@@ -331,7 +331,7 @@ def _status_args(root: Path, **overrides) -> argparse.Namespace:
         genomes_folder=str(root / "genomes"),
         targeted_folder=str(root / "targeted"),
         matches_folder=str(root / "matches"),
-        registry=str(root / "metaquest_registry.json"),
+        registry=str(root / "prepare_registry.json"),
         data_root=None,
         accessions_file=None,
         parsed_containment=None,
@@ -355,7 +355,7 @@ def _status_tree(root: Path) -> None:
 
 def test_status_reconcile_scans_unlocked_and_keeps_a_concurrent_download(tmp_path, monkeypatch, capsys):
     _status_tree(tmp_path)
-    registry_file = tmp_path / "metaquest_registry.json"
+    registry_file = tmp_path / "prepare_registry.json"
     assert StatusCommand().execute(_status_args(tmp_path, init=True)) == 0
     (tmp_path / "fastq" / "SRR2" / "SRR2_1.fastq").unlink()
     gate = _Gate()
@@ -372,7 +372,7 @@ def test_status_reconcile_scans_unlocked_and_keeps_a_concurrent_download(tmp_pat
 
 def test_status_init_refuses_to_overwrite_a_registry_created_meanwhile(tmp_path, monkeypatch, capsys, caplog):
     _status_tree(tmp_path)
-    registry_file = tmp_path / "metaquest_registry.json"
+    registry_file = tmp_path / "prepare_registry.json"
     gate = _Gate()
     monkeypatch.setattr(status_module, "bootstrap_from_disk", gate.wrap(status_module.bootstrap_from_disk))
 
@@ -387,10 +387,10 @@ def test_status_init_refuses_to_overwrite_a_registry_created_meanwhile(tmp_path,
 def test_read_extraction_records_usage_after_releasing_the_registry_lock(tmp_path, monkeypatch):
     from unittest.mock import patch
 
-    import metaquest.store.usage as usage_module
+    import prepare.store.usage as usage_module
     from helpers_extraction import _fake_tools
-    from metaquest.cli.commands.read_extraction import ExtractTargetReadsCommand
-    from metaquest.store.layout import init_store
+    from prepare.cli.commands.read_extraction import ExtractTargetReadsCommand
+    from prepare.store.layout import init_store
 
     table = tmp_path / "parsed_containment.txt"
     table.write_text("\tGCF_1\nSRR1\t0.9\n")
@@ -440,8 +440,8 @@ def test_read_extraction_records_usage_after_releasing_the_registry_lock(tmp_pat
     # The external tools are faked, and the pre-flight check is told they are present, so the test
     # runs on a machine without minimap2, samtools or megahit.
     with (
-        patch("metaquest.utils.tools.shutil.which", return_value="/usr/bin/tool"),
-        patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools({})),
+        patch("prepare.utils.tools.shutil.which", return_value="/usr/bin/tool"),
+        patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools({})),
     ):
         assert ExtractTargetReadsCommand().execute(args) == 0
 

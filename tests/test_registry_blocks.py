@@ -1,4 +1,4 @@
-"""Round-trip tests for the typed registry blocks in ``metaquest.data.registry_blocks``.
+"""Round-trip tests for the typed registry blocks in ``prepare.data.registry_blocks``.
 
 The fixture ``tests/fixtures/registry_v0.4.0.json`` was written by the ``record_*`` writers as
 they stood before the blocks existed. Every block must come back out of ``from_dict``/``to_dict``
@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from metaquest.data import registry as R
-from metaquest.data import registry_blocks as B
-from metaquest.data.registry_blocks import (
+from prepare.data import registry as R
+from prepare.data import registry_blocks as B
+from prepare.data.registry_blocks import (
     AnalysisEntry,
     AssemblyBlock,
     DownloadBlock,

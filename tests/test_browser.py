@@ -1,9 +1,9 @@
-"""Tests for the browser-opening helper in metaquest.utils.browser."""
+"""Tests for the browser-opening helper in prepare.utils.browser."""
 
 from pathlib import Path
 from unittest.mock import patch
 
-from metaquest.utils import browser
+from prepare.utils import browser
 
 
 class TestOpenInBrowser:

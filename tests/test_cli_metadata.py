@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pandas as pd
 
-import metaquest.data.metadata as metadata_module
-from metaquest.cli.commands.metadata import DownloadMetadataCommand, ParseMetadataCommand
+import prepare.data.metadata as metadata_module
+from prepare.cli.commands.metadata import DownloadMetadataCommand, ParseMetadataCommand
 from tests.perf_fixtures import write_metadata_folder
 
 
@@ -15,7 +15,7 @@ def _parse_args(tmp_path, folder):
     return argparse.Namespace(
         metadata_folder=str(folder),
         metadata_table_file=str(tmp_path / "metadata_table.txt"),
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
     )
 
 
@@ -27,7 +27,7 @@ def test_parse_metadata_command_records_every_run_without_iterating_rows_as_seri
     with patch.object(pd.DataFrame, "iterrows", side_effect=AssertionError("iterrows used")):
         assert ParseMetadataCommand().execute(_parse_args(tmp_path, folder)) == 0
 
-    datasets = json.loads((tmp_path / "metaquest_registry.json").read_text())["datasets"]
+    datasets = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]
     assert sorted(datasets) == [f"SRR{1000000 + i}" for i in range(6)]
     first = datasets["SRR1000000"]["metadata"]
     assert first["run_total_spots"] == 1000000
@@ -41,7 +41,7 @@ def test_parse_metadata_command_records_every_run_without_iterating_rows_as_seri
 
 def test_parse_metadata_summary_counts_a_dropped_record(tmp_path, caplog):
     """A record that fails is dropped; the exit stays 0 and the summary line says how many."""
-    import metaquest.cli.commands.metadata as command_module
+    import prepare.cli.commands.metadata as command_module
 
     folder = tmp_path / "metadata"
     write_metadata_folder(folder, count=3, per_file=14, pool=30)
@@ -53,10 +53,10 @@ def test_parse_metadata_summary_counts_a_dropped_record(tmp_path, caplog):
         return real_record(registry, accession, **kwargs)
 
     with patch.object(command_module, "record_metadata", side_effect=flaky_record):
-        with caplog.at_level("INFO", logger="metaquest.cli.commands.metadata"):
+        with caplog.at_level("INFO", logger="prepare.cli.commands.metadata"):
             assert ParseMetadataCommand().execute(_parse_args(tmp_path, folder)) == 0
 
-    datasets = json.loads((tmp_path / "metaquest_registry.json").read_text())["datasets"]
+    datasets = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]
     assert sorted(datasets) == ["SRR1000000", "SRR1000002"]
     assert "Recorded metadata for 2 accession(s) in the registry; 1 dropped" in caplog.text
 
@@ -66,7 +66,7 @@ def test_parse_metadata_command_records_nothing_for_an_empty_table(tmp_path):
     folder = tmp_path / "metadata"
     folder.mkdir()
     assert ParseMetadataCommand().execute(_parse_args(tmp_path, folder)) == 0
-    assert json.loads((tmp_path / "metaquest_registry.json").read_text()).get("datasets", {}) == {}
+    assert json.loads((tmp_path / "prepare_registry.json").read_text()).get("datasets", {}) == {}
 
 
 def test_download_metadata_command_parses_each_downloaded_file_once(tmp_path):
@@ -83,19 +83,19 @@ def test_download_metadata_command_parses_each_downloaded_file_once(tmp_path):
         accessions_file=None,
         api_key=None,
         batch_size=200,
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
         data_root=None,
     )
 
     real_parse = metadata_module.etree.parse
     with (
-        patch("metaquest.cli.commands.metadata.download_metadata", return_value=downloaded),
+        patch("prepare.cli.commands.metadata.download_metadata", return_value=downloaded),
         patch.object(metadata_module.etree, "parse", side_effect=real_parse) as spy,
     ):
         assert DownloadMetadataCommand().execute(args) == 0
 
     assert sorted(str(c.args[0]) for c in spy.call_args_list) == sorted(str(p) for p in paths)
-    datasets = json.loads((tmp_path / "metaquest_registry.json").read_text())["datasets"]
+    datasets = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]
     assert datasets["SRR1000002"]["metadata"]["run_total_spots"] == 1000026
 
 
@@ -114,7 +114,7 @@ def test_download_metadata_signal_between_accessions_stops_before_the_next_one(t
         accessions_file=None,
         api_key=None,
         batch_size=200,
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
         data_root=None,
     )
 
@@ -129,14 +129,14 @@ def test_download_metadata_signal_between_accessions_stops_before_the_next_one(t
         return result
 
     with (
-        patch("metaquest.cli.commands.metadata.download_metadata", return_value=downloaded),
-        patch("metaquest.cli.commands.metadata.parse_metadata_xml", side_effect=spy),
+        patch("prepare.cli.commands.metadata.download_metadata", return_value=downloaded),
+        patch("prepare.cli.commands.metadata.parse_metadata_xml", side_effect=spy),
     ):
         rc = DownloadMetadataCommand().run(args)
 
     assert rc == 130
     assert len(seen) == 1
-    datasets = json.loads((tmp_path / "metaquest_registry.json").read_text())["datasets"]
+    datasets = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]
     assert len(datasets) == 1
 
 
@@ -163,7 +163,7 @@ def test_parse_metadata_signal_between_rows_stops_before_the_next_one(tmp_path):
 
     assert rc == 130
     assert len(seen) == 1
-    datasets = json.loads((tmp_path / "metaquest_registry.json").read_text())["datasets"]
+    datasets = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]
     assert len(datasets) == 1
 
 
@@ -182,13 +182,13 @@ def test_download_metadata_exits_4_when_ncbi_cannot_be_reached(tmp_path):
         accessions_file=str(accessions),
         api_key=None,
         batch_size=2,
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
         data_root=None,
     )
     with (
-        patch("metaquest.data.metadata.Entrez.efetch", side_effect=URLError("connection refused")),
-        patch("metaquest.data.metadata._pace_requests"),
-        patch("metaquest.data.metadata.time.sleep"),
+        patch("prepare.data.metadata.Entrez.efetch", side_effect=URLError("connection refused")),
+        patch("prepare.data.metadata._pace_requests"),
+        patch("prepare.data.metadata.time.sleep"),
     ):
         assert DownloadMetadataCommand().execute(args) == 4
 
@@ -196,6 +196,6 @@ def test_download_metadata_exits_4_when_ncbi_cannot_be_reached(tmp_path):
 def test_download_metadata_does_not_raise_when_a_failure_is_not_a_network_one(tmp_path):
     """An accession NCBI answered without is not a network failure, so the run is not retryable."""
     batches = [({}, {"SRR1": "network: connection refused"}), ({}, {"SRR2": "not in the NCBI response"})]
-    with patch("metaquest.data.metadata._download_batch_metadata", side_effect=batches):
+    with patch("prepare.data.metadata._download_batch_metadata", side_effect=batches):
         result = metadata_module._download_accessions_metadata(["SRR1", "SRR2"], tmp_path, "a@b.c", 2, batch_size=1)
     assert result == {}

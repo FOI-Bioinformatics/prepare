@@ -23,11 +23,11 @@ import time
 
 import pytest
 
-import metaquest.data.sra.accession as accession_mod
-import metaquest.data.sra.retry as retry_mod
-from metaquest.store.layout import init_store
-from metaquest.store.locks import dataset_lock
-from metaquest.utils.security import SecureSubprocess
+import prepare.data.sra.accession as accession_mod
+import prepare.data.sra.retry as retry_mod
+from prepare.store.layout import init_store
+from prepare.store.locks import dataset_lock
+from prepare.utils.security import SecureSubprocess
 
 pytestmark = pytest.mark.skipif(shutil.which("sleep") is None, reason="needs a 'sleep' executable on PATH")
 

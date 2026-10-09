@@ -1,4 +1,4 @@
-"""Tests for metaquest/cli/commands/explore.py.
+"""Tests for prepare/cli/commands/explore.py.
 
 Covers EnrichTaxonomyCommand, ExploreContainmentCommand, and
 FindByTaxonomyCommand with mocked backends.
@@ -14,12 +14,12 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from metaquest.cli.commands.explore import (
+from prepare.cli.commands.explore import (
     EnrichTaxonomyCommand,
     ExploreContainmentCommand,
     FindByTaxonomyCommand,
 )
-from metaquest.core.models import TaxonomyInfo
+from prepare.core.models import TaxonomyInfo
 
 # ============================================================================
 # Helpers
@@ -27,7 +27,7 @@ from metaquest.core.models import TaxonomyInfo
 
 
 requires_interactive = pytest.mark.skipif(
-    not all(importlib.util.find_spec(m) for m in ("plotly", "jinja2")), reason="needs metaquest[interactive]"
+    not all(importlib.util.find_spec(m) for m in ("plotly", "jinja2")), reason="needs prepare[interactive]"
 )
 
 
@@ -69,8 +69,8 @@ class TestEnrichTaxonomyCommand:
         assert args.output == "taxonomy_map.tsv"
         assert args.cache == "taxonomy_cache.tsv"
 
-    @patch("metaquest.cli.commands.explore.enrich_genomes_with_taxonomy")
-    @patch("metaquest.cli.commands.explore.save_taxonomy_cache")
+    @patch("prepare.cli.commands.explore.enrich_genomes_with_taxonomy")
+    @patch("prepare.cli.commands.explore.save_taxonomy_cache")
     def test_execute_success(self, mock_save, mock_enrich, tmp_path):
         containment = tmp_path / "containment.tsv"
         _write_containment_tsv(containment)
@@ -102,9 +102,9 @@ class TestEnrichTaxonomyCommand:
         result = cmd.execute(args)
         assert result == 1
 
-    @patch("metaquest.cli.commands.explore.enrich_genomes_with_taxonomy")
-    @patch("metaquest.cli.commands.explore.save_taxonomy_cache")
-    @patch("metaquest.cli.commands.explore.pd.read_csv")
+    @patch("prepare.cli.commands.explore.enrich_genomes_with_taxonomy")
+    @patch("prepare.cli.commands.explore.save_taxonomy_cache")
+    @patch("prepare.cli.commands.explore.pd.read_csv")
     def test_execute_reads_only_the_header(self, mock_read_csv, mock_save, mock_enrich, tmp_path):
         """Only the containment file's column names are needed, so the data rows are not read."""
         containment = tmp_path / "containment.tsv"
@@ -157,8 +157,8 @@ class TestExploreContainmentCommand:
         assert args.min_containment == 0.1
 
     @requires_interactive
-    @patch("metaquest.cli.commands.explore.load_taxonomy_cache")
-    @patch("metaquest.visualization.explorer.generate_containment_explorer")
+    @patch("prepare.cli.commands.explore.load_taxonomy_cache")
+    @patch("prepare.visualization.explorer.generate_containment_explorer")
     def test_execute_with_taxonomy_map(self, mock_gen, mock_load, tmp_path):
         containment = tmp_path / "containment.tsv"
         _write_containment_tsv(containment)
@@ -184,8 +184,8 @@ class TestExploreContainmentCommand:
         mock_gen.assert_called_once()
 
     @requires_interactive
-    @patch("metaquest.cli.commands.explore.enrich_genomes_with_taxonomy")
-    @patch("metaquest.visualization.explorer.generate_containment_explorer")
+    @patch("prepare.cli.commands.explore.enrich_genomes_with_taxonomy")
+    @patch("prepare.visualization.explorer.generate_containment_explorer")
     def test_execute_without_taxonomy_map(self, mock_gen, mock_enrich, tmp_path):
         containment = tmp_path / "containment.tsv"
         _write_containment_tsv(containment)
@@ -220,8 +220,8 @@ class TestExploreContainmentCommand:
         assert result == 1
 
     @requires_interactive
-    @patch("metaquest.cli.commands.explore.enrich_genomes_with_taxonomy")
-    @patch("metaquest.visualization.explorer.generate_containment_explorer")
+    @patch("prepare.cli.commands.explore.enrich_genomes_with_taxonomy")
+    @patch("prepare.visualization.explorer.generate_containment_explorer")
     def test_execute_logs_a_next_hint_when_not_opened(self, mock_gen, mock_enrich, tmp_path, caplog):
         """Without --open, tell the user to open the HTML file themselves."""
         containment = tmp_path / "containment.tsv"
@@ -248,9 +248,9 @@ class TestExploreContainmentCommand:
         assert str(output) in caplog.text
 
     @requires_interactive
-    @patch("metaquest.utils.browser.open_in_browser")
-    @patch("metaquest.cli.commands.explore.enrich_genomes_with_taxonomy")
-    @patch("metaquest.visualization.explorer.generate_containment_explorer")
+    @patch("prepare.utils.browser.open_in_browser")
+    @patch("prepare.cli.commands.explore.enrich_genomes_with_taxonomy")
+    @patch("prepare.visualization.explorer.generate_containment_explorer")
     def test_execute_no_next_hint_when_opened(self, mock_gen, mock_enrich, mock_open, tmp_path, caplog):
         """--open already opened it, so there is nothing left to hint at."""
         containment = tmp_path / "containment.tsv"
@@ -344,9 +344,9 @@ class TestFindByTaxonomyCommand:
         assert args.output_format == "summary"
         assert args.genus == "Bacillus"
 
-    @patch("metaquest.cli.commands.explore.load_taxonomy_cache")
-    @patch("metaquest.cli.commands.explore.annotate_containment_with_taxonomy")
-    @patch("metaquest.cli.commands.explore.filter_by_taxonomy")
+    @patch("prepare.cli.commands.explore.load_taxonomy_cache")
+    @patch("prepare.cli.commands.explore.annotate_containment_with_taxonomy")
+    @patch("prepare.cli.commands.explore.filter_by_taxonomy")
     def test_execute_family_filter(self, mock_filter, mock_annotate, mock_load, tmp_path):
         containment = tmp_path / "containment.tsv"
         _write_containment_tsv(containment)
@@ -419,9 +419,9 @@ class TestFindByTaxonomyCommand:
         result = cmd.execute(args)
         assert result == 1
 
-    @patch("metaquest.cli.commands.explore.load_taxonomy_cache")
-    @patch("metaquest.cli.commands.explore.annotate_containment_with_taxonomy")
-    @patch("metaquest.cli.commands.explore.filter_by_taxonomy")
+    @patch("prepare.cli.commands.explore.load_taxonomy_cache")
+    @patch("prepare.cli.commands.explore.annotate_containment_with_taxonomy")
+    @patch("prepare.cli.commands.explore.filter_by_taxonomy")
     def test_execute_empty_results(self, mock_filter, mock_annotate, mock_load, tmp_path):
         containment = tmp_path / "containment.tsv"
         _write_containment_tsv(containment)

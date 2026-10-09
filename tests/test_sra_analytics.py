@@ -21,10 +21,10 @@ import pandas as pd
 # this import in `with patch.dict("sys.modules", {"Bio": Mock(), ...}):`, which is actively
 # harmful: unittest.mock's dict-patching restores sys.modules to an exact snapshot on exit,
 # silently unregistering every module imported for the first time inside the block
-# (including numpy/scipy, transitively). A later fresh import of anything under metaquest.sra
+# (including numpy/scipy, transitively). A later fresh import of anything under prepare.sra
 # in the same process then hits numpy's C extensions with "ImportError: cannot load module
 # more than once per process". Tests below that read FASTQ records write small files to tmp_path.
-from metaquest.sra.analytics import (
+from prepare.sra.analytics import (
     SRADatasetAnalyzer,
     SequenceQualityAnalyzer,
     QualityProfile,
@@ -32,12 +32,12 @@ from metaquest.sra.analytics import (
     AnomalyReport,
     ProcessingRecommendations,
 )
-from metaquest.sra.profiles import load_quality_profiles
+from prepare.sra.profiles import load_quality_profiles
 
-from metaquest.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError
 
 requires_analysis = pytest.mark.skipif(
-    not all(importlib.util.find_spec(m) for m in ("sklearn", "scipy")), reason="needs metaquest[analysis]"
+    not all(importlib.util.find_spec(m) for m in ("sklearn", "scipy")), reason="needs prepare[analysis]"
 )
 
 
@@ -1135,7 +1135,7 @@ def test_statistical_tests_are_json_serialisable():
 
     import numpy as np
 
-    from metaquest.sra.analytics import json_safe
+    from prepare.sra.analytics import json_safe
 
     payload = {"significant": np.bool_(True), "p": np.float64(0.01), "nan": float("nan"), "s": {1, 2}}
     text = json.dumps(json_safe(payload))
@@ -1149,7 +1149,7 @@ def test_json_safe_converts_a_pandas_series_to_a_dict():
 
     import pandas as pd
 
-    from metaquest.sra.analytics import json_safe
+    from prepare.sra.analytics import json_safe
 
     series = pd.Series([1, 2, 3], index=["a", "b", "c"])
     safe = json_safe(series)
@@ -1164,7 +1164,7 @@ def test_json_safe_converts_a_pandas_dataframe_to_a_dict():
 
     import pandas as pd
 
-    from metaquest.sra.analytics import json_safe
+    from prepare.sra.analytics import json_safe
 
     df = pd.DataFrame({"gc_content": [0.4, 0.5]})
     safe = json_safe(df)
@@ -1204,7 +1204,7 @@ def test_compare_datasets_result_dumps(tmp_path):
     writing sra_report.json."""
     import json
 
-    from metaquest.sra.analytics import SRADatasetAnalyzer, json_safe
+    from prepare.sra.analytics import SRADatasetAnalyzer, json_safe
 
     analyzer = SRADatasetAnalyzer(tmp_path)
     groups = {"a": ["A1", "A2", "A3"], "b": ["B1", "B2"]}

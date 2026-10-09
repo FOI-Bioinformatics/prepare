@@ -13,9 +13,9 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.cli.commands.sra import DownloadSraCommand
-from metaquest.data.sra.retry import DISK_FULL_NOT_ATTEMPTED
-from metaquest.data.sra.run_report import (
+from prepare.cli.commands.sra import DownloadSraCommand
+from prepare.data.sra.retry import DISK_FULL_NOT_ATTEMPTED
+from prepare.data.sra.run_report import (
     DOWNLOAD_RUN_FILE,
     REASONS,
     REPORT_HEADER,
@@ -27,7 +27,7 @@ from metaquest.data.sra.run_report import (
     write_report_csv,
     write_run_document,
 )
-from metaquest.data.sra.space import INSUFFICIENT_SPACE_PREFIX
+from prepare.data.sra.space import INSUFFICIENT_SPACE_PREFIX
 
 NETWORK = "network: Download failed: connection timed out"
 
@@ -98,7 +98,7 @@ class TestRunOutcomes:
         # The message as the store precheck writes it, before any lock or download is taken.
         from types import SimpleNamespace
 
-        from metaquest.data.sra.store_handoff import _exhausted_message
+        from prepare.data.sra.store_handoff import _exhausted_message
 
         sidecar = SimpleNamespace(refetch={"unchanged": 2}, reads_per_mate=1, ncbi={"spots": 100})
         message = _exhausted_message("SRR1", sidecar, 100)
@@ -225,7 +225,7 @@ def _args(tmp_path, **overrides):
         temp_folder=None,
         blacklist=None,
         report_file=str(tmp_path / "report.csv"),
-        registry=str(tmp_path / "metaquest_registry.json"),
+        registry=str(tmp_path / "prepare_registry.json"),
         data_root=None,
     )
     values.update(overrides)
@@ -234,8 +234,8 @@ def _args(tmp_path, **overrides):
 
 def _execute(fake, args):
     with (
-        patch("metaquest.cli.commands.sra.require_tools"),
-        patch("metaquest.cli.commands.sra.download_sra", side_effect=fake),
+        patch("prepare.cli.commands.sra.require_tools"),
+        patch("prepare.cli.commands.sra.download_sra", side_effect=fake),
     ):
         return DownloadSraCommand().execute(args)
 
@@ -249,10 +249,10 @@ def _report(tmp_path):
 
 
 def _preflight_failure(args):
-    from metaquest.core.exceptions import ConfigurationError
+    from prepare.core.exceptions import ConfigurationError
 
-    fake = patch("metaquest.cli.commands.sra.download_sra", side_effect=AssertionError("no download expected"))
-    with patch("metaquest.cli.commands.sra.require_tools", side_effect=ConfigurationError("fasterq-dump not found")):
+    fake = patch("prepare.cli.commands.sra.download_sra", side_effect=AssertionError("no download expected"))
+    with patch("prepare.cli.commands.sra.require_tools", side_effect=ConfigurationError("fasterq-dump not found")):
         with fake:
             return DownloadSraCommand().execute(args)
 
@@ -340,14 +340,14 @@ def test_an_interrupt_mid_run_writes_both_files_and_exits_130(tmp_path):
 
 
 def test_a_failed_final_flush_still_writes_both_files(tmp_path, monkeypatch):
-    import metaquest.data.registry_batch as batch_mod
-    from metaquest.core.exceptions import DataAccessError
+    import prepare.data.registry_batch as batch_mod
+    from prepare.core.exceptions import DataAccessError
 
     def locked(path):
         raise DataAccessError(f"Registry is locked by another process: {path}.lock")
 
     monkeypatch.setattr(batch_mod, "registry_transaction", locked)
-    monkeypatch.setattr("metaquest.cli.commands.sra.FINAL_FLUSH_RETRY_SECONDS", 0)
+    monkeypatch.setattr("prepare.cli.commands.sra.FINAL_FLUSH_RETRY_SECONDS", 0)
 
     def fake(**kwargs):
         kwargs["on_result"]("SRR1", False, "Download failed: exit 3")
@@ -393,6 +393,6 @@ def test_a_summary_that_cannot_be_written_does_not_change_the_exit_code(tmp_path
     def fake(**kwargs):
         return {"total": 0, "successful": 0, "failed": 0, "failed_accessions": [], "results": {}}
 
-    with patch("metaquest.cli.commands.sra.write_run_document", side_effect=OSError("read-only")):
+    with patch("prepare.cli.commands.sra.write_run_document", side_effect=OSError("read-only")):
         assert _execute(fake, _args(tmp_path)) == 0
     assert "Could not write the download run summary" in caplog.text

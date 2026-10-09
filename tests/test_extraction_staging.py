@@ -1,4 +1,4 @@
-"""Tests for the staged FASTQ export of one sample (``metaquest.data.extraction_staging``)."""
+"""Tests for the staged FASTQ export of one sample (``prepare.data.extraction_staging``)."""
 
 import gzip
 from pathlib import Path
@@ -6,11 +6,11 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.data import registry as reg
-from metaquest.data.extraction_staging import publish_staged, staged_sample_outputs
-from metaquest.data.file_io import visible_files
-from metaquest.data.read_extraction import _map_and_extract
-from metaquest.data.registry_reconcile import apply_reconcile, scan_reconcile
+from prepare.data import registry as reg
+from prepare.data.extraction_staging import publish_staged, staged_sample_outputs
+from prepare.data.file_io import visible_files
+from prepare.data.read_extraction import _map_and_extract
+from prepare.data.registry_reconcile import apply_reconcile, scan_reconcile
 from helpers_extraction import _fake_tools
 
 READ = "@r1\nACGT\n+\nIIII\n"
@@ -18,7 +18,7 @@ READ = "@r1\nACGT\n+\nIIII\n"
 
 def _extract(tmp_path: Path, out_dir: Path, state, genome_id="GCF_1", paired=True):
     reads = [tmp_path / "SRR1_1.fastq.gz", tmp_path / "SRR1_2.fastq.gz"] if paired else [tmp_path / "SRR1.fastq.gz"]
-    with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
+    with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
         return _map_and_extract(
             accession="SRR1",
             reads=reads,
@@ -114,7 +114,7 @@ class TestRerunCleanupStaysWithinTheGenome:
 class TestInterruptedSample:
     def test_an_interrupted_export_leaves_no_visible_fastq(self, tmp_path):
         out_dir = tmp_path / "targeted" / "SRR1"
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=_interrupting_tools({})):
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=_interrupting_tools({})):
             with pytest.raises(KeyboardInterrupt):
                 _map_and_extract(
                     accession="SRR1",

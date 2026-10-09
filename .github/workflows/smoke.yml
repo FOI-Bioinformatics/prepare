@@ -2,7 +2,7 @@ name: Nightly Smoke Test
 
 # Runs the real-data smoke chain (scripts/smoke_chain.sh) against live NCBI/SRA
 # services, with the conda-installed tools (fasterq-dump, prefetch, minimap2,
-# samtools, megahit) the "metaquest" environment provides. This is the only CI job
+# samtools, megahit) the "prepare" environment provides. This is the only CI job
 # that talks to the network and downloads real sequencing data, so it runs nightly
 # rather than on every push or pull request; see CLAUDE.md's CI section and
 # README.md's "Nightly smoke" paragraph for what it covers.
@@ -26,17 +26,17 @@ jobs:
     defaults:
       run:
         # Required by conda-incubator/setup-miniconda so each step's shell has the
-        # "metaquest" environment activated (its own conda init hooks need a login
+        # "prepare" environment activated (its own conda init hooks need a login
         # shell to take effect).
         shell: bash -el {0}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up the metaquest conda environment
+      - name: Set up the prepare conda environment
         uses: conda-incubator/setup-miniconda@v3
         with:
           environment-file: environment.yml
-          activate-environment: metaquest
+          activate-environment: prepare
           miniforge-version: latest
           auto-activate-base: false
 

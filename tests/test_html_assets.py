@@ -1,4 +1,4 @@
-"""Tests for shared HTML report assets in metaquest.utils.html."""
+"""Tests for shared HTML report assets in prepare.utils.html."""
 
 import sys
 from unittest.mock import patch
@@ -6,11 +6,11 @@ from unittest.mock import patch
 import importlib.util
 import pytest
 
-from metaquest.core.exceptions import ConfigurationError
-from metaquest.utils import html
+from prepare.core.exceptions import ConfigurationError
+from prepare.utils import html
 
 requires_interactive = pytest.mark.skipif(
-    not all(importlib.util.find_spec(m) for m in ("plotly", "jinja2")), reason="needs metaquest[interactive]"
+    not all(importlib.util.find_spec(m) for m in ("plotly", "jinja2")), reason="needs prepare[interactive]"
 )
 
 
@@ -67,7 +67,7 @@ class TestPlotlyJsScript:
     def test_names_the_extra_when_plotly_is_missing(self, monkeypatch):
         """Without plotly the error names the interactive extra rather than returning an empty tag."""
         monkeypatch.setitem(sys.modules, "plotly", None)
-        with pytest.raises(ConfigurationError, match=r"metaquest\[interactive\]"):
+        with pytest.raises(ConfigurationError, match=r"prepare\[interactive\]"):
             html.plotly_js_script()
 
 

@@ -1,6 +1,6 @@
-# Contributing to MetaQuest
+# Contributing to PREPARE
 
-Thank you for your interest in contributing to MetaQuest! This document provides guidelines for contributing to the project.
+Thank you for your interest in contributing to PREPARE! This document provides guidelines for contributing to the project.
 
 ## Development Setup
 
@@ -8,16 +8,16 @@ Requires Python 3.12 or newer.
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/FOI-Bioinformatics/MetaQuest.git
-   cd MetaQuest
+   git clone https://github.com/FOI-Bioinformatics/PREPARE.git
+   cd PREPARE
    ```
 
 2. **Install in development mode**:
    ```bash
    pip install -e ".[dev]"
    ```
-   Or, using conda: `make env`, `make env-dev` (installs into the `metaquest` environment
-   directly, no activation needed for this step), then `conda activate metaquest` for day-to-day use.
+   Or, using conda: `make env`, `make env-dev` (installs into the `prepare` environment
+   directly, no activation needed for this step), then `conda activate prepare` for day-to-day use.
 
 3. **Run the test suite**:
    ```bash
@@ -27,10 +27,10 @@ Requires Python 3.12 or newer.
 ### Several worktrees and one environment
 
 An editable install (`pip install -e .`) points the environment at the one checkout it was run
-from. With several git worktrees sharing the `metaquest` environment, `python -m pytest` or
-`python -c "import metaquest"` run from a worktree's root still imports that worktree's code,
+from. With several git worktrees sharing the `prepare` environment, `python -m pytest` or
+`python -c "import prepare"` run from a worktree's root still imports that worktree's code,
 because the current directory comes first on `sys.path`. A script run from anywhere else, or the
-`metaquest` console script, imports whichever checkout the editable install points at, which may
+`prepare` console script, imports whichever checkout the editable install points at, which may
 be a different branch. This is why `scripts/smoke_chain.sh` sets `PYTHONPATH` to its own
 repository root before it changes into the scratch project directory. Do the same
 (`PYTHONPATH=/path/to/worktree`) when running a helper script from outside a worktree, or
@@ -76,7 +76,7 @@ re-run `pip install -e .` in the worktree you are working in.
 
 ### Error Handling
 - Use custom exceptions from `core/exceptions.py`
-- Follow the hierarchy starting with `MetaQuestError`
+- Follow the hierarchy starting with `PrepareError`
 
 ## Testing
 
@@ -87,9 +87,9 @@ re-run `pip install -e .` in the worktree you are working in.
 ### Network smoke test
 
 `make test-network` downloads one 425-spot SRA run (SRR2517620) with fasterq-dump and
-checks the files MetaQuest writes. It needs `fasterq-dump` on the PATH and internet
+checks the files PREPARE writes. It needs `fasterq-dump` on the PATH and internet
 access, so it is excluded from `make test`. Run it before releasing any change to
-the `metaquest/data/sra/` package or `metaquest/utils/security.py`.
+the `prepare/data/sra/` package or `prepare/utils/security.py`.
 
 ## Submitting Changes
 

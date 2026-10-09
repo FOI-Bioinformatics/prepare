@@ -18,13 +18,13 @@ import matplotlib
 matplotlib.use("Agg")  # Use non-GUI backend for testing
 import matplotlib.pyplot as plt  # noqa: E402
 
-from metaquest.plugins.visualizers.bar import (  # noqa: E402
+from prepare.plugins.visualizers.bar import (  # noqa: E402
     BarChartPlugin,
     _prepare_plot_data,
     _create_horizontal_bar,
     _create_vertical_bar,
 )
-from metaquest.core.exceptions import VisualizationError  # noqa: E402
+from prepare.core.exceptions import VisualizationError  # noqa: E402
 
 # ============================================================================
 # TEST CLASS: Data Preparation
@@ -320,7 +320,7 @@ class TestBarChartPluginMetadata:
 #   pytest tests/test_visualizers_bar_extended.py -v
 #
 # Check coverage:
-#   pytest --cov=metaquest.plugins.visualizers.bar \
+#   pytest --cov=prepare.plugins.visualizers.bar \
 #          --cov-report=term-missing \
 #          tests/test_visualizers_bar_extended.py -q
 # ============================================================================

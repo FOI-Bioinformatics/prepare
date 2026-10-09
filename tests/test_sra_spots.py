@@ -1,4 +1,4 @@
-"""Tests for metaquest.data.sra.spots: one lookup for an accession's expected spot count, the
+"""Tests for prepare.data.sra.spots: one lookup for an accession's expected spot count, the
 verdict a read count gives against it, and the merge rule that never turns a recorded ``complete``
 or ``truncated`` verdict into ``unverified``."""
 
@@ -6,10 +6,10 @@ import json
 
 import pytest
 
-from metaquest.data import registry_blocks as rb
-from metaquest.data.registry import Registry
-from metaquest.data.sra import expected_spots, merged_verdict, spots_from_xml, verdict_for_count, verify_download
-from metaquest.store.layout import sidecar_path, store_paths
+from prepare.data import registry_blocks as rb
+from prepare.data.registry import Registry
+from prepare.data.sra import expected_spots, merged_verdict, spots_from_xml, verdict_for_count, verify_download
+from prepare.store.layout import sidecar_path, store_paths
 
 from tests.test_store_sidecar import NCBI_XML
 

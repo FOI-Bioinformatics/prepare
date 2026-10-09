@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 import pandas as pd
 
-from metaquest.visualization.plots import (
+from prepare.visualization.plots import (
     _load_and_validate_data,
     _create_rank_plot,
     _create_histogram_plot,
@@ -22,7 +22,7 @@ from metaquest.visualization.plots import (
     plot_metadata_counts,
     plot_correlation_matrix,
 )
-from metaquest.core.exceptions import VisualizationError
+from prepare.core.exceptions import VisualizationError
 
 
 class TestLoadAndValidateData:
@@ -70,7 +70,7 @@ class TestLoadAndValidateData:
         )
         test_data.to_csv(test_file, sep="\t")
 
-        with patch("metaquest.visualization.plots.logger") as mock_logger:
+        with patch("prepare.visualization.plots.logger") as mock_logger:
             result = _load_and_validate_data(test_file, "containment", threshold=0.8)
 
         assert result.empty
@@ -208,7 +208,7 @@ class TestCreatePlotByType:
         mock_ax = Mock()
         test_data = pd.DataFrame({"containment": [0.95, 0.87, 0.65]})
 
-        with patch("metaquest.visualization.plots._create_rank_plot") as mock_rank:
+        with patch("prepare.visualization.plots._create_rank_plot") as mock_rank:
             _create_plot_by_type(mock_ax, test_data, "containment", "blue", "rank")
 
         mock_rank.assert_called_once_with(mock_ax, test_data, "containment", "blue")
@@ -218,7 +218,7 @@ class TestCreatePlotByType:
         mock_ax = Mock()
         test_data = pd.DataFrame({"containment": [0.95, 0.87, 0.65]})
 
-        with patch("metaquest.visualization.plots._create_histogram_plot") as mock_hist:
+        with patch("prepare.visualization.plots._create_histogram_plot") as mock_hist:
             _create_plot_by_type(mock_ax, test_data, "containment", "red", "histogram")
 
         mock_hist.assert_called_once_with(mock_ax, test_data, "containment", "red")
@@ -228,7 +228,7 @@ class TestCreatePlotByType:
         mock_ax = Mock()
         test_data = pd.DataFrame({"containment": [0.95, 0.87, 0.65]})
 
-        with patch("metaquest.visualization.plots._create_box_plot") as mock_box:
+        with patch("prepare.visualization.plots._create_box_plot") as mock_box:
             _create_plot_by_type(mock_ax, test_data, "containment", "green", "box")
 
         mock_box.assert_called_once_with(mock_ax, test_data, "containment")
@@ -238,7 +238,7 @@ class TestCreatePlotByType:
         mock_ax = Mock()
         test_data = pd.DataFrame({"containment": [0.95, 0.87, 0.65, 0.12, 0.23, 0.45]})
 
-        with patch("metaquest.visualization.plots._create_violin_plot") as mock_violin:
+        with patch("prepare.visualization.plots._create_violin_plot") as mock_violin:
             _create_plot_by_type(mock_ax, test_data, "containment", "purple", "violin")
 
         mock_violin.assert_called_once_with(mock_ax, test_data, "containment")
@@ -309,7 +309,7 @@ class TestPlotContainment:
         mock_ax = Mock()
 
         with patch("matplotlib.pyplot.subplots", return_value=(mock_fig, mock_ax)):
-            with patch("metaquest.visualization.plots._create_plot_by_type") as mock_create:
+            with patch("prepare.visualization.plots._create_plot_by_type") as mock_create:
                 with patch("matplotlib.pyplot.show"):
                     result = plot_containment(
                         file_path=str(test_file),
@@ -341,7 +341,7 @@ class TestPlotContainment:
 
         for plot_type in plot_types:
             with patch("matplotlib.pyplot.subplots", return_value=(Mock(), Mock())):
-                with patch("metaquest.visualization.plots._create_plot_by_type") as mock_create:
+                with patch("prepare.visualization.plots._create_plot_by_type") as mock_create:
                     with patch("matplotlib.pyplot.show"):
                         plot_containment(file_path=str(test_file), column="max_containment", plot_type=plot_type)
 
@@ -355,7 +355,7 @@ class TestPlotContainment:
         test_data.to_csv(test_file, sep="\t")
 
         with patch("matplotlib.pyplot.subplots", return_value=(Mock(), Mock())):
-            with patch("metaquest.visualization.plots._save_plot_if_needed") as mock_save:
+            with patch("prepare.visualization.plots._save_plot_if_needed") as mock_save:
                 with patch("matplotlib.pyplot.show"):
                     plot_containment(file_path=str(test_file), column="max_containment", save_format="png")
 
@@ -376,7 +376,7 @@ class TestPlotContainment:
         test_data = pd.DataFrame({"max_containment": [0.05, 0.03, 0.01]}, index=["Sample1", "Sample2", "Sample3"])
         test_data.to_csv(test_file, sep="\t")
 
-        with patch("metaquest.visualization.plots.logger") as mock_logger:
+        with patch("prepare.visualization.plots.logger") as mock_logger:
             with patch("matplotlib.pyplot.subplots", return_value=(Mock(), Mock())):
                 with patch("matplotlib.pyplot.show"):
                     plot_containment(str(test_file), "max_containment", threshold=0.8)
@@ -398,7 +398,7 @@ class TestPlotMetadataCounts:
         mock_plugin = Mock()
         mock_plugin.create_plot.return_value = Mock()
 
-        with patch("metaquest.plugins.base.visualizer_registry.get") as mock_get_plugin:
+        with patch("prepare.plugins.base.visualizer_registry.get") as mock_get_plugin:
             mock_get_plugin.return_value = mock_plugin
 
             result = plot_metadata_counts(file_path=str(test_file), plot_type="bar")
@@ -416,7 +416,7 @@ class TestPlotMetadataCounts:
         mock_plugin = Mock()
         mock_plugin.create_plot.return_value = Mock()
 
-        with patch("metaquest.plugins.base.visualizer_registry.get") as mock_get_plugin:
+        with patch("prepare.plugins.base.visualizer_registry.get") as mock_get_plugin:
             mock_get_plugin.return_value = mock_plugin
 
             result = plot_metadata_counts(file_path=str(test_file), plot_type="bar")
@@ -446,7 +446,7 @@ class TestPlotMetadataCounts:
 
         mock_plugin = Mock()
         mock_plugin.create_plot.return_value = Mock()
-        with patch("metaquest.plugins.base.visualizer_registry.get", return_value=mock_plugin):
+        with patch("prepare.plugins.base.visualizer_registry.get", return_value=mock_plugin):
             result = plot_metadata_counts(file_path=str(test_file), plot_type="radar")
 
         assert result is not None
@@ -466,7 +466,7 @@ class TestPlotMetadataCounts:
         mock_plugin = Mock()
         mock_plugin.create_plot.return_value = Mock()
 
-        with patch("metaquest.plugins.base.visualizer_registry.get") as mock_get_plugin:
+        with patch("prepare.plugins.base.visualizer_registry.get") as mock_get_plugin:
             mock_get_plugin.return_value = mock_plugin
 
             plot_metadata_counts(file_path=str(test_file), plot_type="bar", limit=3)
@@ -501,7 +501,7 @@ class TestPlotMetadataCounts:
         test_data = pd.DataFrame({"category": ["E. coli"], "count": [100]})
         test_data.to_csv(test_file, sep="\t", index=False, header=False)
 
-        with patch("metaquest.plugins.base.visualizer_registry.get", return_value=None):
+        with patch("prepare.plugins.base.visualizer_registry.get", return_value=None):
             with pytest.raises(VisualizationError, match="Unknown plot type"):
                 plot_metadata_counts(file_path=str(test_file), plot_type="unknown_type")
 
@@ -525,7 +525,7 @@ class TestPlotCorrelationMatrix:
         mock_fig = Mock()
         mock_plugin.create_correlation_heatmap.return_value = mock_fig
 
-        with patch("metaquest.plugins.base.visualizer_registry.get") as mock_get_plugin:
+        with patch("prepare.plugins.base.visualizer_registry.get") as mock_get_plugin:
             mock_get_plugin.return_value = mock_plugin
 
             result = plot_correlation_matrix(test_data)
@@ -545,7 +545,7 @@ class TestPlotCorrelationMatrix:
         mock_fig = Mock()
         mock_plugin.create_correlation_heatmap.return_value = mock_fig
 
-        with patch("metaquest.plugins.base.visualizer_registry.get") as mock_get_plugin:
+        with patch("prepare.plugins.base.visualizer_registry.get") as mock_get_plugin:
             mock_get_plugin.return_value = mock_plugin
 
             result = plot_correlation_matrix(test_data)
@@ -566,7 +566,7 @@ class TestPlotCorrelationMatrix:
         """Test error when heatmap plugin not available."""
         test_data = pd.DataFrame({"GCF_001": [0.95, 0.12], "GCF_002": [0.23, 0.87]}, index=["sample1", "sample2"])
 
-        with patch("metaquest.plugins.base.visualizer_registry.get", return_value=None):
+        with patch("prepare.plugins.base.visualizer_registry.get", return_value=None):
             with pytest.raises(VisualizationError, match="'NoneType' object has no attribute"):
                 plot_correlation_matrix(test_data)
 
@@ -625,7 +625,7 @@ class TestPlotsIntegration:
         mock_bar_plugin = Mock()
         mock_bar_plugin.create_plot.return_value = Mock()
 
-        with patch("metaquest.plugins.base.visualizer_registry.get") as mock_get_plugin:
+        with patch("prepare.plugins.base.visualizer_registry.get") as mock_get_plugin:
             mock_get_plugin.return_value = mock_bar_plugin
 
             fig2 = plot_metadata_counts(file_path=str(counts_file), plot_type="bar", limit=10)
@@ -636,7 +636,7 @@ class TestPlotsIntegration:
         mock_heatmap_plugin = Mock()
         mock_heatmap_plugin.create_heatmap.return_value = Mock()
 
-        with patch("metaquest.plugins.base.visualizer_registry.get") as mock_get_plugin:
+        with patch("prepare.plugins.base.visualizer_registry.get") as mock_get_plugin:
             mock_get_plugin.return_value = mock_heatmap_plugin
 
             fig3 = plot_correlation_matrix(containment_data)
@@ -659,7 +659,7 @@ class TestPlotsIntegration:
 
 class TestCountsLoader:
     def test_header_row_and_genome_columns_are_summed(self, tmp_path):
-        from metaquest.visualization.plots import _load_counts_df
+        from prepare.visualization.plots import _load_counts_df
 
         f = tmp_path / "metadata_counts.txt"
         f.write_text("Sample_Scientific_Name\tGCF_A\tGCF_B\nmetagenome\t3\t0\nfood metagenome\t0\t2\n")
@@ -668,7 +668,7 @@ class TestCountsLoader:
         assert list(df["count"]) == [3, 2]
 
     def test_headerless_two_columns(self, tmp_path):
-        from metaquest.visualization.plots import _load_counts_df
+        from prepare.visualization.plots import _load_counts_df
 
         f = tmp_path / "stats.txt"
         f.write_text("GCF_B\t7\nGCF_A\t9\n")

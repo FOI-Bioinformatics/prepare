@@ -1,4 +1,4 @@
-"""Tests for the index build lock and the per-sample extraction lock (metaquest.data.extraction_locks)."""
+"""Tests for the index build lock and the per-sample extraction lock (prepare.data.extraction_locks)."""
 
 import threading
 import time
@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.data import extraction_locks
-from metaquest.data.extraction_locks import (
+from prepare.data import extraction_locks
+from prepare.data.extraction_locks import (
     SAMPLE_LOCKS_DIRNAME,
     LockHeld,
     index_build_lock,
@@ -15,8 +15,8 @@ from metaquest.data.extraction_locks import (
     sample_extraction_lock,
     sample_lock_path,
 )
-from metaquest.data.file_io import visible_files
-from metaquest.data.read_extraction import build_index, extract_target_reads
+from prepare.data.file_io import visible_files
+from prepare.data.read_extraction import build_index, extract_target_reads
 from helpers_extraction import _fake_tools
 
 
@@ -45,7 +45,7 @@ class TestLockPaths:
 
 class TestLocksFolderInvisible:
     def test_locks_folder_hidden_from_directory_listings(self, tmp_path):
-        """``visible_files`` backs every folder listing in metaquest (status included), so a
+        """``visible_files`` backs every folder listing in prepare (status included), so a
         lock file placed under the hidden ``.locks`` folder never shows up as a fake sample."""
         output_root = tmp_path / "targeted"
         lock = sample_lock_path(output_root, "SRR1", "GCF_1")
@@ -105,7 +105,7 @@ class TestIndexBuildLock:
         def worker(name):
             results[name] = build_index(genome, "sr", index_dir)
 
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=run):
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=run):
             first = threading.Thread(target=worker, args=("first",))
             first.start()
             assert holding.wait(timeout=5)
@@ -173,7 +173,7 @@ class TestSampleExtractionLock:
                 threshold=0.5,
             )
 
-        with patch("metaquest.data.read_extraction.SecureSubprocess.run_secure", side_effect=run):
+        with patch("prepare.data.read_extraction.SecureSubprocess.run_secure", side_effect=run):
             first = threading.Thread(target=worker, args=("first",))
             first.start()
             assert holding.wait(timeout=5)

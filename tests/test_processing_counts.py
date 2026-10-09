@@ -9,13 +9,13 @@ from unittest.mock import patch
 import pytest
 import pandas as pd
 
-from metaquest.processing.counts import (
+from prepare.processing.counts import (
     _validate_metadata_column,
     _get_genome_columns,
     _process_genome_accessions,
     count_metadata,
 )
-from metaquest.core.exceptions import ProcessingError
+from prepare.core.exceptions import ProcessingError
 
 
 class TestValidateMetadataColumn:
@@ -189,7 +189,7 @@ class TestProcessGenomeAccessions:
         assert result == 0
         assert len(df_list) == 0
 
-    @patch("metaquest.processing.counts.logger")
+    @patch("prepare.processing.counts.logger")
     def test_process_genome_accessions_logging(self, mock_logger):
         """Test that appropriate warning messages are logged."""
         summary_df = pd.DataFrame(
@@ -347,7 +347,7 @@ class TestCountMetadataIntegration:
         stats_file = output_file.with_name(output_file.stem + "_stats" + output_file.suffix)
         assert stats_file.exists()
 
-    @patch("metaquest.processing.counts.write_csv")
+    @patch("prepare.processing.counts.write_csv")
     def test_count_metadata_stat_file_generation(self, mock_write_csv, tmp_path):
         """Test automatic generation of statistics file."""
         summary_file = tmp_path / "summary.tsv"
@@ -429,7 +429,7 @@ class TestCountMetadataIntegration:
 class TestProcessGenomeAccessionsExtended:
     """Extended tests for _process_genome_accessions function."""
 
-    @patch("metaquest.processing.counts.logger")
+    @patch("prepare.processing.counts.logger")
     def test_process_genome_accessions_exception_handling(self, mock_logger):
         """Test exception handling in _process_genome_accessions."""
         # Create invalid data that will cause an exception
@@ -464,7 +464,7 @@ class TestProcessGenomeAccessionsExtended:
 
 def test_count_metadata_includes_samples_at_the_threshold(tmp_path):
     """A sample whose containment exactly equals the threshold must be counted (inclusive rule)."""
-    from metaquest.processing.counts import count_metadata
+    from prepare.processing.counts import count_metadata
 
     summary = tmp_path / "parsed_containment.txt"
     summary.write_text("\tGCF_1\nSRR1\t0.9\nSRR2\t0.5\n")

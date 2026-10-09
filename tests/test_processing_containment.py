@@ -13,11 +13,11 @@ from unittest.mock import Mock, patch
 import pytest
 import pandas as pd
 
-from metaquest.processing.containment import (
+from prepare.processing.containment import (
     download_test_genome,
     count_single_sample,
 )
-from metaquest.core.exceptions import ProcessingError
+from prepare.core.exceptions import ProcessingError
 
 
 class TestDownloadTestGenome:
@@ -35,7 +35,7 @@ class TestDownloadTestGenome:
         assert output_path.exists()
         assert output_path.read_text() == "existing genome content"
 
-    @patch("metaquest.processing.containment.urllib.request.urlopen")
+    @patch("prepare.processing.containment.urllib.request.urlopen")
     def test_download_test_genome_success(self, mock_urlopen, tmp_path):
         """Test successful genome download."""
         # Create temporary compressed file content
@@ -60,7 +60,7 @@ class TestDownloadTestGenome:
         temp_gz_path = expected_path.with_suffix(".gz")
         assert not temp_gz_path.exists()
 
-    @patch("metaquest.processing.containment.urllib.request.urlopen")
+    @patch("prepare.processing.containment.urllib.request.urlopen")
     def test_download_test_genome_download_failure(self, mock_urlopen, tmp_path):
         """Test failure during download."""
         mock_urlopen.side_effect = Exception("Download failed")
@@ -68,7 +68,7 @@ class TestDownloadTestGenome:
         with pytest.raises(ProcessingError, match="Error downloading test genome"):
             download_test_genome(tmp_path)
 
-    @patch("metaquest.processing.containment.urllib.request.urlopen")
+    @patch("prepare.processing.containment.urllib.request.urlopen")
     def test_download_test_genome_decompression_failure(self, mock_urlopen, tmp_path):
         """Test failure during decompression."""
         # Mock urlopen to return invalid gzip data
@@ -82,13 +82,13 @@ class TestDownloadTestGenome:
     def test_download_test_genome_invalid_output_folder(self):
         """Test with invalid output folder."""
         # Test with path that cannot be created (e.g., permission denied scenario)
-        with patch("metaquest.processing.containment.ensure_directory") as mock_ensure:
+        with patch("prepare.processing.containment.ensure_directory") as mock_ensure:
             mock_ensure.side_effect = PermissionError("Permission denied")
 
             with pytest.raises(ProcessingError):
                 download_test_genome("/invalid/path")
 
-    @patch("metaquest.processing.containment.urllib.request.urlretrieve")
+    @patch("prepare.processing.containment.urllib.request.urlretrieve")
     def test_download_test_genome_creates_directory(self, mock_urlretrieve, tmp_path):
         """Test that output directory is created if it doesn't exist."""
         # Use a subdirectory that doesn't exist yet
@@ -115,8 +115,8 @@ class TestDownloadTestGenome:
         assert expected_path.exists()
         assert output_dir.exists()
 
-    @patch("metaquest.processing.containment.urllib.request.urlretrieve")
-    @patch("metaquest.processing.containment.logger")
+    @patch("prepare.processing.containment.urllib.request.urlretrieve")
+    @patch("prepare.processing.containment.logger")
     def test_download_test_genome_logging(self, mock_logger, mock_urlretrieve, tmp_path):
         """Test that appropriate logging messages are generated."""
         # Test logging when file exists
@@ -153,7 +153,7 @@ class TestDownloadTestGenome:
         # Test with string path
         output_path_str = str(tmp_path)
 
-        with patch("metaquest.processing.containment.urllib.request.urlretrieve") as mock_urlretrieve:
+        with patch("prepare.processing.containment.urllib.request.urlretrieve") as mock_urlretrieve:
             genome_content = ">test\nACGT\n"
             temp_gz_file = tmp_path / "temp.gz"
 

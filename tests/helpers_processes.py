@@ -1,4 +1,4 @@
-"""Helpers for tests that run the metaquest CLI as separate processes.
+"""Helpers for tests that run the prepare CLI as separate processes.
 
 The processes find fake ``fasterq-dump``, ``prefetch`` and ``pigz`` scripts first on ``PATH``
 (``install_fake_tools``), so no real SRA tool or network is used. Each fake records that it
@@ -148,7 +148,7 @@ def install_fake_tools(bin_dir: Union[str, Path], barrier_dir: Union[str, Path])
     """Write executable fake ``fasterq-dump``, ``prefetch`` and ``pigz`` scripts into ``bin_dir``.
 
     The scripts run under this interpreter (``sys.executable`` in the shebang) and accept the
-    argument shapes ``metaquest.data.sra.accession`` passes: fasterq-dump with ``-O <folder>``
+    argument shapes ``prepare.data.sra.accession`` passes: fasterq-dump with ``-O <folder>``
     and the accession or a ``.sra`` path, writing ``<ACC>_1.fastq`` and ``<ACC>_2.fastq`` with
     ``FAKE_READS`` reads each; prefetch with ``-O <cache>``, writing ``<cache>/<ACC>/<ACC>.sra``;
     pigz with ``-p N -f <file>``, replacing the file with ``<file>.gz``.
@@ -171,7 +171,7 @@ def cli_env(
 
     ``PYTHONPATH`` is the repository root, so the child imports this checkout's package. ``HOME``
     and ``XDG_CONFIG_HOME`` point under ``tmp_path``, so no configuration file of the developer's
-    is read. ``METAQUEST_DATA`` is ``store`` when given and removed otherwise. ``PATH`` holds
+    is read. ``PREPARE_DATA`` is ``store`` when given and removed otherwise. ``PATH`` holds
     ``fake_bin`` and a folder with nothing but ``python``/``python3`` links to this interpreter:
     not the interpreter's own folder, which in a conda environment also holds the real SRA tools,
     samtools and minimap2. ``extra`` entries are added last.
@@ -186,7 +186,7 @@ def cli_env(
         if not link.exists():
             link.symlink_to(sys.executable)
     env = dict(os.environ)
-    for name in ("METAQUEST_DATA", "PYTHONSTARTUP", "PYTHONHOME", "VIRTUAL_ENV"):
+    for name in ("PREPARE_DATA", "PYTHONSTARTUP", "PYTHONHOME", "VIRTUAL_ENV"):
         env.pop(name, None)
     env.update(
         {
@@ -198,7 +198,7 @@ def cli_env(
         }
     )
     if store is not None:
-        env["METAQUEST_DATA"] = str(store)
+        env["PREPARE_DATA"] = str(store)
     env.update(extra)
     return env
 
@@ -216,7 +216,7 @@ def _log_paths(cwd: Path, log_dir: Optional[Path]) -> tuple:
 def spawn_cli(
     args: Sequence[str], cwd: Union[str, Path], env: Dict[str, str], log_dir: Optional[Union[str, Path]] = None
 ) -> subprocess.Popen:
-    """Start ``python -m metaquest.cli.main <args>`` in ``cwd`` in a session of its own.
+    """Start ``python -m prepare.cli.main <args>`` in ``cwd`` in a session of its own.
 
     ``start_new_session`` keeps a signal sent to the child (or its process group) away from the
     test runner. Output goes to files rather than pipes, so a child that writes a lot never
@@ -229,7 +229,7 @@ def spawn_cli(
     stderr_path.touch()
     with open(stdout_path, "w") as out, open(stderr_path, "w") as err:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "metaquest.cli.main", *args],
+            [sys.executable, "-m", "prepare.cli.main", *args],
             cwd=str(work),
             env=env,
             stdin=subprocess.DEVNULL,
@@ -267,7 +267,7 @@ def run_cli(
         returncode = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         stop_process(proc)
-        raise AssertionError(f"metaquest {' '.join(args)} did not finish in {timeout} s:\n{stderr_of(proc)}")
+        raise AssertionError(f"prepare {' '.join(args)} did not finish in {timeout} s:\n{stderr_of(proc)}")
     return subprocess.CompletedProcess(list(args), returncode, stdout_of(proc), stderr_of(proc))
 
 

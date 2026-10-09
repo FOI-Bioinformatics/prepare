@@ -1,5 +1,5 @@
 """
-Tests for metaquest.store.catalog: the rebuildable SQLite index over sidecars,
+Tests for prepare.store.catalog: the rebuildable SQLite index over sidecars,
 plus the cross-project ``projects`` and ``usage`` tables.
 """
 
@@ -9,10 +9,10 @@ import time
 
 import pytest
 
-from metaquest.core.exceptions import DataAccessError
-from metaquest.store.catalog import Catalog, catalog_write
-from metaquest.store.layout import init_store
-from metaquest.store.sidecar import Sidecar
+from prepare.core.exceptions import DataAccessError
+from prepare.store.catalog import Catalog, catalog_write
+from prepare.store.layout import init_store
+from prepare.store.sidecar import Sidecar
 
 
 def _sidecar(accession="SRR1", state="complete", bytes_r1=1000, bytes_r2=1000, spots=10, bases=1400):
@@ -102,7 +102,7 @@ def test_upsert_dataset_replaces_files_and_totals(paths):
 def test_record_usage_keeps_first_used_updates_last_used(paths):
     with Catalog(paths, create=True) as catalog:
         catalog.migrate()
-        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "metaquest_registry.json")
+        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "prepare_registry.json")
         catalog.upsert_dataset(_sidecar())
 
         catalog.record_usage("SRR1", "proj1", "wMel", "downloaded", detail="first")
@@ -136,7 +136,7 @@ def test_record_usage_with_explicit_at_keeps_earliest_first_used_latest_last_use
     must also leave the stored detail alone, since it is not the most recent real event."""
     with Catalog(paths, create=True) as catalog:
         catalog.migrate()
-        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "metaquest_registry.json")
+        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "prepare_registry.json")
 
         catalog.record_usage("SRR1", "proj1", "wMel", "downloaded", detail="newer", at="2026-09-02T00:00:00+00:00")
         catalog.record_usage("SRR1", "proj1", "wMel", "downloaded", detail="older", at="2026-09-01T00:00:00+00:00")
@@ -162,7 +162,7 @@ def test_record_usage_live_call_refreshes_detail_despite_lagging_clock(paths):
     (which passes ``at``) should defer to a stored, later timestamp instead."""
     with Catalog(paths, create=True) as catalog:
         catalog.migrate()
-        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "metaquest_registry.json")
+        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "prepare_registry.json")
         catalog.upsert_dataset(_sidecar())
 
         catalog.record_usage("SRR1", "proj1", "wMel", "downloaded", detail="a", at="2099-01-01T00:00:00+00:00")
@@ -186,7 +186,7 @@ def test_record_usage_updates_a_hand_edited_row_with_null_dates(paths):
     record_usage must still set both dates and refresh detail for such a row."""
     with Catalog(paths, create=True) as catalog:
         catalog.migrate()
-        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "metaquest_registry.json")
+        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "prepare_registry.json")
         catalog.upsert_dataset(_sidecar())
         catalog._conn.execute(
             "INSERT INTO usage (accession, project_id, genome_id, stage, first_used, last_used, detail) "
@@ -211,7 +211,7 @@ def test_record_usage_updates_a_hand_edited_row_with_null_dates(paths):
 def test_record_usage_inserts_placeholder_dataset_when_missing(paths):
     with Catalog(paths, create=True) as catalog:
         catalog.migrate()
-        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "metaquest_registry.json")
+        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "prepare_registry.json")
 
         catalog.record_usage("SRR-unseen", "proj1", "", "linked")
 
@@ -224,13 +224,13 @@ def test_record_usage_inserts_placeholder_dataset_when_missing(paths):
 def test_upsert_project_keeps_created_updates_last_seen(paths):
     with Catalog(paths, create=True) as catalog:
         catalog.migrate()
-        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "metaquest_registry.json")
+        catalog.upsert_project("proj1", "Wolbachia", "/projects/wolbachia", "prepare_registry.json")
         created_first = catalog._conn.execute("SELECT created FROM projects WHERE project_id=?", ("proj1",)).fetchone()[
             "created"
         ]
 
         time.sleep(0.01)
-        catalog.upsert_project("proj1", "Wolbachia renamed", "/projects/wolbachia2", "metaquest_registry.json")
+        catalog.upsert_project("proj1", "Wolbachia renamed", "/projects/wolbachia2", "prepare_registry.json")
         row = dict(catalog._conn.execute("SELECT * FROM projects WHERE project_id=?", ("proj1",)).fetchone())
 
     assert row["created"] == created_first
@@ -390,7 +390,7 @@ def test_catalog_write_serializes_two_writers(paths):
 
 
 def test_catalog_write_raises_when_lock_never_released(paths, monkeypatch):
-    monkeypatch.setattr("metaquest.store.catalog.CATALOG_LOCK_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr("prepare.store.catalog.CATALOG_LOCK_WAIT_SECONDS", 0.2)
 
     # Simulate another process holding the lock: a fresh, non-stale lock file.
     paths.catalog_lock.parent.mkdir(parents=True, exist_ok=True)
@@ -580,7 +580,7 @@ def test_catalog_busy_timeout_constant_is_wired_to_connect(paths, monkeypatch):
     """A short CATALOG_BUSY_TIMEOUT_SECONDS makes a new connection give up quickly against a
     held exclusive lock, which only happens if the constant actually reaches
     sqlite3.connect's ``timeout`` rather than a hard-coded default."""
-    monkeypatch.setattr("metaquest.store.catalog.CATALOG_BUSY_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr("prepare.store.catalog.CATALOG_BUSY_TIMEOUT_SECONDS", 0.05)
 
     with Catalog(paths, create=True) as catalog:
         catalog.migrate()
@@ -614,7 +614,7 @@ def test_catalog_busy_timeout_constant_is_wired_to_connect(paths, monkeypatch):
 def test_a_catalogue_lock_taken_over_during_a_write_commits_nothing(paths):
     import json
 
-    from metaquest.utils.lockfile import LockLost
+    from prepare.utils.lockfile import LockLost
 
     other = {"pid": 4242, "host": "otherhost", "started": "2026-01-01T00:00:00+00:00", "token": "feedbeef"}
     with pytest.raises(LockLost):

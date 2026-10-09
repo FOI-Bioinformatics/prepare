@@ -1,10 +1,10 @@
 """
-Tests for metaquest.store.layout: on-disk layout of the shared data store.
+Tests for prepare.store.layout: on-disk layout of the shared data store.
 """
 
 import json
 
-from metaquest.store.layout import (
+from prepare.store.layout import (
     StorePaths,
     init_store,
     lock_path,
@@ -13,14 +13,14 @@ from metaquest.store.layout import (
     sra_dir,
     store_paths,
 )
-from metaquest.core.constants import STORE_LAYOUT, STORE_MARKER
+from prepare.core.constants import STORE_LAYOUT, STORE_MARKER
 
 
 def test_two_first_time_inits_keep_the_first_marker(tmp_path, monkeypatch):
     """Both runs find no marker; the one that publishes second must not overwrite the first."""
     import threading
 
-    from metaquest.store import layout as layout_module
+    from prepare.store import layout as layout_module
 
     root = tmp_path / "store"
     real_write = layout_module.write_text_atomic

@@ -1,6 +1,6 @@
-"""Concurrency and signal handling of the metaquest CLI, checked with real processes.
+"""Concurrency and signal handling of the prepare CLI, checked with real processes.
 
-Every test starts ``python -m metaquest.cli.main`` as separate processes against a project (and,
+Every test starts ``python -m prepare.cli.main`` as separate processes against a project (and,
 where named, a shared store) under ``tmp_path``, with fake ``fasterq-dump``, ``prefetch`` and
 ``pigz`` scripts first on ``PATH`` (``tests/helpers_processes.py``). A fake download tool waits
 while ``<barrier>/hold-<ACC>`` exists, so a test keeps one download in progress for as long as it
@@ -36,12 +36,12 @@ from typing import Dict, List, Optional
 
 import pytest
 
-from metaquest.data.registry import REGISTRY_FILENAME
-from metaquest.data.registry_batch import registry_update
-from metaquest.data.registry_blocks import ProjectBlock, StoreBlock, set_project_block, set_store_block
-from metaquest.store.catalog import catalog_write
-from metaquest.store.layout import init_store
-from metaquest.utils.lockfile import read_holder
+from prepare.data.registry import REGISTRY_FILENAME
+from prepare.data.registry_batch import registry_update
+from prepare.data.registry_blocks import ProjectBlock, StoreBlock, set_project_block, set_store_block
+from prepare.store.catalog import catalog_write
+from prepare.store.layout import init_store
+from prepare.utils.lockfile import read_holder
 from tests.helpers_processes import (
     FAKE_READS,
     alive,
@@ -117,7 +117,7 @@ class Harness:
     def check(result: subprocess.CompletedProcess, expected: int = 0) -> subprocess.CompletedProcess:
         """Assert a finished command's exit code, showing its output when it differs."""
         assert result.returncode == expected, (
-            f"metaquest {' '.join(result.args)} exited {result.returncode}, expected {expected}\n"
+            f"prepare {' '.join(result.args)} exited {result.returncode}, expected {expected}\n"
             f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
         return result
@@ -192,7 +192,7 @@ def store_harness(tmp_path):
 
 
 def _datasets(project: Path) -> Dict[str, dict]:
-    return json.loads((project / "metaquest_registry.json").read_text()).get("datasets", {})
+    return json.loads((project / "prepare_registry.json").read_text()).get("datasets", {})
 
 
 def _download_state(project: Path, accession: str) -> Optional[str]:
@@ -325,7 +325,7 @@ def _scratch(h, project, accession):
     """fasterq-dump's scratch folder for ``accession``: under the store's tmp, or the project's staging folder."""
     if h.store is not None:
         return h.store / "tmp" / f"{accession}_fqtmp"
-    return project / "fastq" / ".metaquest-tmp" / f"{accession}_fqtmp"
+    return project / "fastq" / ".prepare-tmp" / f"{accession}_fqtmp"
 
 
 @pytest.mark.parametrize("with_store", [False, True], ids=["project", "store"])
@@ -448,7 +448,7 @@ def test_store_gc_keeps_a_dataset_whose_download_is_in_progress(store_harness):
     h.finish(h.download(gone))
     # The only project that used SRR1 disappears, and its last use is two days old, so gc
     # would remove the dataset with --include-stale.
-    (gone / "metaquest_registry.json").unlink()
+    (gone / "prepare_registry.json").unlink()
     two_days_ago = time.time() - 2 * 86400
     os.utime(h.store / "locks" / "SRR1.used", (two_days_ago, two_days_ago))
     dry = h.check(run_cli(["store_gc", "--include-stale", "--json"], live, h.env))

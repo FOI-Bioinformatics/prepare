@@ -1,11 +1,11 @@
 """Tests for the output helpers on `BaseCommand` and the one-stdout-channel rule.
 
 stdout carries a command's result (tables, JSON); stderr carries logging. The JSON-mode tests
-run each ``--json`` command through ``metaquest.cli.main.main``, so ``setup_logging`` binds its
+run each ``--json`` command through ``prepare.cli.main.main``, so ``setup_logging`` binds its
 real stderr handler, and then parse the whole of stdout as one JSON document: a stray print or
 a log line on stdout would fail them.
 
-Every store test runs under tmp_path and monkeypatches HOME/XDG_CONFIG_HOME/METAQUEST_DATA so
+Every store test runs under tmp_path and monkeypatches HOME/XDG_CONFIG_HOME/PREPARE_DATA so
 nothing here reads or writes the real user config.
 """
 
@@ -18,13 +18,13 @@ from typing import List
 
 import pytest
 
-from metaquest.cli.base import BaseCommand, emit_error_json
-from metaquest.cli.commands.store import StoreInitCommand
-from metaquest.cli.main import main
-from metaquest.core.constants import STORE_ENV
-from metaquest.store.catalog import catalog_write
-from metaquest.store.layout import init_store, store_paths
-from metaquest.store.sidecar import Sidecar
+from prepare.cli.base import BaseCommand, emit_error_json
+from prepare.cli.commands.store import StoreInitCommand
+from prepare.cli.main import main
+from prepare.core.constants import STORE_ENV
+from prepare.store.catalog import catalog_write
+from prepare.store.layout import init_store, store_paths
+from prepare.store.sidecar import Sidecar
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -124,7 +124,7 @@ def _corrupt_project_registry(tmp_path: Path) -> Path:
     root = tmp_path / "store"
     project_dir = tmp_path / "project"
     project_dir.mkdir()
-    registry = project_dir / "metaquest_registry.json"
+    registry = project_dir / "prepare_registry.json"
     args = argparse.Namespace(data_root=str(root), project_name=None, set_default=False, registry=str(registry))
     assert StoreInitCommand().execute(args) == 0
     registry.write_text("{ not json")
@@ -145,7 +145,7 @@ def _store_usage_argv(tmp_path: Path) -> List[str]:
     root = tmp_path / "store"
     paths = init_store(root)
     with catalog_write(paths) as cat:
-        cat.upsert_project("proja", "Wolbachia", str(tmp_path), str(tmp_path / "metaquest_registry.json"))
+        cat.upsert_project("proja", "Wolbachia", str(tmp_path), str(tmp_path / "prepare_registry.json"))
         cat.upsert_dataset(Sidecar(accession="SRR1", state="complete"))
         cat.record_usage("SRR1", "proja", "wMel", "downloaded")
     return ["store_usage", "--data-root", str(store_paths(root).root), "--accession", "SRR404", "--json"]
@@ -168,7 +168,7 @@ def _status_argv(tmp_path: Path) -> List[str]:
         "--matches-folder",
         str(tmp_path / "matches"),
         "--registry",
-        str(tmp_path / "metaquest_registry.json"),
+        str(tmp_path / "prepare_registry.json"),
         "--data-root",
         str(tmp_path / "unmounted"),
         "--json",
@@ -213,12 +213,12 @@ def test_no_library_module_prints():
             "-rlnE",
             "--include=*.py",
             r"(^|[^.a-zA-Z0-9_])print\(|sys\.stdout\.write",
-            "metaquest/data",
-            "metaquest/store",
-            "metaquest/processing",
-            "metaquest/plugins",
-            "metaquest/sra",
-            "metaquest/visualization",
+            "prepare/data",
+            "prepare/store",
+            "prepare/processing",
+            "prepare/plugins",
+            "prepare/sra",
+            "prepare/visualization",
         ],
         capture_output=True,
         text=True,
@@ -233,18 +233,18 @@ def test_print_gate_script_passes_on_the_tree():
 
 
 def test_print_gate_script_fails_on_a_print_outside_base(tmp_path):
-    (tmp_path / "metaquest" / "cli").mkdir(parents=True)
-    (tmp_path / "metaquest" / "cli" / "base.py").write_text('print("allowed")\n')
-    (tmp_path / "metaquest" / "library.py").write_text('def f():\n    print("not allowed")\n')
-    (tmp_path / "metaquest" / "writer.py").write_text('import sys\nsys.stdout.write("not allowed")\n')
-    (tmp_path / "metaquest" / "other.py").write_text("import pprint\npprint.pprint(1)\nself._print_table(1)\n")
+    (tmp_path / "prepare" / "cli").mkdir(parents=True)
+    (tmp_path / "prepare" / "cli" / "base.py").write_text('print("allowed")\n')
+    (tmp_path / "prepare" / "library.py").write_text('def f():\n    print("not allowed")\n')
+    (tmp_path / "prepare" / "writer.py").write_text('import sys\nsys.stdout.write("not allowed")\n')
+    (tmp_path / "prepare" / "other.py").write_text("import pprint\npprint.pprint(1)\nself._print_table(1)\n")
 
     result = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts" / "check_no_print.sh"), str(tmp_path)], capture_output=True, text=True
     )
 
     assert result.returncode == 1
-    assert "metaquest/library.py:2:" in result.stdout
-    assert "metaquest/writer.py:2:" in result.stdout
-    assert "metaquest/cli/base.py:1:" not in result.stdout
-    assert "metaquest/other.py:" not in result.stdout
+    assert "prepare/library.py:2:" in result.stdout
+    assert "prepare/writer.py:2:" in result.stdout
+    assert "prepare/cli/base.py:1:" not in result.stdout
+    assert "prepare/other.py:" not in result.stdout

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from metaquest.data.file_io import (
+from prepare.data.file_io import (
     ensure_directory,
     is_hidden_name,
     list_files,
@@ -18,7 +18,7 @@ from metaquest.data.file_io import (
     visible_files,
     write_csv,
 )
-from metaquest.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError
 
 
 class TestEnsureDirectory:

@@ -1,8 +1,8 @@
-"""``metaquest.utils.http.retrying_session``: the retry policy shared by every HTTP client."""
+"""``prepare.utils.http.retrying_session``: the retry policy shared by every HTTP client."""
 
 import pytest
 
-from metaquest.utils.http import RETRY_STATUS_FORCELIST, RETRY_TOTAL, retrying_session
+from prepare.utils.http import RETRY_STATUS_FORCELIST, RETRY_TOTAL, retrying_session
 from tests.fake_http import serve
 
 

@@ -7,8 +7,8 @@ import tomllib
 
 import pytest
 
-from metaquest.core.exceptions import ConfigurationError
-from metaquest.core.optional import require
+from prepare.core.exceptions import ConfigurationError
+from prepare.core.optional import require
 
 OPTIONAL_MODULES = (
     "sklearn",
@@ -41,25 +41,25 @@ def _args(tmp_path):
 
 
 @pytest.fixture
-def fresh_metaquest_modules(monkeypatch):
-    """Drop every metaquest module so the next import runs module-level code again.
+def fresh_prepare_modules(monkeypatch):
+    """Drop every prepare module so the next import runs module-level code again.
 
     monkeypatch restores the modules it removed; the copies imported during the test are
     removed here, so later tests keep the original classes (for pytest.raises identity).
     """
     for mod in list(sys.modules):
-        if mod.startswith("metaquest"):
+        if mod.startswith("prepare"):
             monkeypatch.delitem(sys.modules, mod)
     yield
     for mod in list(sys.modules):
-        if mod.startswith("metaquest"):
+        if mod.startswith("prepare"):
             del sys.modules[mod]
 
 
-def test_cli_imports_without_optional_packages(monkeypatch, fresh_metaquest_modules):
+def test_cli_imports_without_optional_packages(monkeypatch, fresh_prepare_modules):
     for name in OPTIONAL_MODULES:
         monkeypatch.setitem(sys.modules, name, None)
-    import metaquest.cli.main as main  # must not raise
+    import prepare.cli.main as main  # must not raise
 
     parser = main.create_parser()
     assert parser is not None
@@ -68,12 +68,12 @@ def test_cli_imports_without_optional_packages(monkeypatch, fresh_metaquest_modu
 
 
 def test_diversity_analysis_names_the_extra_when_sklearn_is_missing(monkeypatch, tmp_path):
-    from metaquest.cli.commands.advanced_analysis import DiversityAnalysisCommand
+    from prepare.cli.commands.advanced_analysis import DiversityAnalysisCommand
 
     monkeypatch.setitem(sys.modules, "sklearn", None)
     with pytest.raises(ConfigurationError) as exc:
         DiversityAnalysisCommand().execute(_args(tmp_path))
-    assert "metaquest[analysis]" in str(exc.value) and sys.executable in str(exc.value)
+    assert "prepare[analysis]" in str(exc.value) and sys.executable in str(exc.value)
     # The message names the distribution pip knows, not the import name.
     assert "needs the 'scikit-learn' package" in str(exc.value)
     # The check runs before any work, so no partial output is left behind.
@@ -105,22 +105,22 @@ def test_require_names_extra_and_interpreter_when_missing(monkeypatch):
         require("plotly.graph_objects", "interactive", "An interactive plot")
     message = str(exc.value)
     assert message.startswith("An interactive plot needs the 'plotly' package.")
-    assert f"{sys.executable} -m pip install 'metaquest[interactive]'" in message
+    assert f"{sys.executable} -m pip install 'prepare[interactive]'" in message
 
 
 def test_sra_dashboard_without_plotly_is_an_error_not_a_degraded_file(monkeypatch, tmp_path):
-    from metaquest.sra.reporting import SRAReportGenerator
+    from prepare.sra.reporting import SRAReportGenerator
 
     monkeypatch.setitem(sys.modules, "plotly", None)
     generator = SRAReportGenerator(tmp_path / "reports")
-    with pytest.raises(ConfigurationError, match=r"metaquest\[interactive\]"):
+    with pytest.raises(ConfigurationError, match=r"prepare\[interactive\]"):
         generator.generate_quality_dashboard(["SRR000001"])
     assert list((tmp_path / "reports").iterdir()) == []
 
 
 def test_explorer_without_plotly_is_an_error(monkeypatch, tmp_path):
-    from metaquest.visualization import explorer
+    from prepare.visualization import explorer
 
     monkeypatch.setitem(sys.modules, "plotly", None)
-    with pytest.raises(ConfigurationError, match=r"metaquest\[interactive\]"):
+    with pytest.raises(ConfigurationError, match=r"prepare\[interactive\]"):
         explorer.require_explorer_packages()

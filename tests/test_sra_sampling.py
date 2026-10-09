@@ -1,4 +1,4 @@
-"""Tests for metaquest.data.sra.sampling: the index-based FASTQ record sampler shared by
+"""Tests for prepare.data.sra.sampling: the index-based FASTQ record sampler shared by
 quality profiling and the store statistics record, and quality scores kept as histograms."""
 
 import random
@@ -8,8 +8,8 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from metaquest.data.sra import sample_records
-from metaquest.data.sra.sampling import distribution_from_histogram, quality_histogram
+from prepare.data.sra import sample_records
+from prepare.data.sra.sampling import distribution_from_histogram, quality_histogram
 from tests.perf_fixtures import write_fastq
 
 
@@ -58,7 +58,7 @@ def test_sample_records_handles_zero_length_reads_crlf_and_no_final_newline(tmp_
 @pytest.mark.parametrize("chunk_size", [1, 7, 64, 1000, 1 << 20])
 @pytest.mark.parametrize("suffix", [".fastq", ".fastq.gz"])
 def test_sample_records_record_across_a_chunk_boundary(tmp_path, monkeypatch, chunk_size, suffix):
-    from metaquest.data.sra import sampling
+    from prepare.data.sra import sampling
 
     monkeypatch.setattr(sampling, "CHUNK_SIZE", chunk_size)
     r1 = write_fastq(tmp_path / f"S_1{suffix}", n=200)
@@ -146,29 +146,29 @@ def test_distribution_from_an_empty_histogram():
 def test_compute_dataset_stats_samples_from_its_own_count(tmp_path):
     """The statistics record passes the count it already has to the sampler, so the sample
     file is not counted a second time."""
-    from metaquest.store.stats import compute_dataset_stats
+    from prepare.store.stats import compute_dataset_stats
 
     path = write_fastq(tmp_path / "SRR1.fastq.gz", n=300, qual_for=lambda i: "5" * len(f"A{i}"))
-    with patch("metaquest.data.sra.sampling.count_fastq_reads", side_effect=AssertionError("counted twice")):
+    with patch("prepare.data.sra.sampling.count_fastq_reads", side_effect=AssertionError("counted twice")):
         stats = compute_dataset_stats([path], sample_size=100, use_seqkit=False)
     assert stats["reads_total"] == 300 and stats["sampled"] is True
     assert stats["quality_summary"] == {"mean": 20.0, "median": 20.0, "q25": 20.0, "q75": 20.0}
 
 
 def test_profile_passes_the_cached_record_count_to_the_sampler(tmp_path):
-    from metaquest.sra.analytics import SRADatasetAnalyzer
+    from prepare.sra.analytics import SRADatasetAnalyzer
 
     r1 = write_fastq(tmp_path / "SRR1_1.fastq", n=40)
     r2 = write_fastq(tmp_path / "SRR1_2.fastq", n=40)
     analyzer = SRADatasetAnalyzer()
     record = {"reads_per_file": {r1.name: 40, r2.name: 40}, "reads_total": 80}
-    with patch("metaquest.sra.quality.sample_records", wraps=sample_records) as sampler:
+    with patch("prepare.sra.quality.sample_records", wraps=sample_records) as sampler:
         profile = analyzer.profile_dataset_quality("SRR1", fastq_path=[r1, r2], dataset_stats=record, sample_size=10)
     assert sampler.call_args.kwargs["total_records"] == 80
     assert profile.reads_sampled == 10
 
     partial = {"reads_per_file": {r1.name: 40}, "reads_total": 40}
-    with patch("metaquest.sra.quality.sample_records", wraps=sample_records) as sampler:
+    with patch("prepare.sra.quality.sample_records", wraps=sample_records) as sampler:
         analyzer.profile_dataset_quality("SRR1", fastq_path=[r1, r2], dataset_stats=partial, sample_size=10)
     assert sampler.call_args.kwargs["total_records"] is None
 
@@ -178,7 +178,7 @@ def test_compressed_input_is_read_through_a_large_buffer(tmp_path, monkeypatch):
     import builtins
     import gzip
 
-    from metaquest.data.sra import sampling
+    from prepare.data.sra import sampling
 
     path = tmp_path / "SRR1_1.fastq.gz"
     with gzip.open(path, "wt") as handle:
@@ -199,7 +199,7 @@ def test_compressed_input_is_read_through_a_large_buffer(tmp_path, monkeypatch):
 
 def test_a_much_overstated_total_can_return_no_records(tmp_path):
     """As the docstring says: indices past the end are dropped, possibly all of them."""
-    from metaquest.data.sra import sampling
+    from prepare.data.sra import sampling
 
     path = tmp_path / "reads.fastq"
     path.write_text("".join(f"@r{i}\nACGT\n+\nIIII\n" for i in range(7)))

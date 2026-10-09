@@ -3,12 +3,12 @@
 import pandas as pd
 import pytest
 
-from metaquest.data import registry as reg
-from metaquest.processing.results import RESULTS_COLUMNS, results_dataframe, results_rows, screened_pairs
+from prepare.data import registry as reg
+from prepare.processing.results import RESULTS_COLUMNS, results_dataframe, results_rows, screened_pairs
 
 
 def _registry(tmp_path):
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     reg.record_screening(r, "SRR1", "GCF_A", 0.9, 0.99, "matches", 0.0, None)
     reg.record_screening(r, "SRR1", "GCF_B", 0.2, None, "matches", 0.0, None)
     reg.record_screening(r, "SRR2", "GCF_A", 0.5, None, "matches", 0.0, None)
@@ -66,7 +66,7 @@ def test_columns_in_stated_order():
 
 
 def test_timing_columns_come_from_registry(tmp_path):
-    from metaquest.data.registry_timing import set_assembly_timing, set_download_timing, set_extraction_timing
+    from prepare.data.registry_timing import set_assembly_timing, set_download_timing, set_extraction_timing
 
     r = _registry(tmp_path)
     set_download_timing(r, "SRR1", "2026-10-01T10:00:00+00:00", 12.5)
@@ -152,7 +152,7 @@ def test_genome_id_restricts_rows(tmp_path):
 
 
 def test_mapping_rate_none_without_spots(tmp_path):
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     reg.record_screening(r, "SRR3", "GCF_A", 0.4, None, "matches", 0.0, None)
     reg.record_extraction(r, "SRR3", "GCF_A", [], 50, False, {})
     row = results_rows(r)[0]
@@ -161,21 +161,21 @@ def test_mapping_rate_none_without_spots(tmp_path):
 
 
 def test_mapping_rate_is_rounded_to_four_decimals(tmp_path):
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     reg.record_metadata(r, "SRR3", tmp_path / "SRR3.xml", {"run_total_spots": 3})
     reg.record_extraction(r, "SRR3", "GCF_A", [], 1, False, {})
     assert results_rows(r)[0]["mapping_rate_to_reference"] == 0.3333
 
 
 def test_mapping_rate_none_with_zero_mapped(tmp_path):
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     reg.record_metadata(r, "SRR3", tmp_path / "SRR3.xml", {"run_total_spots": 100})
     reg.record_extraction(r, "SRR3", "GCF_A", [], 0, False, {})
     assert results_rows(r)[0]["mapping_rate_to_reference"] is None
 
 
 def test_older_extraction_without_coverage_keys_gives_empty_values(tmp_path):
-    r = reg.load_registry(tmp_path / "metaquest_registry.json")
+    r = reg.load_registry(tmp_path / "prepare_registry.json")
     r.datasets["SRR4"] = {"extractions": {"GCF_A": {"mapped_reads": 5, "files": []}}}
     row = results_rows(r)[0]
     assert row["breadth"] is None and row["mean_depth"] is None and row["contigs"] is None
@@ -311,7 +311,7 @@ def test_profile_columns_read_an_old_registrys_sra_stats_summary(tmp_path):
 
 def _reference_row(r, accession, genome_id, containment):
     """One row as the earlier implementation built it, every block converted afresh for each pair."""
-    from metaquest.data import registry_blocks as rb
+    from prepare.data import registry_blocks as rb
 
     exclusion = rb.exclusion_block(r, accession) or rb.ExclusionBlock()
     metadata = rb.metadata_block(r, accession) or rb.MetadataBlock()

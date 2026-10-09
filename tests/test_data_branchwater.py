@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 from collections import defaultdict
 
-from metaquest.data.branchwater import (
+from prepare.data.branchwater import (
     process_branchwater_files,
     _process_branchwater_row,
     _validate_branchwater_file,
@@ -20,8 +20,8 @@ from metaquest.data.branchwater import (
     _generate_containment_summary,
     parse_containment_data,
 )
-from metaquest.core.exceptions import DataAccessError, ValidationError
-from metaquest.core.models import ContainmentSummary
+from prepare.core.exceptions import DataAccessError, ValidationError
+from prepare.core.models import ContainmentSummary
 
 
 class TestProcessBranchwaterFiles:
@@ -38,7 +38,7 @@ class TestProcessBranchwaterFiles:
         (source_dir / "genome1.csv").write_text(csv_content)
         (source_dir / "genome2.csv").write_text(csv_content)
 
-        with patch("metaquest.data.branchwater.read_csv") as mock_read_csv:
+        with patch("prepare.data.branchwater.read_csv") as mock_read_csv:
             # Mock the header check for format validation
             mock_df = pd.DataFrame(columns=["acc", "containment", "ksize", "scaled"])
             mock_read_csv.return_value = mock_df
@@ -94,12 +94,12 @@ class TestProcessBranchwaterFiles:
         invalid_content = "invalid,header,format\ndata1,data2,data3"
         (source_dir / "invalid.csv").write_text(invalid_content)
 
-        with patch("metaquest.data.branchwater.read_csv") as mock_read_csv:
+        with patch("prepare.data.branchwater.read_csv") as mock_read_csv:
             mock_df = pd.DataFrame(columns=["invalid", "header", "format"])
             mock_read_csv.return_value = mock_df
 
             with patch(
-                "metaquest.data.branchwater.BranchWaterFormatPlugin.validate_header",
+                "prepare.data.branchwater.BranchWaterFormatPlugin.validate_header",
                 side_effect=ValidationError("Invalid"),
             ):
                 result = process_branchwater_files(source_dir, target_dir)
@@ -153,7 +153,7 @@ class TestProcessBranchwaterRow:
         row = pd.Series({"other_field": "value"})
         metadata_records = []
 
-        with patch("metaquest.data.branchwater.logger") as mock_logger:
+        with patch("prepare.data.branchwater.logger") as mock_logger:
             _process_branchwater_row(row, metadata_records)
 
         assert len(metadata_records) == 0
@@ -207,7 +207,7 @@ class TestValidateBranchwaterFile:
         csv_content = "run_id,containment,ksize,scaled\nERR123,0.95,31,1000"
         csv_file.write_text(csv_content)
 
-        with patch("metaquest.data.branchwater.logger") as mock_logger:
+        with patch("prepare.data.branchwater.logger") as mock_logger:
             result = _validate_branchwater_file(csv_file)
 
         assert result is False
@@ -219,7 +219,7 @@ class TestValidateBranchwaterFile:
         csv_content = "acc,similarity,ksize,scaled\nERR123,0.95,31,1000"
         csv_file.write_text(csv_content)
 
-        with patch("metaquest.data.branchwater.logger") as mock_logger:
+        with patch("prepare.data.branchwater.logger") as mock_logger:
             result = _validate_branchwater_file(csv_file)
 
         assert result is False
@@ -412,12 +412,12 @@ class TestProcessGenomeContainments:
         csv_file = tmp_path / "genome1.csv"
         containment_data = defaultdict(dict)
 
-        with patch("metaquest.data.branchwater.read_csv") as mock_read_csv:
+        with patch("prepare.data.branchwater.read_csv") as mock_read_csv:
             # Mock header check
             mock_headers = pd.DataFrame(columns=["acc", "containment"])
             mock_read_csv.return_value = mock_headers
 
-            with patch("metaquest.data.branchwater.BranchWaterFormatPlugin") as mock_plugin:
+            with patch("prepare.data.branchwater.BranchWaterFormatPlugin") as mock_plugin:
                 mock_plugin.validate_header.return_value = True
                 mock_plugin.parse_file.return_value = [
                     Mock(accession="ERR123", value=0.95),
@@ -436,11 +436,11 @@ class TestProcessGenomeContainments:
         csv_file = tmp_path / "genome1.csv"
         containment_data = defaultdict(dict)
 
-        with patch("metaquest.data.branchwater.read_csv") as mock_read_csv:
+        with patch("prepare.data.branchwater.read_csv") as mock_read_csv:
             mock_headers = pd.DataFrame(columns=["unknown", "format"])
             mock_read_csv.return_value = mock_headers
 
-            with patch("metaquest.data.branchwater.BranchWaterFormatPlugin") as mock_bw_plugin:
+            with patch("prepare.data.branchwater.BranchWaterFormatPlugin") as mock_bw_plugin:
                 mock_bw_plugin.validate_header.side_effect = ValidationError("Not branchwater")
 
                 with pytest.raises(DataAccessError, match="Error processing"):
@@ -454,11 +454,11 @@ class TestProcessGenomeContainments:
         # Pre-populate with existing value
         containment_data["ERR123"]["genome1"] = 0.5
 
-        with patch("metaquest.data.branchwater.read_csv") as mock_read_csv:
+        with patch("prepare.data.branchwater.read_csv") as mock_read_csv:
             mock_headers = pd.DataFrame(columns=["acc", "containment"])
             mock_read_csv.return_value = mock_headers
 
-            with patch("metaquest.data.branchwater.BranchWaterFormatPlugin") as mock_plugin:
+            with patch("prepare.data.branchwater.BranchWaterFormatPlugin") as mock_plugin:
                 mock_plugin.validate_header.return_value = True
                 mock_plugin.parse_file.return_value = [Mock(accession="ERR123", value=0.95)]  # Higher value
 
@@ -481,7 +481,7 @@ class TestGenerateContainmentSummary:
         output_file = tmp_path / "parsed.txt"
         summary_file = tmp_path / "summary.txt"
 
-        with patch("metaquest.data.branchwater.write_csv") as mock_write:
+        with patch("prepare.data.branchwater.write_csv") as mock_write:
             result = _generate_containment_summary(containment_data, output_file, summary_file, 0.1)
 
         assert isinstance(result, ContainmentSummary)
@@ -497,7 +497,7 @@ class TestGenerateContainmentSummary:
         summary_file = tmp_path / "summary.txt"
 
         # Empty data will create an empty DataFrame which pandas can handle
-        with patch("metaquest.data.branchwater.write_csv") as mock_write:
+        with patch("prepare.data.branchwater.write_csv") as mock_write:
             result = _generate_containment_summary(containment_data, output_file, summary_file, 0.1)
 
         assert isinstance(result, ContainmentSummary)
@@ -522,9 +522,9 @@ class TestParseContainmentData:
             containment_data["ERR123"]["genome1"] = 0.95
 
         with patch(
-            "metaquest.data.branchwater._process_genome_containments", side_effect=mock_process_side_effect
+            "prepare.data.branchwater._process_genome_containments", side_effect=mock_process_side_effect
         ) as mock_process:
-            with patch("metaquest.data.branchwater._generate_containment_summary") as mock_generate:
+            with patch("prepare.data.branchwater._generate_containment_summary") as mock_generate:
                 mock_summary = ContainmentSummary()
                 mock_generate.return_value = mock_summary
 
@@ -556,7 +556,7 @@ class TestParseContainmentData:
         (matches_dir / "genome1.csv").write_text("data")
         (matches_dir / "genome2.csv").write_text("data")
 
-        with patch("metaquest.data.branchwater._process_genome_containments") as mock_process:
+        with patch("prepare.data.branchwater._process_genome_containments") as mock_process:
             mock_process.side_effect = DataAccessError("Processing error")
 
             result = parse_containment_data(matches_dir, output_file, summary_file)
@@ -633,7 +633,7 @@ class TestBranchwaterIntegration:
             (source_dir / "ecoli_genome.csv").write_text(csv_content)
 
         # Mock the format validation to work with our realistic test data
-        with patch("metaquest.data.branchwater.read_csv") as mock_read_csv:
+        with patch("prepare.data.branchwater.read_csv") as mock_read_csv:
             mock_df = pd.DataFrame(
                 columns=[
                     "acc",
@@ -661,7 +661,7 @@ class TestBranchwaterIntegration:
         # Test metadata extraction with realistic data
         metadata_file = tmp_path / "metadata.csv"
 
-        with patch("metaquest.data.branchwater._validate_branchwater_file", return_value=True):
+        with patch("prepare.data.branchwater._validate_branchwater_file", return_value=True):
             with patch("pandas.read_csv") as mock_pd_read:
                 # Use realistic values from salmonella_mini.csv for better testing
                 mock_pd_read.return_value = pd.DataFrame(
@@ -694,7 +694,7 @@ class TestBranchwaterIntegration:
         (source_dir / "empty.csv").write_text("")
 
         # Should handle errors gracefully
-        with patch("metaquest.data.branchwater.logger") as mock_logger:
+        with patch("prepare.data.branchwater.logger") as mock_logger:
             result = process_branchwater_files(source_dir, target_dir)
 
         # Should have logged errors but not crashed
@@ -855,7 +855,7 @@ class TestContainmentDetailsTable:
         parse_containment_data(matches_dir, output_file, summary_file, 0.1)
         produced = output_file.read_bytes()
 
-        from metaquest.data.file_io import write_csv
+        from prepare.data.file_io import write_csv
 
         containment_data = {"SRR1": {"GCF_1": 0.9}, "SRR2": {"GCF_1": 0.2}}
         df = pd.DataFrame.from_dict(containment_data, orient="index")
@@ -871,7 +871,7 @@ class TestContainmentDetailsTable:
 
 def test_summary_counts_samples_at_exactly_one(tmp_path):
     """A sample whose containment exactly equals the threshold must be counted (inclusive rule)."""
-    from metaquest.data.branchwater import parse_containment_data
+    from prepare.data.branchwater import parse_containment_data
 
     matches = tmp_path / "matches"
     matches.mkdir()
@@ -891,7 +891,7 @@ if __name__ == "__main__":
 def test_unexpected_error_while_parsing_one_containment_file_propagates(tmp_path):
     """Kind (a): a bug is no longer counted as an unreadable file."""
     (tmp_path / "genome1.csv").write_text("acc,containment\nSRR1,0.5\n")
-    with patch("metaquest.data.branchwater._process_genome_containments", side_effect=TypeError("bug")):
+    with patch("prepare.data.branchwater._process_genome_containments", side_effect=TypeError("bug")):
         with pytest.raises(TypeError):
             parse_containment_data(tmp_path, tmp_path / "out.tsv", tmp_path / "summary.tsv")
 

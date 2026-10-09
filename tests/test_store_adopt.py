@@ -1,4 +1,4 @@
-"""Tests for `metaquest.store.adopt`: folding project-owned FASTQ folders into the store."""
+"""Tests for `prepare.store.adopt`: folding project-owned FASTQ folders into the store."""
 
 import gzip
 import shutil
@@ -7,12 +7,12 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.core.exceptions import DataAccessError
-from metaquest.store.adopt import ADOPT_COPY_IGNORE, _folder_bytes, adopt
-from metaquest.store.catalog import Catalog, catalog_write
-from metaquest.store.layout import init_store, lock_path, sidecar_path, sra_dir
-from metaquest.store.locks import dataset_lock
-from metaquest.store.sidecar import build_sidecar, read_sidecar, write_sidecar
+from prepare.core.exceptions import DataAccessError
+from prepare.store.adopt import ADOPT_COPY_IGNORE, _folder_bytes, adopt
+from prepare.store.catalog import Catalog, catalog_write
+from prepare.store.layout import init_store, lock_path, sidecar_path, sra_dir
+from prepare.store.locks import dataset_lock
+from prepare.store.sidecar import build_sidecar, read_sidecar, write_sidecar
 
 
 def _write_fastq(path: Path, text: str = "@r\nACGT\n+\nIIII\n") -> None:
@@ -413,7 +413,7 @@ class TestAdoptStagingCrashSafety:
         entry = project_fastq / "SRR1"
         _write_fastq(entry / "SRR1.fastq")
 
-        with patch("metaquest.store.adopt.compress_fastq", side_effect=RuntimeError("boom")):
+        with patch("prepare.store.adopt.compress_fastq", side_effect=RuntimeError("boom")):
             with pytest.raises(RuntimeError, match="boom"):
                 adopt(project_fastq, paths, move=True, dry_run=False)
 
@@ -433,7 +433,7 @@ class TestAdoptStagingCrashSafety:
         entry = project_fastq / "SRR1"
         _write_fastq(entry / "SRR1.fastq")
 
-        with patch("metaquest.store.adopt.compress_fastq", side_effect=RuntimeError("boom")):
+        with patch("prepare.store.adopt.compress_fastq", side_effect=RuntimeError("boom")):
             with pytest.raises(RuntimeError):
                 adopt(project_fastq, paths, move=True, dry_run=False)
 
@@ -649,12 +649,12 @@ class TestAdoptSafety:
         acc = project / "SRR1"
         acc.mkdir(parents=True)
         _write_fastq_gz(acc / "SRR1_1.fastq.gz")
-        # metaquest.store's __init__ re-exports the `adopt` function under the same name as
-        # this submodule, so `import metaquest.store.adopt as x` (attribute lookup on the
+        # prepare.store's __init__ re-exports the `adopt` function under the same name as
+        # this submodule, so `import prepare.store.adopt as x` (attribute lookup on the
         # package) would resolve to the function, not the module; importlib sidesteps that.
         import importlib
 
-        adopt_mod = importlib.import_module("metaquest.store.adopt")
+        adopt_mod = importlib.import_module("prepare.store.adopt")
         real_build = adopt_mod.build_sidecar
 
         def failing_build(*a, **kw):
@@ -681,7 +681,7 @@ class TestAdoptSafety:
         _write_fastq_gz(acc / "SRR1_1.fastq.gz")
         import importlib
 
-        adopt_mod = importlib.import_module("metaquest.store.adopt")
+        adopt_mod = importlib.import_module("prepare.store.adopt")
         real_build = adopt_mod.build_sidecar
 
         def failing_build(*a, **kw):
@@ -722,7 +722,7 @@ class TestContentComparisonPasses:
         import builtins
         from collections import Counter
 
-        from metaquest.store.adopt import _content_matches
+        from prepare.store.adopt import _content_matches
 
         text = "@r\nACGT\n+\nIIII\n" * 50
         project = tmp_path / "project" / "SRR1.fastq.gz"
@@ -750,7 +750,7 @@ class TestAdoptLockLost:
     def test_a_lock_taken_over_during_staging_publishes_nothing(self, tmp_path):
         import json
 
-        from metaquest.data.sra import compress_fastq as real_compress
+        from prepare.data.sra import compress_fastq as real_compress
 
         paths = init_store(tmp_path / "store")
         project_fastq = tmp_path / "project" / "fastq"
@@ -762,7 +762,7 @@ class TestAdoptLockLost:
             lock_path(paths, "SRR1").write_text(json.dumps(other))
             return real_compress(path, threads)
 
-        with patch("metaquest.store.adopt.compress_fastq", side_effect=_compress):
+        with patch("prepare.store.adopt.compress_fastq", side_effect=_compress):
             report = adopt(project_fastq, paths, move=True, dry_run=False)
 
         assert report.failed == ["SRR1"]
@@ -788,7 +788,7 @@ class TestAdoptSidecarBeforePublish:
             seen["sidecar_present"] = (Path(src) / "SRR1.json").is_file()
             return real_move(src, dst, *args, **kwargs)
 
-        with patch("metaquest.store.adopt.shutil.move", side_effect=_spy_move):
+        with patch("prepare.store.adopt.shutil.move", side_effect=_spy_move):
             report = adopt(project_fastq, paths, move=True, dry_run=False)
 
         assert report.adopted == ["SRR1"]
@@ -802,7 +802,7 @@ class TestAdoptSidecarBeforePublish:
         project_fastq = tmp_path / "project" / "fastq"
         _write_fastq(project_fastq / "SRR1" / "SRR1.fastq")
 
-        with patch("metaquest.store.adopt.catalog_write", side_effect=KeyboardInterrupt):
+        with patch("prepare.store.adopt.catalog_write", side_effect=KeyboardInterrupt):
             with pytest.raises(KeyboardInterrupt):
                 adopt(project_fastq, paths, move=True, dry_run=False)
 
@@ -817,7 +817,7 @@ class TestRebuildMissingSidecar:
     """``rebuild_missing_sidecar`` describes a sidecar-less store folder without vouching for it."""
 
     def test_rebuilds_from_the_files_on_disk_without_cataloguing(self, tmp_path):
-        from metaquest.store.adopt import rebuild_missing_sidecar
+        from prepare.store.adopt import rebuild_missing_sidecar
 
         paths = init_store(tmp_path / "store")
         store_dir = sra_dir(paths, "SRR1")
@@ -846,7 +846,7 @@ class TestRebuildMissingSidecar:
             assert cat.get_dataset("SRR1") is None
 
     def test_a_sidecar_written_meanwhile_is_kept(self, tmp_path):
-        from metaquest.store.adopt import rebuild_missing_sidecar
+        from prepare.store.adopt import rebuild_missing_sidecar
 
         paths = init_store(tmp_path / "store")
         store_dir = sra_dir(paths, "SRR1")
@@ -861,7 +861,7 @@ class TestRebuildMissingSidecar:
         assert read_sidecar(sidecar_path(paths, "SRR1")) == existing
 
     def test_an_unreadable_sidecar_is_never_overwritten(self, tmp_path):
-        from metaquest.store.adopt import rebuild_missing_sidecar
+        from prepare.store.adopt import rebuild_missing_sidecar
 
         paths = init_store(tmp_path / "store")
         store_dir = sra_dir(paths, "SRR1")

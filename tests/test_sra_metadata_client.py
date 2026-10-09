@@ -12,7 +12,7 @@ import sys
 def _force_fresh_import():
     """Force fresh import of SRA modules to get real implementations."""
     modules_to_clear = [
-        "metaquest.data.sra_metadata",
+        "prepare.data.sra_metadata",
     ]
     for module_name in modules_to_clear:
         if module_name in sys.modules:
@@ -24,7 +24,7 @@ def _force_fresh_import():
 # Apply fresh import at start of test session
 _force_fresh_import()
 
-from metaquest.data.sra_metadata import (  # noqa: E402
+from prepare.data.sra_metadata import (  # noqa: E402
     SRAMetadataClient,
     SRADatasetInfo,
     detect_sequencing_technology,
@@ -208,7 +208,7 @@ class TestSRAIntegration:
         assert record["technology"] == "illumina"
         assert record["spots"] == 1000000
 
-    @patch("metaquest.data.sra_metadata.save_metadata_report")
+    @patch("prepare.data.sra_metadata.save_metadata_report")
     def test_report_generation_integration(self, mock_save):
         """Test integration of metadata and report generation."""
         metadata = {
@@ -246,7 +246,7 @@ class TestSRAMetadataClientRetries:
     """
 
     def test_persistent_503_raises_network_error_after_retrying(self, monkeypatch):
-        from metaquest.core.exceptions import NetworkError
+        from prepare.core.exceptions import NetworkError
         from tests.fake_http import serve
 
         requested = serve(monkeypatch, lambda path: (503, b"unavailable"))
@@ -256,7 +256,7 @@ class TestSRAMetadataClientRetries:
         with pytest.raises(NetworkError, match="Failed to query NCBI"):
             client._make_request(client.base_url + "esearch.fcgi", {"db": "sra"})
 
-        # One first attempt plus 3 retries (metaquest.utils.http.RETRY_TOTAL).
+        # One first attempt plus 3 retries (prepare.utils.http.RETRY_TOTAL).
         assert len(requested) == 4
 
     def test_success_after_one_503_returns_the_response_body(self, monkeypatch):

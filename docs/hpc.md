@@ -1,13 +1,13 @@
-# Running MetaQuest on a cluster
+# Running PREPARE on a cluster
 
-This page describes how to run the long steps of MetaQuest, `download_sra` and `extract_target_reads`,
+This page describes how to run the long steps of PREPARE, `download_sra` and `extract_target_reads`,
 as SLURM batch jobs: checking a node before the first job, splitting a download over an array job,
 what happens at the walltime limit, how exit codes drive a resubmission, and what to watch for when
-the project or the shared data store lives on a network filesystem. MetaQuest does not submit jobs
+the project or the shared data store lives on a network filesystem. PREPARE does not submit jobs
 itself; the scripts below are templates to adapt to the local cluster.
 
 The settings named here (`--timeout`, `--lock-wait`, `--min-free-gb`, `--assembly-memory`, and the
-`METAQUEST_*` variables) are described in [configuration.md](configuration.md).
+`PREPARE_*` variables) are described in [configuration.md](configuration.md).
 
 ## Before the first job
 
@@ -15,8 +15,8 @@ Run `doctor` inside an allocation of the same size as the jobs, so it sees the j
 limit and temporary folder rather than those of the login node:
 
 ```bash
-srun --cpus-per-task=8 --mem=16G --time=00:10:00 metaquest doctor --for download_sra
-srun --cpus-per-task=16 --mem=64G --time=00:10:00 metaquest doctor --for extract_target_reads
+srun --cpus-per-task=8 --mem=16G --time=00:10:00 prepare doctor --for download_sra
+srun --cpus-per-task=16 --mem=64G --time=00:10:00 prepare doctor --for extract_target_reads
 ```
 
 `--for` turns a tool the command needs into a failure rather than a warning, and `doctor` then exits
@@ -51,7 +51,7 @@ sbatch download.sbatch
 
 shard=$(printf 'shards/shard_%02d' "$SLURM_ARRAY_TASK_ID")
 
-exec metaquest --log-file logs/dl_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.log download_sra \
+exec prepare --log-file logs/dl_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.log download_sra \
     --accessions-file "$shard" --num-threads 4 --max-workers 2 \
     --temp-folder "$TMPDIR" --timeout 0 --lock-wait 3600 \
     --report-file reports/dl_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.csv
@@ -63,11 +63,11 @@ Notes on the template:
   limits the load on NCBI and on the filesystem.
 - `--num-threads 4 --max-workers 2` uses the 8 CPUs of the allocation: two accessions at a time, each
   `fasterq-dump` with four threads. Without `--max-workers` the number is the CPUs available to the job
-  divided by `--num-threads`, at most 4 (`METAQUEST_MAX_WORKERS_CAP`).
+  divided by `--num-threads`, at most 4 (`PREPARE_MAX_WORKERS_CAP`).
 - `--temp-folder "$TMPDIR"` puts the `fasterq-dump` temporary files on the node's local disk, when the
   site sets `TMPDIR` to one. Check that it is set, and large enough: the free-space check asks for about
   8 times an accession's `.sra` size there while it converts. Without `--temp-folder` (or
-  `METAQUEST_TEMP_FOLDER`) the scratch files go to `fastq/.metaquest-tmp/<ACCESSION>_fqtmp` in a project
+  `PREPARE_TEMP_FOLDER`) the scratch files go to `fastq/.prepare-tmp/<ACCESSION>_fqtmp` in a project
   without a store, and to `<data-root>/tmp/<ACCESSION>_fqtmp` with one, that is, onto the project's or the
   store's filesystem; when that is a network filesystem, point the scratch at local disk as here. The
   free-space check and `doctor` measure whichever of these folders `fasterq-dump` writes to.
@@ -78,9 +78,9 @@ Notes on the template:
   failed with a `locked:` message and is picked up by the next run.
 - SLURM does not create the folder of `--output`, so `logs/` must exist before `sbatch`. `--log-file`
   creates its own folder, `--report-file` does not.
-- Every task writes to the same project registry, `metaquest_registry.json`, under its lock. A task
+- Every task writes to the same project registry, `prepare_registry.json`, under its lock. A task
   queues its outcomes and writes them in batches, so the lock is held briefly. On a busy network
-  filesystem, raise the wait for that lock with `export METAQUEST_REGISTRY_LOCK_WAIT=120` in the script
+  filesystem, raise the wait for that lock with `export PREPARE_REGISTRY_LOCK_WAIT=120` in the script
   (default 30 s).
 
 Accessions already present are skipped, so a shard can be run again at any time: a rerun downloads only
@@ -89,8 +89,8 @@ what is missing.
 ## Signals and the walltime limit
 
 `--signal=B:TERM@300` asks SLURM to send `SIGTERM` to the batch shell 300 seconds before the time limit.
-`exec` replaces the shell with `metaquest`, so the signal reaches MetaQuest itself; without `exec` the
-shell receives it and MetaQuest runs on until SLURM kills the job.
+`exec` replaces the shell with `prepare`, so the signal reaches PREPARE itself; without `exec` the
+shell receives it and PREPARE runs on until SLURM kills the job.
 
 On the first `SIGTERM` (or `SIGINT`, `SIGHUP`) `download_sra`:
 
@@ -109,9 +109,9 @@ what was done. A second signal is logged and does not interrupt the registry wri
 running tool, keeps every sample recorded so far and exits with 130. The sample that was cut off is done
 again by the next run.
 
-Each tool runs in a process group of its own, which MetaQuest signals as a whole on a timeout or a
+Each tool runs in a process group of its own, which PREPARE signals as a whole on a timeout or a
 termination, so a process the tool started (megahit's `megahit_core`) stops with it. A `SIGKILL` sent
-only to MetaQuest's process group does not reach a running tool. SLURM ends every process of a job
+only to PREPARE's process group does not reach a running tool. SLURM ends every process of a job
 through its process tracking (`proctrack/cgroup` on most clusters); with `proctrack/pgid` a tool can
 outlive a job that was killed rather than signalled.
 
@@ -172,21 +172,21 @@ A shared store (see "Shared data store" in the README) keeps one copy of each do
 project of a group. On a cluster it normally lives on a group filesystem:
 
 ```bash
-metaquest store_init --data-root /proj/group/metaquest-store --set-default
-export METAQUEST_DATA=/proj/group/metaquest-store     # in the job script, or rely on the registry
+prepare store_init --data-root /proj/group/prepare-store --set-default
+export PREPARE_DATA=/proj/group/prepare-store     # in the job script, or rely on the registry
 ```
 
-The store root is found from `--data-root`, then `METAQUEST_DATA`, then `store.root` in the project
+The store root is found from `--data-root`, then `PREPARE_DATA`, then `store.root` in the project
 registry (written by `store_init`), then `[store] data_root` in the user config file, so a project that
 ran `store_init` finds its store in every job without further settings.
 
 - Every member of the group needs write access to the whole store: a waiting run may take over a lock
   file that another user's run left behind. Make the root group-writable with the set-group-ID bit
-  (`chmod -R g+rwX /proj/group/metaquest-store` and `chmod g+s` on its folders) and set `umask 0002` in
+  (`chmod -R g+rwX /proj/group/prepare-store` and `chmod g+s` on its folders) and set `umask 0002` in
   the job scripts.
 - Each dataset has a lock, `<data-root>/locks/<ACCESSION>.lock`. Two jobs, of one project or of two,
   that want the same accession do not both download it: the second waits (up to `--lock-wait`) and then
-  finds it present. A lock whose heartbeat has stopped for 10 minutes (`METAQUEST_DATASET_LOCK_STALE`) is
+  finds it present. A lock whose heartbeat has stopped for 10 minutes (`PREPARE_DATASET_LOCK_STALE`) is
   taken over. A holder that died on the same host is taken over at once; one on another host cannot be
   checked, so its lock is taken over only after the full 10 minutes.
 - With a store, the finished FASTQ files are staged under `<data-root>/tmp/` and moved into place with
@@ -197,7 +197,7 @@ ran `store_init` finds its store in every job without further settings.
 
 ## Network filesystems
 
-MetaQuest's locks are plain files created with `O_EXCL`, and the store catalogue is an SQLite database
+PREPARE's locks are plain files created with `O_EXCL`, and the store catalogue is an SQLite database
 in `DELETE` journal mode behind its own lock file. This works on network filesystems, with these
 caveats:
 
@@ -209,7 +209,7 @@ caveats:
   make a live lock look stale, or delay the takeover of a dead one by the size of the skew. NFS clients
   also cache file attributes for up to about a minute by default; the stale windows are chosen above
   that, and should not be lowered much below the defaults on NFS.
-- **Temporary files**: do not point `--temp-folder` (or `METAQUEST_TEMP_FOLDER`) at a network
+- **Temporary files**: do not point `--temp-folder` (or `PREPARE_TEMP_FOLDER`) at a network
   filesystem. `fasterq-dump` writes and rereads its scratch files many times; on NFS this is slow and
   loads the file server. Use the node's local disk (`$TMPDIR`).
 - **Log files**: give each process its own `--log-file`, as the array template does. Appends from
@@ -217,7 +217,7 @@ caveats:
   processes on one host may share a log file on a local disk.
 - **SQLite**: the catalogue does not use WAL mode, which SQLite documents as unsafe on network
   filesystems; writes are serialised by `catalog.sqlite.lock` and wait up to 60 s
-  (`METAQUEST_CATALOG_LOCK_WAIT`).
+  (`PREPARE_CATALOG_LOCK_WAIT`).
 
 ## Targeted extraction and assembly
 
@@ -241,7 +241,7 @@ splitting one genome over several jobs gains little.
 
 genome=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" genomes.txt)
 
-exec metaquest --log-file logs/ex_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.log extract_target_reads \
+exec prepare --log-file logs/ex_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.log extract_target_reads \
     --parsed-containment parsed_containment.txt --genome-id "$genome" --genome-fasta "genomes/$genome.fna" \
     --threads "$SLURM_CPUS_PER_TASK" --temp-folder "$TMPDIR" --assemble --assembly-memory auto
 ```
@@ -260,7 +260,7 @@ Assemblies resume safely after a walltime signal or a kill. megahit writes into 
 beside `<genome_id>_assembly`, and the finished result replaces the previous folder by rename, so an
 interrupted run never leaves a half-written assembly in place of a complete one. A staging folder left by a
 killed job is removed when the next job reaches that sample, and a folder without `final.contigs.fa` is
-assembled again. Each finished assembly carries a marker, `.metaquest-assembly.json`, recording the reads
+assembled again. Each finished assembly carries a marker, `.prepare-assembly.json`, recording the reads
 and settings it was built from; a resubmitted job reuses an assembly whose marker matches and redoes one
 whose reads or settings have changed (see "Targeted Read Extraction Before Assembly" in the README). A
 sample whose assembly fails is reported and the job continues with the next one, then exits with 1, so an

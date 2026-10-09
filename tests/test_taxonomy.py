@@ -6,8 +6,8 @@ import pytest
 from unittest.mock import patch, MagicMock
 import pandas as pd
 
-from metaquest.core.exceptions import ProcessingError
-from metaquest.data.taxonomy import (
+from prepare.core.exceptions import ProcessingError
+from prepare.data.taxonomy import (
     NCBITaxonomyClient,
     validate_taxonomic_assignments,
     create_taxonomic_summary,
@@ -178,7 +178,7 @@ class TestTaxonomyValidation:
         """Set up test data."""
         self.species_list = ["Escherichia coli", "Bacillus subtilis", "Invalid species name"]
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_validate_taxonomic_assignments(self, mock_client_class):
         """Test batch taxonomy validation."""
         # Mock client
@@ -257,7 +257,7 @@ class TestTaxonomyEdgeCases:
 
     def test_empty_species_list(self):
         """Test with empty species list."""
-        with patch("metaquest.data.taxonomy.NCBITaxonomyClient"):
+        with patch("prepare.data.taxonomy.NCBITaxonomyClient"):
             result = validate_taxonomic_assignments([], email="test@example.com")
 
             assert isinstance(result, pd.DataFrame)
@@ -359,7 +359,7 @@ class TestNCBIClientSessionIsClosed:
                 pass
         assert closed.call_count == 1
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_validate_taxonomic_assignments_closes_its_client(self, mock_client_class):
         client = mock_client_class.return_value
         client.validate_species_name.return_value = {
@@ -374,7 +374,7 @@ class TestNCBIClientSessionIsClosed:
         validate_taxonomic_assignments(["E. coli"], "test@example.com")
         assert client.close.call_count == 1
 
-    @patch("metaquest.data.taxonomy.NCBITaxonomyClient")
+    @patch("prepare.data.taxonomy.NCBITaxonomyClient")
     def test_client_is_closed_when_a_lookup_raises(self, mock_client_class):
         client = mock_client_class.return_value
         client.validate_species_name.side_effect = RuntimeError("boom")

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from metaquest.processing.diversity import (
+from prepare.processing.diversity import (
     calculate_alpha_diversity,
     calculate_beta_diversity,
     perform_permanova,

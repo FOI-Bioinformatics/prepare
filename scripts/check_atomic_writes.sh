@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Fail on a direct, non-atomic file write under metaquest/.
+# Fail on a direct, non-atomic file write under prepare/.
 #
 # Every output file and every shared state file is written through the helpers in
-# metaquest/data/file_io.py (write_text_atomic, write_bytes_atomic, write_csv, open_atomic,
+# prepare/data/file_io.py (write_text_atomic, write_bytes_atomic, write_csv, open_atomic,
 # atomic_path): the content goes to a unique temporary name next to the target and is moved into
 # place with one rename, so a reader, a second process or an interrupted run never sees a partial
 # file. This gate flags the direct forms that bypass them:
@@ -76,10 +76,10 @@ while IFS= read -r file; do
 ${match}
 "
     fi
-done < <(find metaquest -name '*.py' -type f | LC_ALL=C sort)
+done < <(find prepare -name '*.py' -type f | LC_ALL=C sort)
 
 if [ "$checked" -eq 0 ]; then
-    echo "ERROR: no Python files found under $(pwd)/metaquest; nothing was checked"
+    echo "ERROR: no Python files found under $(pwd)/prepare; nothing was checked"
     exit 1
 fi
 
@@ -91,7 +91,7 @@ fi
 if [ -n "$hits" ]; then
     printf '%s' "$hits"
     echo "ERROR: direct file write(s) found; use write_text_atomic, write_csv, open_atomic or atomic_path"
-    echo "       from metaquest/data/file_io.py, or list the module in ${allowlist_file} with a reason"
+    echo "       from prepare/data/file_io.py, or list the module in ${allowlist_file} with a reason"
     status=1
 fi
 if [ "$status" -eq 0 ]; then

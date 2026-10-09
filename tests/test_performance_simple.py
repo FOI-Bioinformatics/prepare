@@ -1,5 +1,5 @@
 """
-EDGE CASE TESTS for MetaQuest
+EDGE CASE TESTS for PREPARE
 
 Tests edge cases for validated components:
 - Boundary conditions
@@ -18,11 +18,11 @@ Run: pytest tests/test_performance_simple.py -v
 import pandas as pd
 import numpy as np
 
-from metaquest.data.sra_metadata import (
+from prepare.data.sra_metadata import (
     detect_sequencing_technology,
     SRADatasetInfo,
 )
-from metaquest.plugins.visualizers.bar import (
+from prepare.plugins.visualizers.bar import (
     BarChartPlugin,
     _prepare_plot_data,
 )

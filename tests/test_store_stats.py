@@ -1,5 +1,5 @@
 """
-Tests for metaquest.store.stats: one cached FASTQ statistics record per dataset, computed
+Tests for prepare.store.stats: one cached FASTQ statistics record per dataset, computed
 once and shared by sra_profile and sra_report instead of each command re-parsing every read
 on its own.
 """
@@ -10,8 +10,8 @@ from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from metaquest.store.sidecar import Sidecar, read_sidecar, write_sidecar
-from metaquest.store.stats import cached_stats, compute_dataset_stats, store_stats
+from prepare.store.sidecar import Sidecar, read_sidecar, write_sidecar
+from prepare.store.stats import cached_stats, compute_dataset_stats, store_stats
 
 
 def _write_fastq(path: Path, reads, gz: bool = False) -> None:
@@ -230,7 +230,7 @@ class TestStoreStatsConcurrency:
 
     def _store_sidecar(self, tmp_path, state="partial"):
         """A store rooted at ``tmp_path/store`` holding one accession's sidecar."""
-        from metaquest.store.layout import init_store, sidecar_path as dataset_sidecar_path, sra_dir
+        from prepare.store.layout import init_store, sidecar_path as dataset_sidecar_path, sra_dir
 
         paths = init_store(tmp_path / "store")
         acc_dir = sra_dir(paths, "SRR1")
@@ -268,10 +268,10 @@ class TestStoreStatsConcurrency:
         download or ``store_verify --fix-state`` running under the same lock could write
         between this function's read and its write.
         """
-        from metaquest.core.exceptions import DataAccessError
-        from metaquest.store import locks as locks_module
-        from metaquest.store import stats as stats_module
-        from metaquest.store.locks import dataset_lock
+        from prepare.core.exceptions import DataAccessError
+        from prepare.store import locks as locks_module
+        from prepare.store import stats as stats_module
+        from prepare.store.locks import dataset_lock
 
         paths, sidecar_path = self._store_sidecar(tmp_path)
         monkeypatch.setattr(locks_module, "LOCK_POLL_SECONDS", 0.001)
@@ -299,7 +299,7 @@ class TestStoreStatsConcurrency:
         assert read_sidecar(sidecar_path).stats["reads_total"] == 7
 
     def test_the_write_takes_the_dataset_lock(self, tmp_path):
-        from metaquest.store import stats as stats_module
+        from prepare.store import stats as stats_module
 
         paths, sidecar_path = self._store_sidecar(tmp_path)
         held = []
@@ -319,14 +319,14 @@ class TestStoreStatsConcurrency:
         the statistics: the record is simply not cached this time."""
         import logging
 
-        from metaquest.store import locks as locks_module
-        from metaquest.store.layout import lock_path
+        from prepare.store import locks as locks_module
+        from prepare.store.layout import lock_path
 
         paths, sidecar_path = self._store_sidecar(tmp_path)
         lock_path(paths, "SRR1").write_text('{"pid": 999, "host": "other-host", "started": "now"}')
 
         monkeypatch.setattr(locks_module, "LOCK_POLL_SECONDS", 0.01)
-        monkeypatch.setattr("metaquest.store.stats.STATS_LOCK_WAIT_SECONDS", 0.02)
+        monkeypatch.setattr("prepare.store.stats.STATS_LOCK_WAIT_SECONDS", 0.02)
 
         with caplog.at_level(logging.WARNING):
             store_stats(sidecar_path, {"reads_total": 7, "signature": {}})
@@ -337,7 +337,7 @@ class TestStoreStatsConcurrency:
 
     def test_a_sidecar_outside_a_store_is_written_without_a_lock(self, tmp_path):
         """A sidecar beside a plain project folder has no store lock directory to use."""
-        from metaquest.store import stats as stats_module
+        from prepare.store import stats as stats_module
 
         acc_dir = tmp_path / "SRR1"
         acc_dir.mkdir()
@@ -364,8 +364,8 @@ class TestSeqkitPath:
         )
         fake_result = Mock(stdout=table, returncode=0)
 
-        with patch("metaquest.store.stats.shutil.which", return_value="/usr/bin/seqkit"):
-            with patch("metaquest.store.stats.SecureSubprocess.run_secure", return_value=fake_result) as mock_run:
+        with patch("prepare.store.stats.shutil.which", return_value="/usr/bin/seqkit"):
+            with patch("prepare.store.stats.SecureSubprocess.run_secure", return_value=fake_result) as mock_run:
                 stats = compute_dataset_stats([fastq], sample_size=1000, use_seqkit=True)
 
         mock_run.assert_called_once()
@@ -393,8 +393,8 @@ class TestSeqkitPath:
             f"{mate1}\tFASTQ\tDNA\t20\t200\t10\t10.0\t10\n"
         )
 
-        with patch("metaquest.store.stats.shutil.which", return_value="/usr/bin/seqkit"):
-            with patch("metaquest.store.stats.SecureSubprocess.run_secure", return_value=Mock(stdout=table)):
+        with patch("prepare.store.stats.shutil.which", return_value="/usr/bin/seqkit"):
+            with patch("prepare.store.stats.SecureSubprocess.run_secure", return_value=Mock(stdout=table)):
                 stats = compute_dataset_stats([mate1, mate2], sample_size=1000, use_seqkit=True)
 
         assert stats["reads_per_file"] == {"SRR1_1.fastq": 20, "SRR1_2.fastq": 30}
@@ -408,8 +408,8 @@ class TestSeqkitPath:
             "somewhere/else.fastq\tFASTQ\tDNA\t999\t9990\t10\t10.0\t10\n"
         )
 
-        with patch("metaquest.store.stats.shutil.which", return_value="/usr/bin/seqkit"):
-            with patch("metaquest.store.stats.SecureSubprocess.run_secure", return_value=Mock(stdout=table)):
+        with patch("prepare.store.stats.shutil.which", return_value="/usr/bin/seqkit"):
+            with patch("prepare.store.stats.SecureSubprocess.run_secure", return_value=Mock(stdout=table)):
                 stats = compute_dataset_stats([fastq], sample_size=1000, use_seqkit=True)
 
         assert stats["reads_total"] == 5  # the streaming count, not seqkit's row
@@ -418,8 +418,8 @@ class TestSeqkitPath:
         fastq = tmp_path / "SRR1.fastq"
         _write_fastq(fastq, ["ACGTACGTAC"] * 5)
 
-        with patch("metaquest.store.stats.shutil.which", return_value=None):
-            with patch("metaquest.store.stats.SecureSubprocess.run_secure") as mock_run:
+        with patch("prepare.store.stats.shutil.which", return_value=None):
+            with patch("prepare.store.stats.SecureSubprocess.run_secure") as mock_run:
                 stats = compute_dataset_stats([fastq], use_seqkit=True)
 
         mock_run.assert_not_called()
@@ -429,8 +429,8 @@ class TestSeqkitPath:
         fastq = tmp_path / "SRR1.fastq"
         _write_fastq(fastq, ["ACGT"] * 3)
 
-        with patch("metaquest.store.stats.shutil.which", return_value="/usr/bin/seqkit"):
-            with patch("metaquest.store.stats.SecureSubprocess.run_secure") as mock_run:
+        with patch("prepare.store.stats.shutil.which", return_value="/usr/bin/seqkit"):
+            with patch("prepare.store.stats.SecureSubprocess.run_secure") as mock_run:
                 stats = compute_dataset_stats([fastq], use_seqkit=False)
 
         mock_run.assert_not_called()
@@ -440,8 +440,8 @@ class TestSeqkitPath:
         fastq = tmp_path / "SRR1.fastq"
         _write_fastq(fastq, ["ACGT"] * 4)
 
-        with patch("metaquest.store.stats.shutil.which", return_value="/usr/bin/seqkit"):
-            with patch("metaquest.store.stats.SecureSubprocess.run_secure", side_effect=RuntimeError("boom")):
+        with patch("prepare.store.stats.shutil.which", return_value="/usr/bin/seqkit"):
+            with patch("prepare.store.stats.SecureSubprocess.run_secure", side_effect=RuntimeError("boom")):
                 stats = compute_dataset_stats([fastq], use_seqkit=True)
 
         assert stats["reads_total"] == 4

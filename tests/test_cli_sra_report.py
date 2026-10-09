@@ -12,11 +12,11 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from metaquest.cli.commands.sra_report import SRAReportCommand, load_groups
-from metaquest.core.exceptions import ValidationError
-from metaquest.sra.analytics import ComparativeAnalysis, QualityProfile, SRADatasetAnalyzer
-from metaquest.sra.profiles import write_profile_json
-from metaquest.utils.logging import ConsoleFormatter
+from prepare.cli.commands.sra_report import SRAReportCommand, load_groups
+from prepare.core.exceptions import ValidationError
+from prepare.sra.analytics import ComparativeAnalysis, QualityProfile, SRADatasetAnalyzer
+from prepare.sra.profiles import write_profile_json
+from prepare.utils.logging import ConsoleFormatter
 
 
 def _write_fastq(path, reads):
@@ -30,7 +30,7 @@ def _args(tmp_path, **overrides):
     args = parser.parse_args([])
     args.fastq_folder = str(tmp_path / "fastq")
     args.output_dir = str(tmp_path / "reports")
-    args.registry = str(tmp_path / "metaquest_registry.json")
+    args.registry = str(tmp_path / "prepare_registry.json")
     args.no_open = True
     for key, value in overrides.items():
         setattr(args, key, value)
@@ -105,7 +105,7 @@ def test_groups_file_profiles_each_accession_once(tmp_path, monkeypatch):
 
     assert sorted(calls) == ["SRR1", "SRR2", "SRR3", "SRR4"]
     assert (tmp_path / "reports" / "sra_report.html").is_file()
-    registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    registry = json.loads((tmp_path / "prepare_registry.json").read_text())
     assert registry["datasets"]["SRR1"]["analyses"]["report"]["output"] == "reports/sra_report.html"
 
 
@@ -212,7 +212,7 @@ def test_report_json_is_numpy_safe(tmp_path):
         recommendations=[],
         visualization_data={},
     )
-    from metaquest.sra.analytics import AnomalyReport
+    from prepare.sra.analytics import AnomalyReport
 
     anomalies = AnomalyReport([], {}, {}, {}, {})
     path = SRAReportCommand()._write_json(tmp_path, {"A1": make_profile("A1")}, [], anomalies, comparison)
@@ -228,11 +228,11 @@ def test_no_report_writes_only_the_json_and_needs_no_plotting_packages(tmp_path,
     _datasets(tmp_path, ("SRR1",))
     monkeypatch.setitem(sys.modules, "plotly", None)
     args = _args(tmp_path, no_report=True, no_open=False, groups_file=_groups_file(tmp_path, {"A": ["SRR1"]}))
-    with patch("metaquest.cli.commands.sra_report.open_in_browser") as opener:
+    with patch("prepare.cli.commands.sra_report.open_in_browser") as opener:
         assert SRAReportCommand().execute(args) == 0
     opener.assert_not_called()
     assert sorted(p.name for p in (tmp_path / "reports").iterdir()) == ["sra_report.json"]
-    registry = json.loads((tmp_path / "metaquest_registry.json").read_text())
+    registry = json.loads((tmp_path / "prepare_registry.json").read_text())
     assert registry["datasets"]["SRR1"]["analyses"]["report"]["output"] == "reports/sra_report.json"
 
 
@@ -246,9 +246,9 @@ def test_a_missing_interactive_extra_fails_before_any_work_or_output(tmp_path, m
         with caplog.at_level(logging.ERROR):
             assert SRAReportCommand().execute(_args(tmp_path, groups_file=_groups_file(tmp_path))) == 3
     profile_call.assert_not_called()
-    assert "metaquest[interactive]" in caplog.text
+    assert "prepare[interactive]" in caplog.text
     assert not (tmp_path / "reports").exists()
-    assert not (tmp_path / "metaquest_registry.json").exists()
+    assert not (tmp_path / "prepare_registry.json").exists()
 
 
 @pytest.mark.parametrize("no_report", [False, True])
@@ -263,9 +263,9 @@ def test_a_missing_analysis_extra_fails_before_any_work_with_groups_file(tmp_pat
             args = _args(tmp_path, groups_file=_groups_file(tmp_path), no_report=no_report)
             assert SRAReportCommand().execute(args) == 3
     profile_call.assert_not_called()
-    assert "metaquest[analysis]" in caplog.text
+    assert "prepare[analysis]" in caplog.text
     assert not (tmp_path / "reports").exists()
-    assert not (tmp_path / "metaquest_registry.json").exists()
+    assert not (tmp_path / "prepare_registry.json").exists()
 
 
 def test_without_groups_file_a_missing_scipy_does_not_matter(tmp_path, monkeypatch):
@@ -282,7 +282,7 @@ def test_the_report_is_opened_unless_no_open(tmp_path):
     _datasets(tmp_path, ("SRR1",))
     accessions = tmp_path / "acc.txt"
     accessions.write_text("SRR1\n")
-    with patch("metaquest.cli.commands.sra_report.open_in_browser", return_value=True) as opener:
+    with patch("prepare.cli.commands.sra_report.open_in_browser", return_value=True) as opener:
         assert SRAReportCommand().execute(_args(tmp_path, accessions_file=str(accessions), no_open=False)) == 0
     opener.assert_called_once_with(tmp_path / "reports" / "sra_report.html")
 
@@ -290,7 +290,7 @@ def test_the_report_is_opened_unless_no_open(tmp_path):
 def test_registry_summary_names_group_grade_and_gc_percent(tmp_path):
     _datasets(tmp_path)
     assert SRAReportCommand().execute(_args(tmp_path, groups_file=_groups_file(tmp_path))) == 0
-    summary = json.loads((tmp_path / "metaquest_registry.json").read_text())["datasets"]["SRR3"]["analyses"]["report"][
+    summary = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]["SRR3"]["analyses"]["report"][
         "summary"
     ]
     assert summary["group"] == "B"

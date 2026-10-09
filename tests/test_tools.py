@@ -7,11 +7,11 @@ else, so no real tool is ever run.
 import pytest
 
 from helpers_tools import fake_tool
-from metaquest.cli.main import main
-from metaquest.core import settings
-from metaquest.core.exceptions import ConfigurationError
-from metaquest.utils import tools
-from metaquest.utils.tools import TOOLS, parse_version, probe_tool, require_tools, version_at_least
+from prepare.cli.main import main
+from prepare.core import settings
+from prepare.core.exceptions import ConfigurationError
+from prepare.utils import tools
+from prepare.utils.tools import TOOLS, parse_version, probe_tool, require_tools, version_at_least
 
 
 @pytest.fixture(autouse=True)
@@ -19,7 +19,7 @@ def _isolated(tmp_path, monkeypatch):
     """No user config, no store variable, and an empty ``PATH`` unless a test adds fake tools."""
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    monkeypatch.delenv("METAQUEST_DATA", raising=False)
+    monkeypatch.delenv("PREPARE_DATA", raising=False)
     monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
     monkeypatch.chdir(tmp_path)
     settings.reset_for_tests()
@@ -127,7 +127,7 @@ def test_a_tool_that_exits_non_zero_has_no_version_even_if_its_error_names_one(t
 def test_require_tools_refuses_a_tool_that_cannot_run_with_exit_3(tmp_path, monkeypatch):
     import argparse
 
-    from metaquest.cli.commands.read_extraction import ExtractTargetReadsCommand
+    from prepare.cli.commands.read_extraction import ExtractTargetReadsCommand
 
     loader = "samtools: error while loading shared libraries: libcrypto.so.1.0.0: cannot open shared object file"
     fake_tool(tmp_path, "minimap2", "2.28-r1209")

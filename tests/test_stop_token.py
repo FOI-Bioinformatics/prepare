@@ -18,11 +18,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-import metaquest.data.sra.accession as accession_mod
-import metaquest.data.sra.retry as retry_mod
-import metaquest.data.sra.store_handoff as store_handoff_mod
-from metaquest.data.sra.download import download_sra
-from metaquest.utils.security import SecureSubprocess
+import prepare.data.sra.accession as accession_mod
+import prepare.data.sra.retry as retry_mod
+import prepare.data.sra.store_handoff as store_handoff_mod
+from prepare.data.sra.download import download_sra
+from prepare.utils.security import SecureSubprocess
 
 needs_sleep = pytest.mark.skipif(shutil.which("sleep") is None, reason="needs a 'sleep' executable on PATH")
 
@@ -155,8 +155,8 @@ class TestTokenThroughTheDownloadChain:
     def test_download_accession_runs_no_tool_once_its_token_is_set(self, tmp_path):
         token = threading.Event()
         token.set()
-        with patch("metaquest.data.sra.accession.SecureSubprocess.run_secure") as run:
-            with patch("metaquest.data.sra.accession.shutil.which", return_value="/usr/bin/prefetch"):
+        with patch("prepare.data.sra.accession.SecureSubprocess.run_secure") as run:
+            with patch("prepare.data.sra.accession.shutil.which", return_value="/usr/bin/prefetch"):
                 result = accession_mod.download_accession("SRR2517620", tmp_path / "fastq", stop=token)
         assert result == (False, "interrupted")
         run.assert_not_called()
@@ -170,16 +170,16 @@ class TestTokenThroughTheDownloadChain:
             token.set()
             raise subprocess.CalledProcessError(-15, [executable], output="", stderr="")
 
-        with patch("metaquest.data.sra.accession.SecureSubprocess.run_secure", side_effect=fake_run):
-            with patch("metaquest.data.sra.accession.shutil.which", return_value=None):
+        with patch("prepare.data.sra.accession.SecureSubprocess.run_secure", side_effect=fake_run):
+            with patch("prepare.data.sra.accession.shutil.which", return_value=None):
                 result = accession_mod.download_accession("SRR2517620", tmp_path / "fastq", stop=token)
         assert result == (False, "interrupted")
         assert seen == [token]
 
     def test_process_wide_stop_still_stops_a_run_with_its_own_token(self, tmp_path):
         accession_mod.STOP.set()
-        with patch("metaquest.data.sra.accession.SecureSubprocess.run_secure") as run:
-            with patch("metaquest.data.sra.accession.shutil.which", return_value=None):
+        with patch("prepare.data.sra.accession.SecureSubprocess.run_secure") as run:
+            with patch("prepare.data.sra.accession.shutil.which", return_value=None):
                 result = accession_mod.download_accession("SRR2517620", tmp_path / "fastq", stop=threading.Event())
         assert result == (False, "interrupted")
         run.assert_not_called()
@@ -190,7 +190,7 @@ class TestTokenThroughTheDownloadChain:
         (temp / "SRR1_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
         token = threading.Event()
         token.set()
-        with patch("metaquest.data.sra.fastq.compress_fastq") as compress:
+        with patch("prepare.data.sra.fastq.compress_fastq") as compress:
             success, message = accession_mod._handle_download_output(temp, tmp_path / "SRR1", compress=True, stop=token)
         assert success is True
         compress.assert_not_called()
@@ -207,14 +207,14 @@ class TestTokenThroughTheDownloadChain:
             seen.append((executable, kwargs.get("stop")))
             (tmp_path / "SRR1" / "SRR1_1.fastq").rename(tmp_path / "SRR1" / "SRR1_1.fastq.gz")
 
-        with patch("metaquest.data.sra.fastq.shutil.which", return_value="/usr/bin/pigz"):
-            with patch("metaquest.data.sra.fastq.SecureSubprocess.run_secure", side_effect=fake_run):
+        with patch("prepare.data.sra.fastq.shutil.which", return_value="/usr/bin/pigz"):
+            with patch("prepare.data.sra.fastq.SecureSubprocess.run_secure", side_effect=fake_run):
                 success, _ = accession_mod._handle_download_output(temp, tmp_path / "SRR1", compress=True, stop=token)
         assert success is True
         assert seen == [("pigz", token)]
 
     def test_the_gzip_fallback_stops_between_blocks_once_the_token_is_set(self, tmp_path):
-        from metaquest.data.sra.fastq import compress_fastq
+        from prepare.data.sra.fastq import compress_fastq
 
         source = tmp_path / "SRR1_1.fastq"
         body = b"@r\nACGT\n+\nIIII\n" * (3 * 1024 * 1024 // 16)  # three 1 MiB blocks
@@ -228,7 +228,7 @@ class TestTokenThroughTheDownloadChain:
                 return self.checks > 1
 
         token = _SetAfterFirstBlock()
-        with patch("metaquest.data.sra.fastq.shutil.which", return_value=None):
+        with patch("prepare.data.sra.fastq.shutil.which", return_value=None):
             with pytest.raises(InterruptedError):
                 compress_fastq(source, 1, stop=token)
         assert token.checks == 2
@@ -246,8 +246,8 @@ class TestTokenThroughTheDownloadChain:
             token.set()
             raise subprocess.CalledProcessError(-15, ["pigz", *args])
 
-        with patch("metaquest.data.sra.fastq.shutil.which", return_value="/usr/bin/pigz"):
-            with patch("metaquest.data.sra.fastq.SecureSubprocess.run_secure", side_effect=fake_run):
+        with patch("prepare.data.sra.fastq.shutil.which", return_value="/usr/bin/pigz"):
+            with patch("prepare.data.sra.fastq.SecureSubprocess.run_secure", side_effect=fake_run):
                 success, message = accession_mod._handle_download_output(
                     temp, tmp_path / "SRR1", compress=True, stop=token
                 )
@@ -274,7 +274,7 @@ class TestTokenThroughTheDownloadChain:
         lock.parent.mkdir(parents=True)
         with patch.object(accession_mod, "PROJECT_LOCK_POLL_SECONDS", 0.05):
             policy = accession_mod._project_lock_policy("SRR1", 0.0)
-            from metaquest.utils.lockfile import held_lock
+            from prepare.utils.lockfile import held_lock
 
             with held_lock(lock, policy):
                 accession_mod.STOP.set()
@@ -284,15 +284,15 @@ class TestTokenThroughTheDownloadChain:
         assert time.monotonic() - started < 2.0
 
     def test_store_download_waiting_on_a_held_lock_stops_on_its_token(self, tmp_path):
-        from metaquest.store.layout import init_store
-        from metaquest.store.locks import dataset_lock
+        from prepare.store.layout import init_store
+        from prepare.store.locks import dataset_lock
 
         store = init_store(tmp_path / "store")
         token = threading.Event()
         token.set()
         with dataset_lock(store, "SRR1"):
-            with patch("metaquest.data.sra.store_handoff._store_precheck", return_value=None):
-                with patch("metaquest.data.sra.store_handoff._store_fetch") as fetch:
+            with patch("prepare.data.sra.store_handoff._store_precheck", return_value=None):
+                with patch("prepare.data.sra.store_handoff._store_fetch") as fetch:
                     result = store_handoff_mod._store_download(
                         "SRR1", tmp_path / "fastq", store, lock_wait=0.0, stop=token
                     )
@@ -300,12 +300,12 @@ class TestTokenThroughTheDownloadChain:
         fetch.assert_not_called()
 
     def test_store_fetch_receives_the_token(self, tmp_path):
-        from metaquest.store.layout import init_store
+        from prepare.store.layout import init_store
 
         store = init_store(tmp_path / "store")
         token = threading.Event()
-        with patch("metaquest.data.sra.store_handoff._store_precheck", return_value=None):
-            with patch("metaquest.data.sra.store_handoff._store_fetch", return_value=(True, "ok")) as fetch:
+        with patch("prepare.data.sra.store_handoff._store_precheck", return_value=None):
+            with patch("prepare.data.sra.store_handoff._store_fetch", return_value=(True, "ok")) as fetch:
                 store_handoff_mod._store_download("SRR1", tmp_path / "fastq", store, stop=token)
         assert fetch.call_args.kwargs["stop"] is token
 
@@ -441,7 +441,7 @@ class TestCliWiring:
     """download_sra gets the command's Termination token; BaseCommand.run targets that token."""
 
     def test_download_sra_command_passes_its_termination_token(self, tmp_path):
-        from metaquest.cli.commands.sra import DownloadSraCommand
+        from prepare.cli.commands.sra import DownloadSraCommand
 
         accessions = tmp_path / "acc.txt"
         accessions.write_text("SRR1\n")
@@ -455,7 +455,7 @@ class TestCliWiring:
                 "--fastq-folder",
                 str(tmp_path / "fastq"),
                 "--registry",
-                str(tmp_path / "metaquest_registry.json"),
+                str(tmp_path / "prepare_registry.json"),
             ]
         )
         seen = {}
@@ -481,14 +481,14 @@ class TestCliWiring:
             return original_run(parsed, *rest)
 
         original_run = command._run
-        with patch("metaquest.cli.commands.sra.require_tools"):
-            with patch("metaquest.cli.commands.sra.download_sra", side_effect=fake_download_sra):
+        with patch("prepare.cli.commands.sra.require_tools"):
+            with patch("prepare.cli.commands.sra.download_sra", side_effect=fake_download_sra):
                 with patch.object(command, "_run", side_effect=execute):
                     command.run(args)
         assert seen["stop"] is seen["term"].stop
 
     def test_base_command_run_terminates_only_its_own_runs_children(self):
-        from metaquest.cli.base import BaseCommand
+        from prepare.cli.base import BaseCommand
 
         class _Interrupted(BaseCommand):
             @property
@@ -506,6 +506,6 @@ class TestCliWiring:
                 raise KeyboardInterrupt
 
         args = argparse.Namespace()
-        with patch("metaquest.cli.base.SecureSubprocess.terminate_children", return_value=0) as terminate:
+        with patch("prepare.cli.base.SecureSubprocess.terminate_children", return_value=0) as terminate:
             assert _Interrupted().run(args) == 130
         terminate.assert_called_once_with(stop=args._termination.stop)

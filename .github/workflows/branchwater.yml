@@ -19,7 +19,7 @@ jobs:
           python-version: "3.12"
           cache: 'pip'
       
-      - name: Install MetaQuest
+      - name: Install PREPARE
         run: |
           python -m pip install --upgrade pip
           pip install -e .
@@ -38,17 +38,17 @@ jobs:
       - name: Process Branchwater files
         run: |
           mkdir -p test_data/processed
-          metaquest use_branchwater --branchwater-folder test_data/branchwater --matches-folder test_data/processed
+          prepare use_branchwater --branchwater-folder test_data/branchwater --matches-folder test_data/processed
       
       - name: Extract metadata
         run: |
           mkdir -p test_data/metadata
-          metaquest extract_branchwater_metadata --branchwater-folder test_data/branchwater --metadata-folder test_data/metadata
+          prepare extract_branchwater_metadata --branchwater-folder test_data/branchwater --metadata-folder test_data/metadata
       
       - name: Parse containment
         run: |
           # Use proper argument syntax with hyphens instead of underscores
-          metaquest parse_containment --matches-folder test_data/processed --parsed-containment-file test_data/parsed_containment.txt --summary-containment-file test_data/summary_containment.txt
+          prepare parse_containment --matches-folder test_data/processed --parsed-containment-file test_data/parsed_containment.txt --summary-containment-file test_data/summary_containment.txt
       
       - name: Verify outputs
         run: |

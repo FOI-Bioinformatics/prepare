@@ -12,11 +12,11 @@ from datetime import datetime
 from unittest.mock import patch
 from dataclasses import dataclass
 
-from metaquest.core.exceptions import ConfigurationError
-from metaquest.sra.reporting import SRAReportGenerator
+from prepare.core.exceptions import ConfigurationError
+from prepare.sra.reporting import SRAReportGenerator
 
 requires_interactive = pytest.mark.skipif(
-    not all(importlib.util.find_spec(m) for m in ("plotly", "jinja2")), reason="needs metaquest[interactive]"
+    not all(importlib.util.find_spec(m) for m in ("plotly", "jinja2")), reason="needs prepare[interactive]"
 )
 
 
@@ -122,7 +122,7 @@ class TestPlotlyIntegration:
         generator = SRAReportGenerator(tmp_output_dir)
         monkeypatch.setitem(sys.modules, "plotly", None)
 
-        with pytest.raises(ConfigurationError, match=r"metaquest\[interactive\]"):
+        with pytest.raises(ConfigurationError, match=r"prepare\[interactive\]"):
             generator._create_quality_plots({})
 
 
@@ -162,7 +162,7 @@ class TestHTMLGeneration:
             "plots": {},
         }
 
-        with patch("metaquest.sra.reporting.plotly_js_script", return_value=""):
+        with patch("prepare.sra.reporting.plotly_js_script", return_value=""):
             html = generator._generate_quality_html(dashboard_data)
 
         assert "<html" in html
@@ -181,7 +181,7 @@ class TestHTMLGeneration:
             "plots": {},
         }
 
-        with patch("metaquest.sra.reporting.plotly_js_script", return_value=""):
+        with patch("prepare.sra.reporting.plotly_js_script", return_value=""):
             html = generator._generate_comparative_html(report_data)
 
         assert "<html" in html
@@ -202,6 +202,6 @@ class TestHTMLGeneration:
 #   pytest tests/test_sra_reporting_starter.py -v
 #
 # Check coverage:
-#   pytest --cov=metaquest.sra.reporting --cov-report=term-missing \
+#   pytest --cov=prepare.sra.reporting --cov-report=term-missing \
 #          tests/test_sra_reporting_starter.py
 # ============================================================================

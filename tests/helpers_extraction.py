@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from metaquest.utils import tools
+from prepare.utils import tools
 
 UNEQUAL_WARNING = "[W::mm_bseq_read_frag2] query files have different number of records; extra records skipped."
 
@@ -41,8 +41,8 @@ def tools_present():
     """
     without_versions = functools.partial(tools.require_tools, check_versions=False)
     with (
-        patch("metaquest.utils.tools.shutil.which", return_value="/usr/bin/tool"),
-        patch("metaquest.cli.commands.read_extraction.require_tools", without_versions),
+        patch("prepare.utils.tools.shutil.which", return_value="/usr/bin/tool"),
+        patch("prepare.cli.commands.read_extraction.require_tools", without_versions),
     ):
         yield
 

@@ -1,4 +1,4 @@
-name: MetaQuest CI
+name: PREPARE CI
 
 on:
   push:
@@ -34,25 +34,25 @@ jobs:
         run: |
           # Audit the project path (not the installed environment) so pip-audit resolves
           # dependencies from pyproject.toml instead of trying to look up the local,
-          # unpublished "metaquest" package itself on PyPI.
+          # unpublished "prepare" package itself on PyPI.
           # --desc takes an optional value, so a bare "--desc ." would swallow the "."
           # path argument as an (invalid) choice for --desc; --desc=auto avoids that.
           pip-audit --strict --desc=auto .
 
       - name: Check code formatting with Black
-        run: black --check --diff metaquest
+        run: black --check --diff prepare
 
       - name: Lint with flake8
         run: |
           # stop the build if there are Python syntax errors or undefined names
-          flake8 metaquest --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 prepare --count --select=E9,F63,F7,F82 --show-source --statistics
           # Style, complexity, line length, docstrings and blind excepts, configured in setup.cfg.
           # No --extend-ignore here: a command-line value replaces the setup.cfg list and would
           # re-enable the pydocstyle codes that list switches off.
-          flake8 metaquest tests --count --statistics
+          flake8 prepare tests --count --statistics
 
       - name: Type check with mypy
-        run: python -m mypy metaquest
+        run: python -m mypy prepare
 
   test:
     name: Test ${{ matrix.os }} / Python ${{ matrix.python-version }}
@@ -81,9 +81,9 @@ jobs:
       - name: Test with pytest
         env:
           # Shared runners are slower than the machine the perf bounds were measured on.
-          METAQUEST_PERF_SCALE: "4"
+          PREPARE_PERF_SCALE: "4"
         run: |
-          pytest tests/ --cov=metaquest --cov-report=xml
+          pytest tests/ --cov=prepare --cov-report=xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -120,7 +120,7 @@ jobs:
       - name: Test installation
         run: |
           pip install dist/*.whl
-          python -c "import metaquest; print(metaquest.__version__)"
+          python -c "import prepare; print(prepare.__version__)"
 
       - name: Archive distribution packages
         uses: actions/upload-artifact@v4
@@ -156,12 +156,12 @@ jobs:
       - name: Download test genome
         run: |
           mkdir -p test_data
-          metaquest download_test_genome --output-folder test_data
+          prepare download_test_genome --output-folder test_data
 
       - name: Run basic CLI commands
         run: |
-          metaquest --help
-          metaquest --version
+          prepare --help
+          prepare --version
 
       - name: Verify integration
         run: |
@@ -175,7 +175,7 @@ jobs:
 
           # Test basic Branchwater processing
           mkdir -p test_data/processed
-          metaquest use_branchwater --branchwater-folder test_data/branchwater --matches-folder test_data/processed
+          prepare use_branchwater --branchwater-folder test_data/branchwater --matches-folder test_data/processed
 
           # Verify output
           test -f test_data/processed/example.csv && echo "Branchwater processing successful" || exit 1

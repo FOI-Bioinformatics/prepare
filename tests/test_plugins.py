@@ -1,14 +1,14 @@
 """
-Unit tests for MetaQuest plugin system.
+Unit tests for PREPARE plugin system.
 """
 
 import pytest
 import tempfile
 import os
 
-from metaquest.core.exceptions import PluginError
-from metaquest.plugins.base import Plugin, PluginRegistry
-from metaquest.plugins.formats.branchwater import BranchWaterFormatPlugin
+from prepare.core.exceptions import PluginError
+from prepare.plugins.base import Plugin, PluginRegistry
+from prepare.plugins.formats.branchwater import BranchWaterFormatPlugin
 
 
 class TestPlugin(Plugin):

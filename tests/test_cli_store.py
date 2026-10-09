@@ -1,6 +1,6 @@
 """Tests for the `store_init`, `store_status` and `store_reindex` CLI commands.
 
-Every test runs under tmp_path and monkeypatches HOME/XDG_CONFIG_HOME/METAQUEST_DATA so
+Every test runs under tmp_path and monkeypatches HOME/XDG_CONFIG_HOME/PREPARE_DATA so
 nothing here reads or writes the real user config, matching the isolation pattern used in
 tests/test_store_resolve.py.
 """
@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pytest
 
-from metaquest.cli.commands.store import (
+from prepare.cli.commands.store import (
     StoreAdoptCommand,
     StoreGcCommand,
     StoreInitCommand,
@@ -26,13 +26,13 @@ from metaquest.cli.commands.store import (
     StoreUsageCommand,
     StoreVerifyCommand,
 )
-from metaquest.core.constants import STORE_ENV
-from metaquest.data.registry import load_registry, save_registry
-from metaquest.store.catalog import Catalog, catalog_write
-from metaquest.store.layout import init_store, lock_path, read_marker, sidecar_path, sra_dir, store_paths
-from metaquest.store.locks import dataset_lock
-from metaquest.store.sidecar import Sidecar, read_sidecar, write_sidecar
-from metaquest.utils.security import SecureSubprocess
+from prepare.core.constants import STORE_ENV
+from prepare.data.registry import load_registry, save_registry
+from prepare.store.catalog import Catalog, catalog_write
+from prepare.store.layout import init_store, lock_path, read_marker, sidecar_path, sra_dir, store_paths
+from prepare.store.locks import dataset_lock
+from prepare.store.sidecar import Sidecar, read_sidecar, write_sidecar
+from prepare.utils.security import SecureSubprocess
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +55,7 @@ def _init_args(root, project_dir, **overrides):
         data_root=str(root),
         project_name=None,
         set_default=False,
-        registry=str(project_dir / "metaquest_registry.json"),
+        registry=str(project_dir / "prepare_registry.json"),
     )
     base.update(overrides)
     return argparse.Namespace(**base)
@@ -208,7 +208,7 @@ class TestStoreInitCommand:
             }
         assert {"datasets", "projects", "usage"} <= tables
 
-        registry = load_registry(project_dir / "metaquest_registry.json")
+        registry = load_registry(project_dir / "prepare_registry.json")
         assert registry.store["root"] == str(root.resolve())
         assert registry.store["mode"] == "symlink"
         assert registry.store["linked"] == []
@@ -225,7 +225,7 @@ class TestStoreInitCommand:
         rc = StoreInitCommand().execute(_init_args(root, project_dir, project_name="Wolbachia"))
         assert rc == 0
 
-        registry = load_registry(project_dir / "metaquest_registry.json")
+        registry = load_registry(project_dir / "prepare_registry.json")
         assert registry.project["name"] == "Wolbachia"
 
     def test_execute_defaults_project_name_to_cwd_name(self, tmp_path, monkeypatch):
@@ -237,7 +237,7 @@ class TestStoreInitCommand:
         rc = StoreInitCommand().execute(_init_args(root, project_dir))
         assert rc == 0
 
-        registry = load_registry(project_dir / "metaquest_registry.json")
+        registry = load_registry(project_dir / "prepare_registry.json")
         assert registry.project["name"] == "my-project"
 
     def test_execute_keeps_recorded_exports(self, tmp_path, monkeypatch):
@@ -245,7 +245,7 @@ class TestStoreInitCommand:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry = load_registry(project_dir / "metaquest_registry.json")
+        registry = load_registry(project_dir / "prepare_registry.json")
         registry.project = {
             "exports": {"results_table": {"output": "results.tsv", "summary": {"rows": 1}}},
             "note": "kept",
@@ -255,7 +255,7 @@ class TestStoreInitCommand:
         rc = StoreInitCommand().execute(_init_args(root, project_dir))
         assert rc == 0
 
-        registry = load_registry(project_dir / "metaquest_registry.json")
+        registry = load_registry(project_dir / "prepare_registry.json")
         assert registry.project["exports"]["results_table"]["output"] == "results.tsv"
         assert registry.project["note"] == "kept"
         assert registry.project["id"]
@@ -267,10 +267,10 @@ class TestStoreInitCommand:
         monkeypatch.chdir(project_dir)
 
         StoreInitCommand().execute(_init_args(root, project_dir))
-        first_id = load_registry(project_dir / "metaquest_registry.json").project["id"]
+        first_id = load_registry(project_dir / "prepare_registry.json").project["id"]
 
         StoreInitCommand().execute(_init_args(root, project_dir))
-        second_id = load_registry(project_dir / "metaquest_registry.json").project["id"]
+        second_id = load_registry(project_dir / "prepare_registry.json").project["id"]
 
         assert first_id == second_id
 
@@ -279,7 +279,7 @@ class TestStoreInitCommand:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         assert StoreInitCommand().execute(_init_args(root, project_dir, registry=str(registry_path))) == 0
 
@@ -290,7 +290,7 @@ class TestStoreInitCommand:
         assert report["projects"] == 1
 
     def test_execute_set_default_writes_config(self, tmp_path, monkeypatch):
-        from metaquest.store.resolve import read_config
+        from prepare.store.resolve import read_config
 
         root = tmp_path / "store"
         project_dir = tmp_path / "project"
@@ -302,7 +302,7 @@ class TestStoreInitCommand:
         assert read_config()["store"]["data_root"] == root.resolve().as_posix()
 
     def test_execute_without_set_default_does_not_write_config(self, tmp_path, monkeypatch):
-        from metaquest.store.resolve import read_config
+        from prepare.store.resolve import read_config
 
         root = tmp_path / "store"
         project_dir = tmp_path / "project"
@@ -319,7 +319,7 @@ class TestStoreInitCommand:
         (project_dir / ".git").mkdir()
         monkeypatch.chdir(project_dir)
 
-        with patch("metaquest.cli.commands.store._shared.subprocess.run") as mock_run:
+        with patch("prepare.cli.commands.store._shared.subprocess.run") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
             rc = StoreInitCommand().execute(_init_args(root, project_dir))
         assert rc == 0
@@ -337,7 +337,7 @@ class TestStoreInitCommand:
         (project_dir / ".gitignore").write_text("fastq/\nother\n")
         monkeypatch.chdir(project_dir)
 
-        with patch("metaquest.cli.commands.store._shared.subprocess.run") as mock_run:
+        with patch("prepare.cli.commands.store._shared.subprocess.run") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
             StoreInitCommand().execute(_init_args(root, project_dir))
 
@@ -351,7 +351,7 @@ class TestStoreInitCommand:
         (project_dir / ".git").mkdir()
         monkeypatch.chdir(project_dir)
 
-        with patch("metaquest.cli.commands.store._shared.subprocess.run") as mock_run:
+        with patch("prepare.cli.commands.store._shared.subprocess.run") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(
                 args=[], returncode=0, stdout="fastq/SRR1/SRR1.fastq\n", stderr=""
             )
@@ -366,7 +366,7 @@ class TestStoreInitCommand:
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
 
-        with patch("metaquest.cli.commands.store._shared.subprocess.run") as mock_run:
+        with patch("prepare.cli.commands.store._shared.subprocess.run") as mock_run:
             rc = StoreInitCommand().execute(_init_args(root, project_dir))
         assert rc == 0
         mock_run.assert_not_called()
@@ -381,7 +381,7 @@ class TestStoreStatusCommand:
 
     def test_no_store_configured_logs_hint_and_returns_1(self, tmp_path, monkeypatch, capsys, caplog):
         monkeypatch.chdir(tmp_path)
-        rc = StoreStatusCommand().execute(_status_args(registry=str(tmp_path / "metaquest_registry.json")))
+        rc = StoreStatusCommand().execute(_status_args(registry=str(tmp_path / "prepare_registry.json")))
         assert rc == 1
         assert "store_init" in caplog.text
         # Without --json the hint is an error on stderr; stdout carries no result.
@@ -389,7 +389,7 @@ class TestStoreStatusCommand:
 
     def test_no_store_configured_with_json_prints_json_error(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
-        rc = StoreStatusCommand().execute(_status_args(json=True, registry=str(tmp_path / "metaquest_registry.json")))
+        rc = StoreStatusCommand().execute(_status_args(json=True, registry=str(tmp_path / "prepare_registry.json")))
         payload = json.loads(capsys.readouterr().out)
         assert rc == 1
         assert payload["error"].startswith("No store configured")
@@ -399,7 +399,7 @@ class TestStoreStatusCommand:
         paths = init_store(root)
         project_dir = tmp_path / "proj1"
         project_dir.mkdir()
-        registry_file = project_dir / "metaquest_registry.json"
+        registry_file = project_dir / "prepare_registry.json"
         registry_file.write_text(json.dumps({"project": {"id": "proj1"}}))
         with catalog_write(paths) as cat:
             cat.upsert_project("proj1", "Wolbachia", str(project_dir), str(registry_file))
@@ -436,7 +436,7 @@ class TestStoreStatusCommand:
         root = tmp_path / "store"
         paths = init_store(root)
         missing_path = tmp_path / "gone"
-        missing_registry = tmp_path / "gone" / "metaquest_registry.json"
+        missing_registry = tmp_path / "gone" / "prepare_registry.json"
         with catalog_write(paths) as cat:
             cat.upsert_project("proj1", "Wolbachia", str(missing_path), str(missing_registry))
 
@@ -454,7 +454,7 @@ class TestStoreStatusCommand:
         paths = init_store(root)
         project_dir = tmp_path / "proj1"
         project_dir.mkdir()
-        registry_file = project_dir / "metaquest_registry.json"
+        registry_file = project_dir / "prepare_registry.json"
         registry_file.write_text(json.dumps({"project": {"id": "some-other-id"}}))
         with catalog_write(paths) as cat:
             cat.upsert_project("proj1", "Wolbachia", str(project_dir), str(registry_file))
@@ -491,7 +491,7 @@ class TestStoreReindexCommand:
 
     def test_no_store_configured_returns_1(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
-        rc = StoreReindexCommand().execute(_reindex_args(registry=str(tmp_path / "metaquest_registry.json")))
+        rc = StoreReindexCommand().execute(_reindex_args(registry=str(tmp_path / "prepare_registry.json")))
         assert rc == 1
 
     def test_rebuilds_from_sidecars_and_prints_count(self, tmp_path, capsys):
@@ -559,7 +559,7 @@ class TestStoreAdoptCommand:
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
 
-        rc = StoreAdoptCommand().execute(_adopt_args(registry=str(project_dir / "metaquest_registry.json")))
+        rc = StoreAdoptCommand().execute(_adopt_args(registry=str(project_dir / "prepare_registry.json")))
 
         assert rc == 1
         assert "store_init" in caplog.text
@@ -573,7 +573,7 @@ class TestStoreAdoptCommand:
         (project_dir / "fastq" / "SRR1" / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
         monkeypatch.chdir(project_dir)
 
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
         rc = StoreAdoptCommand().execute(_adopt_args(data_root=str(root), registry=str(registry_path)))
 
         assert rc == 0
@@ -598,7 +598,7 @@ class TestStoreAdoptCommand:
         (project_dir / "fastq" / "SRR1").mkdir(parents=True)
         (project_dir / "fastq" / "SRR1" / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         assert StoreInitCommand().execute(_init_args(root, project_dir, registry=str(registry_path))) == 0
 
@@ -630,11 +630,11 @@ class TestStoreAdoptCommand:
         (project_dir / "fastq" / "SRR1").mkdir(parents=True)
         (project_dir / "fastq" / "SRR1" / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         assert StoreInitCommand().execute(_init_args(root, project_dir, registry=str(registry_path))) == 0
 
-        with patch("metaquest.store.usage.catalog_write", side_effect=RuntimeError("locked")):
+        with patch("prepare.store.usage.catalog_write", side_effect=RuntimeError("locked")):
             rc = StoreAdoptCommand().execute(_adopt_args(data_root=str(root), registry=str(registry_path)))
 
         assert rc == 0
@@ -651,7 +651,7 @@ class TestStoreAdoptCommand:
         (project_dir / "fastq" / "SRR1" / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
         monkeypatch.chdir(project_dir)
 
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
         rc = StoreAdoptCommand().execute(_adopt_args(data_root=str(root), registry=str(registry_path), dry_run=True))
 
         assert rc == 0
@@ -676,7 +676,7 @@ class TestStoreAdoptCommand:
         write_sidecar(sidecar_path(paths, "SRR3"), _sidecar("SRR3", state="failed"))
         monkeypatch.chdir(project_dir)
 
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
         rc = StoreAdoptCommand().execute(_adopt_args(data_root=str(root), registry=str(registry_path), dry_run=True))
         out = capsys.readouterr().out
 
@@ -694,7 +694,7 @@ class TestStoreAdoptCommand:
         (entry / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
         monkeypatch.chdir(project_dir)
 
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
         rc = StoreAdoptCommand().execute(_adopt_args(data_root=str(root), registry=str(registry_path), move=False))
 
         assert rc == 0
@@ -732,7 +732,7 @@ class TestStoreAdoptCommand:
         entry.mkdir(parents=True)
         (entry / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         assert StoreInitCommand().execute(_init_args(root, project_dir, registry=str(registry_path))) == 0
 
@@ -764,7 +764,7 @@ class TestStoreAdoptCommand:
         entry.mkdir(parents=True)
         (entry / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         assert StoreInitCommand().execute(_init_args(root, project_dir, registry=str(registry_path))) == 0
 
@@ -791,9 +791,9 @@ class TestStoreAdoptCommand:
         """A stop noticed after SRR1 is adopted ends the run before SRR2 is ever staged."""
         import importlib
 
-        # metaquest.store re-exports the ``adopt`` function under the same name, which
-        # shadows the submodule on ``metaquest.store.adopt``; import_module bypasses that.
-        adopt_mod = importlib.import_module("metaquest.store.adopt")
+        # prepare.store re-exports the ``adopt`` function under the same name, which
+        # shadows the submodule on ``prepare.store.adopt``; import_module bypasses that.
+        adopt_mod = importlib.import_module("prepare.store.adopt")
 
         root = tmp_path / "store"
         init_store(root)
@@ -803,7 +803,7 @@ class TestStoreAdoptCommand:
             entry.mkdir(parents=True)
             (entry / f"{acc}.fastq").write_text("@r\nACGT\n+\nIIII\n")
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         cmd = StoreAdoptCommand()
         args = _adopt_args(data_root=str(root), registry=str(registry_path))
@@ -843,7 +843,7 @@ class TestStoreVerifyCommand:
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
 
-        rc = StoreVerifyCommand().execute(_verify_args(registry=str(project_dir / "metaquest_registry.json")))
+        rc = StoreVerifyCommand().execute(_verify_args(registry=str(project_dir / "prepare_registry.json")))
         assert rc == 1
 
     def test_verify_healthy_dataset_reports_ok(self, tmp_path, monkeypatch, capsys):
@@ -861,7 +861,7 @@ class TestStoreVerifyCommand:
         monkeypatch.chdir(project_dir)
 
         rc = StoreVerifyCommand().execute(
-            _verify_args(data_root=str(root), registry=str(project_dir / "metaquest_registry.json"))
+            _verify_args(data_root=str(root), registry=str(project_dir / "prepare_registry.json"))
         )
         out = capsys.readouterr().out
 
@@ -894,7 +894,7 @@ class TestStoreVerifyCommand:
 
         rc = StoreVerifyCommand().execute(
             _verify_args(
-                data_root=str(root), registry=str(project_dir / "metaquest_registry.json"), spots=True, fix_state=True
+                data_root=str(root), registry=str(project_dir / "prepare_registry.json"), spots=True, fix_state=True
             )
         )
         out = capsys.readouterr().out
@@ -939,7 +939,7 @@ class TestStoreVerifyCommand:
         rc = StoreVerifyCommand().execute(
             _verify_args(
                 data_root=str(root),
-                registry=str(project_dir / "metaquest_registry.json"),
+                registry=str(project_dir / "prepare_registry.json"),
                 md5=True,
                 spots=True,
                 fix_state=True,
@@ -975,7 +975,7 @@ class TestStoreVerifyCommand:
 
         rc = StoreVerifyCommand().execute(
             _verify_args(
-                accessions=["SRR2"], data_root=str(root), registry=str(project_dir / "metaquest_registry.json")
+                accessions=["SRR2"], data_root=str(root), registry=str(project_dir / "prepare_registry.json")
             )
         )
         out = capsys.readouterr().out
@@ -996,7 +996,7 @@ class TestStoreVerifyCommand:
             _verify_args(
                 accessions=["SRR-ghost"],
                 data_root=str(root),
-                registry=str(project_dir / "metaquest_registry.json"),
+                registry=str(project_dir / "prepare_registry.json"),
             )
         )
         out = capsys.readouterr().out
@@ -1023,7 +1023,7 @@ class TestStoreVerifyCommand:
         monkeypatch.chdir(project_dir)
 
         rc = StoreVerifyCommand().execute(
-            _verify_args(data_root=str(root), registry=str(project_dir / "metaquest_registry.json"), spots=True)
+            _verify_args(data_root=str(root), registry=str(project_dir / "prepare_registry.json"), spots=True)
         )
         out = capsys.readouterr().out
 
@@ -1278,7 +1278,7 @@ class TestStoreVerifyCommand:
                 rc = StoreVerifyCommand().execute(
                     _verify_args(
                         data_root=str(root),
-                        registry=str(project_dir / "metaquest_registry.json"),
+                        registry=str(project_dir / "prepare_registry.json"),
                         spots=True,
                         fix_state=True,
                     )
@@ -1363,7 +1363,7 @@ class TestStoreVerifyCommand:
 
     def test_no_store_configured_with_json_prints_json_error(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
-        rc = StoreVerifyCommand().execute(_verify_args(registry=str(tmp_path / "metaquest_registry.json"), json=True))
+        rc = StoreVerifyCommand().execute(_verify_args(registry=str(tmp_path / "prepare_registry.json"), json=True))
         payload = json.loads(capsys.readouterr().out)
         assert rc == 1
         assert payload["error"].startswith("No store configured")
@@ -1395,7 +1395,7 @@ class TestStoreVerifyCommand:
         monkeypatch.chdir(project_dir)
 
         rc = StoreVerifyCommand().execute(
-            _verify_args(data_root=str(root), registry=str(project_dir / "metaquest_registry.json"), json=True)
+            _verify_args(data_root=str(root), registry=str(project_dir / "prepare_registry.json"), json=True)
         )
         doc = json.loads(capsys.readouterr().out)
 
@@ -1441,7 +1441,7 @@ class TestStoreVerifyCommand:
         rc = StoreVerifyCommand().execute(
             _verify_args(
                 data_root=str(root),
-                registry=str(project_dir / "metaquest_registry.json"),
+                registry=str(project_dir / "prepare_registry.json"),
                 spots=True,
                 fix_state=True,
                 json=True,
@@ -1508,7 +1508,7 @@ class TestStoreVerifyCommand:
                 rc = StoreVerifyCommand().execute(
                     _verify_args(
                         data_root=str(root),
-                        registry=str(project_dir / "metaquest_registry.json"),
+                        registry=str(project_dir / "prepare_registry.json"),
                         spots=True,
                         fix_state=True,
                         json=True,
@@ -1541,7 +1541,7 @@ class TestStoreLinkCommand:
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
 
-        rc = StoreLinkCommand().execute(_link_args(["SRR1"], registry=str(project_dir / "metaquest_registry.json")))
+        rc = StoreLinkCommand().execute(_link_args(["SRR1"], registry=str(project_dir / "prepare_registry.json")))
         assert rc == 1
 
     def test_links_accession_and_updates_registry(self, tmp_path, monkeypatch):
@@ -1557,7 +1557,7 @@ class TestStoreLinkCommand:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         rc = StoreLinkCommand().execute(
             _link_args(
@@ -1575,8 +1575,8 @@ class TestStoreLinkCommand:
 
     def test_link_and_unlink_clear_an_earlier_download_time(self, tmp_path, monkeypatch):
         """A linked or removed dataset was not downloaded by this project: no download time is kept."""
-        from metaquest.data.registry import record_download, registry_transaction
-        from metaquest.data.registry_timing import set_download_timing
+        from prepare.data.registry import record_download, registry_transaction
+        from prepare.data.registry_timing import set_download_timing
 
         root = tmp_path / "store"
         paths = init_store(root)
@@ -1588,7 +1588,7 @@ class TestStoreLinkCommand:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
         fastq_dir = project_dir / "fastq"
 
         def timed_failure():
@@ -1623,7 +1623,7 @@ class TestStoreLinkCommand:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         assert StoreInitCommand().execute(_init_args(root, project_dir, registry=str(registry_path))) == 0
 
@@ -1661,11 +1661,11 @@ class TestStoreLinkCommand:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         assert StoreInitCommand().execute(_init_args(root, project_dir, registry=str(registry_path))) == 0
 
-        with patch("metaquest.store.usage.catalog_write", side_effect=RuntimeError("locked")):
+        with patch("prepare.store.usage.catalog_write", side_effect=RuntimeError("locked")):
             rc = StoreLinkCommand().execute(
                 _link_args(
                     ["SRR1"],
@@ -1688,7 +1688,7 @@ class TestStoreLinkCommand:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         rc = StoreLinkCommand().execute(
             _link_args(
@@ -1719,7 +1719,7 @@ class TestStoreUnlinkCommand:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
         fastq_dir = project_dir / "fastq"
 
         StoreLinkCommand().execute(
@@ -1742,7 +1742,7 @@ class TestStoreUnlinkCommand:
         (project_dir / "fastq" / "SRR1").mkdir(parents=True)
         (project_dir / "fastq" / "SRR1" / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
         fastq_dir = project_dir / "fastq"
 
         rc = StoreUnlinkCommand().execute(
@@ -1780,7 +1780,7 @@ class TestStoreUsageCommand:
         monkeypatch.chdir(project_dir)
 
         rc = StoreUsageCommand().execute(
-            _usage_args(unused=True, registry=str(project_dir / "metaquest_registry.json"))
+            _usage_args(unused=True, registry=str(project_dir / "prepare_registry.json"))
         )
         assert rc == 1
 
@@ -1790,7 +1790,7 @@ class TestStoreUsageCommand:
         monkeypatch.chdir(project_dir)
 
         rc = StoreUsageCommand().execute(
-            _usage_args(unused=True, json=True, registry=str(project_dir / "metaquest_registry.json"))
+            _usage_args(unused=True, json=True, registry=str(project_dir / "prepare_registry.json"))
         )
         payload = json.loads(capsys.readouterr().out)
         assert rc == 1
@@ -1804,8 +1804,8 @@ class TestStoreUsageCommand:
         proj_b_dir = tmp_path / "projb"
         proj_b_dir.mkdir()
         with catalog_write(paths) as cat:
-            cat.upsert_project("proja", "Wolbachia", str(proj_a_dir), str(proj_a_dir / "metaquest_registry.json"))
-            cat.upsert_project("projb", "Rickettsia", str(proj_b_dir), str(proj_b_dir / "metaquest_registry.json"))
+            cat.upsert_project("proja", "Wolbachia", str(proj_a_dir), str(proj_a_dir / "prepare_registry.json"))
+            cat.upsert_project("projb", "Rickettsia", str(proj_b_dir), str(proj_b_dir / "prepare_registry.json"))
             cat.upsert_dataset(_sidecar("SRR1"))
             cat.upsert_dataset(_sidecar("SRR2"))
             cat.record_usage("SRR1", "proja", "wMel", "downloaded")
@@ -1850,7 +1850,7 @@ class TestStoreUsageCommand:
         with catalog_write(paths) as cat:
             proj_c_dir = tmp_path / "projc"
             proj_c_dir.mkdir()
-            cat.upsert_project("projc", "Wolbachia", str(proj_c_dir), str(proj_c_dir / "metaquest_registry.json"))
+            cat.upsert_project("projc", "Wolbachia", str(proj_c_dir), str(proj_c_dir / "prepare_registry.json"))
 
         with caplog.at_level("ERROR"):
             rc = StoreUsageCommand().execute(_usage_args(data_root=str(root), project="Wolbachia"))
@@ -1914,12 +1914,12 @@ class TestStoreInitRebinding:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         assert StoreInitCommand().execute(_init_args(first, project_dir)) == 0
         registry = load_registry(registry_path)
         registry.store["linked"] = ["SRR1", "SRR2"]
-        from metaquest.data.registry import save_registry
+        from prepare.data.registry import save_registry
 
         save_registry(registry, registry_path)
 
@@ -1933,13 +1933,13 @@ class TestStoreInitRebinding:
         assert any("was bound to" in record.message for record in caplog.records)
 
     def test_rerun_keeps_keys_it_does_not_know(self, tmp_path, monkeypatch):
-        from metaquest.data.registry import save_registry
+        from prepare.data.registry import save_registry
 
         root = tmp_path / "store"
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
         assert StoreInitCommand().execute(_init_args(root, project_dir)) == 0
         registry = load_registry(registry_path)
         registry.store["comment"] = "written by a newer version"
@@ -1965,7 +1965,7 @@ class TestStoreInitRebinding:
 
         assert rc == 1
         assert not (home_like / "sra").exists()
-        assert not (home_like / "metaquest_store.json").exists()
+        assert not (home_like / "prepare_store.json").exists()
 
     def test_accepts_an_empty_folder(self, tmp_path, monkeypatch):
         empty = tmp_path / "new-store"
@@ -2032,7 +2032,7 @@ class TestLinkersAlwaysHaveAProjectIdentity:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
 
         # No store_init: the store was found through --data-root alone.
         assert StoreLinkCommand().execute(_link_args(["SRR1"], data_root=str(root))) == 0
@@ -2055,7 +2055,7 @@ class TestLinkersAlwaysHaveAProjectIdentity:
         rc = StoreAdoptCommand().execute(_adopt_args(data_root=str(root)))
 
         assert rc == 0
-        registry = load_registry(project_dir / "metaquest_registry.json")
+        registry = load_registry(project_dir / "prepare_registry.json")
         assert registry.project["id"]
         with Catalog(paths) as catalog:
             assert catalog.conn.execute("SELECT COUNT(*) AS n FROM usage").fetchone()["n"] == 1
@@ -2072,7 +2072,7 @@ class TestLinkersAlwaysHaveAProjectIdentity:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        registry_path = project_dir / "metaquest_registry.json"
+        registry_path = project_dir / "prepare_registry.json"
         registry = load_registry(registry_path)
         registry.project = {
             "exports": {"results_table": {"output": "results.tsv", "summary": {"rows": 1}}},
@@ -2090,10 +2090,10 @@ class TestLinkersAlwaysHaveAProjectIdentity:
 
 class TestEnsureProjectIdentity:
     def test_minting_an_identity_keeps_unknown_project_keys(self, tmp_path, monkeypatch):
-        from metaquest.store.usage import ensure_project_identity
+        from prepare.store.usage import ensure_project_identity
 
         monkeypatch.chdir(tmp_path)
-        registry = load_registry(tmp_path / "metaquest_registry.json")
+        registry = load_registry(tmp_path / "prepare_registry.json")
         registry.project = {"exports": {"results_table": {"output": "results.tsv"}}, "note": "kept"}
 
         project = ensure_project_identity(registry)
@@ -2151,7 +2151,7 @@ class TestStoreReindexNeverLosesHistory:
             handle.write("@r\nACGT\n+\nIIII\n")
         write_sidecar(sidecar_path(paths, "SRR1"), Sidecar(accession="SRR1", state="complete"))
         with catalog_write(paths) as cat:
-            cat.upsert_project("p1", "P1", str(tmp_path / "p1"), str(tmp_path / "p1" / "metaquest_registry.json"))
+            cat.upsert_project("p1", "P1", str(tmp_path / "p1"), str(tmp_path / "p1" / "prepare_registry.json"))
             cat.upsert_dataset(read_sidecar(sidecar_path(paths, "SRR1")))
             cat.record_usage("SRR1", "p1", "wMel", "downloaded")
         return root, paths
@@ -2233,7 +2233,7 @@ class TestStoreReindexNeverLosesHistory:
         write_sidecar(sidecar_path(paths, "SRR1"), _sidecar("SRR1"))
         with catalog_write(paths) as c:
             c.journal_enabled = False
-            c.upsert_project("pid1", "proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "metaquest_registry.json"))
+            c.upsert_project("pid1", "proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
             c.upsert_dataset(_sidecar("SRR1"))
             c.record_usage("SRR1", "pid1", "", "linked", "")
         assert not (paths.journal / "projects.jsonl").exists()
@@ -2283,7 +2283,7 @@ class TestCorruptStoreMarker:
     def test_a_corrupt_marker_reads_as_missing_with_a_warning(self, tmp_path, caplog):
         import logging
 
-        from metaquest.store.layout import store_paths as _store_paths
+        from prepare.store.layout import store_paths as _store_paths
 
         root = tmp_path / "store"
         init_store(root)
@@ -2315,7 +2315,7 @@ def test_every_store_command_failure_starts_with_the_command_name():
 
     from pathlib import Path
 
-    import metaquest.cli.commands.store as store_pkg
+    import prepare.cli.commands.store as store_pkg
 
     folder = Path(store_pkg.__file__).parent
     contexts = []

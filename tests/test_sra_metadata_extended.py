@@ -19,14 +19,14 @@ import json
 import requests
 from unittest.mock import Mock, patch
 
-from metaquest.data.sra_metadata import (
+from prepare.data.sra_metadata import (
     SRAMetadataClient,
     SRADatasetInfo,
     create_download_preview,
     save_metadata_report,
     generate_statistics_report,
 )
-from metaquest.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError
 
 # Mock XML responses for testing (real efetch shape: RUN carries its own accession and
 # numbers as attributes, not a nested Statistics child)
@@ -690,7 +690,7 @@ class TestAPIRequestErrorHandling:
 
 class TestEstimateDownloadTime:
     def test_scales_with_size_and_parallelism(self):
-        from metaquest.data.sra_metadata import estimate_download_time
+        from prepare.data.sra_metadata import estimate_download_time
 
         one = estimate_download_time(1.0, 100.0, 4)
         assert one == pytest.approx(1.0 * 1024 * 8 / (100.0 * 4 * 0.8) / 3600)
@@ -977,7 +977,7 @@ def test_parse_falls_back_to_statistics_child_when_run_attributes_missing():
 #   pytest tests/test_sra_metadata_extended.py -v
 #
 # Check coverage:
-#   pytest --cov=metaquest.data.sra_metadata --cov-report=term-missing \
+#   pytest --cov=prepare.data.sra_metadata --cov-report=term-missing \
 #          tests/test_sra_metadata_client.py tests/test_sra_metadata_extended.py
 # ============================================================================
 
