@@ -6,12 +6,11 @@ This document provides an overview of the PREPARE architecture and design princi
 
 PREPARE is designed around the following principles:
 
-1. **Separation of Concerns**: Clear separation between data access, business logic, and user interfaces
-2. **Extensibility**: Plugin-based design allowing for easy addition of new features
-3. **Maintainability**: Well-defined interfaces and abstractions to simplify maintenance
-4. **Robustness**: Comprehensive error handling, validation, and numerical stability
-5. **Usability**: Intuitive CLI with consistent command patterns
-6. **Reliability**: Extensive test coverage with systematic edge case handling
+1. **Separation of concerns**: data access, processing and the command-line interface are separate layers
+2. **Extensibility**: format handlers and visualizers are plugins
+3. **Consistent commands**: every command inherits from a base class and reports errors and output the same way
+4. **Validation at the boundaries**: user input and external data are checked where they enter
+5. **Tests for error paths and edge cases**
 
 ## Architecture Overview
 
@@ -229,7 +228,7 @@ that finds its lock taken over stops with `LockLost` ("lock lost: ..." for a dow
 staging folder to the new holder. The per-accession lock file itself is never shared this way; only the
 staging path underneath it is.
 
-Four `LockPolicy` configurations (`what`, `stale_seconds`, `wait_seconds`, `poll_seconds`,
+Four sets of `LockPolicy` limits (`what`, `stale_seconds`, `wait_seconds`, `poll_seconds`,
 `heartbeat_seconds`) cover every lock kind:
 
 | Policy | Stale | Wait | Heartbeat |
@@ -371,8 +370,10 @@ built on `visible_files`) and publishing it with `os.replace`, so a reader never
 written file and a crash leaves at most an orphaned, clearly-named temp file. The registry and store
 sidecar writes also call `fsync` before replacing; other outputs do not. `scripts/check_atomic_writes.sh`,
 run as part of `make check`, fails on a direct `.write_text`, `.write_bytes`, `.to_csv`, or `open(path,
-"w...")` call outside the allowlist in `scripts/atomic_writes_allowlist.txt`, which holds only
-`file_io.py` itself.
+"w...")` call outside the allowlist in `scripts/atomic_writes_allowlist.txt`. The allowlist holds
+`file_io.py` itself and the figure writers (`savefig` and plotly `write_html`, whose output is
+regenerable and overwritten whole): `visualization/interactive.py` and `plots.py`, and the bar, heatmap
+and map visualizers.
 
 #### Termination
 
@@ -395,12 +396,6 @@ the process-wide emergency stop, set only by the final abandon path and never cl
 ordinary run, so an in-process caller that starts a further run after an interrupted one must clear it
 itself if it wants that further run's own tools to start.
 
-#### Plugin System
-The plugin system enables extensibility:
-- Format plugins for different file formats
-- Visualization plugins for different visualization types
-- Processing plugins for different analysis methods
-
 ### Key Components
 
 #### Core Components
@@ -419,7 +414,8 @@ The plugin system enables extensibility:
   folder handling), `accession` (running `prefetch`/`fasterq-dump` for one accession), `retry`
   (parallel download with retries), `store_handoff` (linking a download into the shared store),
   `spots` (the expected spot count and the verdict merge rule, described in "Download completeness
-  verdicts" below), and `download` (the CLI-facing entry point); the package's `__init__.py` re-exports
+  verdicts" below), `sampling` (`sample_records`, the index-based FASTQ sampler behind the quality
+  profile and the store statistics record, and the Phred histogram helpers), and `download` (the CLI-facing entry point); the package's `__init__.py` re-exports
   the public functions other layers import, so `from prepare.data.sra import download_accession` still
   works
 - **registry**: The project journal (`prepare_registry.json`); records dataset state and
@@ -502,14 +498,42 @@ The plugin system enables extensibility:
 - **project_report** (`visualization/project_report.py`): `render_html(report)`, the HTML page of
   `project_report`, one `<section>` per report section, with a funnel figure and a per-genome figure;
   plotly and jinja2 are imported through `optional.require` (the `interactive` extra), and plotly.js is
-  embedded in the page. The earlier report generator `visualization/reporting.py` and its template,
-  which no command called, were removed in 0.9.0
+  embedded in the page
 
-#### Plugin System Components
+#### SRA analysis package
 
-- **base**: Base classes and registries for plugins
-- **formats**: File format plugins
-- **visualizers**: Visualization plugins
+`prepare/sra/` holds the analysis behind `sra_profile` and `sra_report`; the data layer's
+`prepare/data/sra/` holds downloading. The modules are:
+
+- **dataset_stats**: `accession_fastq_files` finds the mate files of an accession and
+  `load_dataset_stats` loads its statistics record (exact read and base totals and GC), which is cached
+  in the store sidecar when the accession is a store link
+- **quality**: `SequenceQualityAnalyzer` draws a sample of reads from every mate file, through
+  `data/sra/sampling.py`, and returns per-read length, GC, base quality, N content, complexity,
+  duplication and adapter figures; base qualities are kept as a Phred histogram
+- **analytics**: `SRADatasetAnalyzer` combines the statistics record with the sampled figures
+  (`profile_dataset_quality`) and holds the group comparison, anomaly detection and recommendations; the
+  result types are `QualityProfile`, `ComparativeAnalysis`, `AnomalyReport` and
+  `ProcessingRecommendations`
+- **profiles**: `profile_accession`, the one entry point both commands call, plus the profile JSON
+  files (`write_profile_json`, `load_quality_profiles`) and `statistics_row`, the row of the
+  `sra_profile` table
+- **reporting**: `SRAReportGenerator` writes the HTML report; plotly and jinja2 come from the
+  `interactive` extra and are checked before any profiling starts
+
+`sra_profile` and `sra_report` share this path, so a dataset is profiled by one set of rules whichever
+command runs it.
+
+Other modules, one line each:
+
+- `data/`: `branchwater_search` (API client and cache), `screening_table`, `genome_download`, `gtdb`,
+  `genome_taxonomy`, `sra_metadata` (NCBI metadata client), `extraction_locks`, `extraction_staging`
+- `processing/`: `diversity`, `results` (the `results_table` rows), `doctor_report`, `selection`
+- `visualization/`: `explorer` (`explore_containment`), `interactive`
+- `utils/`: `browser`, `html` (including `plotly_cdn_script`)
+- `cli/commands/`: `branchwater_search`, `explore`, `results`, `samples`, `sra_enhanced`,
+  `advanced_analysis`, `test_data`
+- `plugins/sourmash_plugin.py`: see "Plugin System"
 
 #### Utility Components
 
@@ -541,47 +565,33 @@ The plugin system enables extensibility:
   its own, and a timeout or a termination signals its whole process group, so a process the tool
   started (megahit's `megahit_core`) stops with it
 
-## Data Flow
-
-1. **Input**: User provides commands via CLI
-2. **Command Handling**: CLI routes to appropriate command handler
-3. **Data Access**: Commands interact with data sources via the data layer
-4. **Processing**: Data is processed using core logic components
-5. **Visualization**: Results are visualized or formatted for output
-6. **Output**: Results are presented to the user via CLI
-
 ## Plugin System
 
-The plugin system uses a registry pattern:
+Format handlers and visualizers are plugins, using a registry pattern (`prepare/plugins/base.py`):
 
-1. Plugins inherit from a base `Plugin` class
-2. Plugins are registered in a `PluginRegistry`
-3. The application can discover plugins at runtime
-4. Plugins provide specific implementations for abstract operations
+1. `Plugin` defines only class attributes `name`, `description` and `version`, with
+   `get_name`/`get_description`/`get_version`; it has no other required methods
+2. `PluginRegistry` has two instances: `format_registry` for file formats and `visualizer_registry` for
+   visualization types
+3. Each plugin defines its own interface: `validate_header` and the parsing methods on the Branchwater
+   format plugin, `create_plot` on the visualizers
+4. Plugins are registered explicitly by the module that uses them (`data/branchwater.py`,
+   `visualization/plots.py`); there is no runtime discovery
 
-### Example: Format Plugins
-
-Format plugins handle different file formats:
-
-- `BranchWaterFormatPlugin`: Handles Branchwater CSV files
-- `MastiffFormatPlugin`: Handles Mastiff CSV files
-
-Each plugin provides standard methods like:
-- `validate_header`: Validates file headers
-- `parse_file`: Parses file content
-- `extract_metadata`: Extracts metadata from parsed content
+The one format plugin, `BranchWaterFormatPlugin`, lives in `prepare/plugins/formats/`, and the
+visualizers (`bar`, `heatmap`, `map`) in `prepare/plugins/visualizers/`. `prepare/plugins/sourmash_plugin.py`
+is separate: it exposes the parse, plot, diversity and taxonomy commands as `sourmash scripts`
+subcommands.
 
 ## Error Handling
 
-The application uses a comprehensive error handling approach:
+Errors follow these rules:
 
-1. **Exception Hierarchy**: Custom exception hierarchy starting with `PrepareError`
-2. **Specific Error Types**: Different exception types for various error categories
-3. **Layered Handling**: Each layer handles errors appropriate to its level
-4. **Numerical Stability**: Proper handling of edge cases in statistical computations
-5. **Input Validation**: Comprehensive validation of user inputs and external data
-6. **Graceful Degradation**: Robust handling of degenerate cases and boundary conditions
-7. **User-Friendly Display**: CLI layer catches and formats errors for user display
+1. **Exception hierarchy**: custom exceptions start at `PrepareError`, with one class per error category
+2. **Layered handling**: each layer handles the errors appropriate to its level
+3. **Numerical edge cases**: statistical functions check for empty or degenerate input and report it
+4. **Input validation**: user input and external data are validated before use
+5. **Display**: the CLI layer catches errors and formats them for the user
 
 ### Exit-code policy
 
@@ -656,13 +666,3 @@ Two modules resolve configuration, with different orders of precedence (see
   project-level record. `store_init --set-default` writes the `[store]` table.
 
 `config_path` and `read_config` live in `core/settings.py` and are re-exported from `store/resolve.py`.
-
-## Future Extensions
-
-The architecture is designed to accommodate future extensions:
-
-1. New file format plugins
-2. Additional visualization types
-3. More analysis algorithms
-4. Web interface or API
-5. Database integration

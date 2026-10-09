@@ -1,29 +1,21 @@
-# PREPARE Documentation
+# PREPARE documentation
 
-Welcome to the PREPARE documentation! This directory contains comprehensive guides for using and developing PREPARE.
+Index of the documentation in this folder. The project overview, installation and the command table are in the [main README](../README.md).
 
-## 📖 Documentation Index
+## User guides
 
-### User Guides
-- **[Pipeline Overview](pipeline_overview.md)** - The six stages from screening to assembly, the commands of each, and what the project registry records
-- **[SRA Enhanced Features](SRA_ENHANCED_FEATURES.md)** - Comprehensive guide for downloading and analyzing SRA data with enhanced features
-- **[Branchwater Workflow](branchwater_workflow.md)** - Step-by-step workflow for using sourmash branchwater functionality
-- **[Running on a cluster](hpc.md)** - SLURM array jobs, walltime signals, exit codes and resubmission,
-  a shared store and NFS
-- **[Configuration](configuration.md)** - Every runtime setting with its type, default, environment
-  variable and flag
+- [pipeline_overview.md](pipeline_overview.md): the pipeline stages from screening to assembly, the commands of each stage, Branchwater input and the environment commands.
+- [reads.md](reads.md): choosing datasets, `sra_info`, `download_sra` with its completeness verdicts, `sra_validate`, `sra_profile` and `sra_report`.
+- [project_state.md](project_state.md): the registry, `status`, `results_table`, `blacklist`, `runs` and `project_report`.
+- [shared_store.md](shared_store.md): the shared data store and the `store_*` commands.
+- [extraction_assembly.md](extraction_assembly.md): `extract_target_reads`, assembly options and assembly markers.
+- [analysis_commands.md](analysis_commands.md): diversity, taxonomy, exploration and plotting commands with their input formats.
+- [configuration.md](configuration.md): every runtime setting with its default, environment variable and flag, plus logging and the `doctor` checks.
+- [hpc.md](hpc.md): SLURM array jobs, walltime signals, exit codes, resubmission, and a shared store on NFS.
 
-### Developer Resources
-- **[Architecture](ARCHITECTURE.md)** - Technical architecture and design decisions for PREPARE
+## Developer guides
 
-## 🚀 Getting Started
-
-New to PREPARE? Start with the main [README](../README.md) in the project root, then explore the specific feature guides above based on your needs.
-
-## 📝 Contributing
-
-For contribution guidelines, see [CONTRIBUTING.md](../CONTRIBUTING.md) in the project root.
-
----
-
-*For questions or issues, please visit our [GitHub repository](https://github.com/FOI-Bioinformatics/prepare).*
+- [ARCHITECTURE.md](ARCHITECTURE.md): layers, design decisions, locking, exit codes and logging policy.
+- [packaging.md](packaging.md): building, releasing and distributing the package.
+- [../CONTRIBUTING.md](../CONTRIBUTING.md): development workflow and quality checks.
+- [../CHANGELOG.md](../CHANGELOG.md): release history.

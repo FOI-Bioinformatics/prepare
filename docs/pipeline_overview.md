@@ -1,11 +1,11 @@
-# Pipeline Overview
+# Pipeline overview
 
 PREPARE moves a population of public SRA datasets through six stages: screen, select, download,
-analyse, extract, assemble. Each stage has one or two commands. Every command records what it decided
-in the project registry (`prepare_registry.json` in the project root), so `status` can show where each
-dataset stands at any time. This page lists the stages in order, the commands that belong to each, the
-files they produce and what the registry keeps. The [README](../README.md) documents every flag; the
-[Branchwater workflow](branchwater_workflow.md) covers the screening step in more depth.
+analyse, extract, assemble. Each stage has one or two commands. Every command records what it decided in
+the project registry (`prepare_registry.json` in the project root), so `status` can show where each
+dataset stands at any time. This page lists the stages in order, with the commands, the files they produce
+and what the registry keeps. Depth on a topic is in the page named in the relevant section; the flags of
+every command are in `prepare <command> --help`.
 
 ## Stage summary
 
@@ -18,10 +18,24 @@ files they produce and what the registry keeps. The [README](../README.md) docum
 | 5. Extract | `extract_target_reads` | `targeted/<accession>/<genome>_*.fastq.gz` | mapped read count, parameters, files |
 | 6. Assemble | `extract_target_reads --assemble` | `targeted/<accession>/<genome>_assembly/final.contigs.fa` | contig count, total length, N50, megahit version |
 
-Metadata commands run alongside stages 1 and 2 and are listed after the stages below. A genome FASTA is
-needed before stage 1 can run at all: `genome_prepare` (search GTDB, download, write a manifest and a
-registry entry) or `genome_download` (download by accession/species/genus, no registry entry) get one;
-see the [README](../README.md#0-getting-a-target-genome-fasta).
+Metadata commands run alongside stages 1 and 2 and are described after the stages. The Environment
+commands `doctor`, `runs` and `project_report` are described at the end.
+
+## 0. A target genome
+
+Stage 1 needs a genome FASTA. `genome_prepare` searches GTDB by species or genus, downloads the matching
+assemblies and writes a manifest CSV and a registry entry for each genome. `genome_download` fetches
+assemblies by accession, species or genus, leaves the downloaded `genomes/ncbi_dataset.zip` where it
+lands and records nothing in the registry. `genome_download` skips an accession whose FASTA already
+exists; `--force` downloads it again and `--dry-run` reports which genomes are present and which are
+missing without downloading. `genome_search` lists GTDB accessions without downloading (`--format list`,
+the default, or `tsv`; see [analysis_commands.md](analysis_commands.md#genome_search)).
+
+```bash
+prepare genome_prepare --species "Lactobacillus crispatus" --output-dir genomes
+prepare genome_download --accessions GCF_000006945.2 --output-dir genomes
+prepare genome_download --accessions GCF_000006945.2 --dry-run
+```
 
 ## 1. Screen
 
@@ -31,40 +45,62 @@ Find the metagenomes that contain the target genome.
 # Query the Branchwater index with a genome FASTA (writes branchwater/<name>.csv)
 prepare branchwater_search --genome-fasta genomes/GCF_000008025.1.fna
 
-# Or place CSVs downloaded from the Branchwater web site in matches/ and convert them
+# Or place CSVs downloaded from the Branchwater web site in branchwater/ and convert them
 prepare use_branchwater --branchwater-folder branchwater --matches-folder matches
 
 # Build the sample by genome containment table and its summary
 prepare parse_containment --matches-folder matches
 ```
 
-`parse_containment` writes `parsed_containment.txt` (one row per SRA accession, one column per genome,
-plus `max_containment`) and, by default, `top_containments.txt` (how many samples pass each containment
-step, at `--step-size` intervals, default 0.1; the name and step size shown in the README's example are
-passed explicitly, not the defaults), as well as `parsed_containment_details.tsv` with cANI and the
-sample metadata columns kept alongside the containment values. `plot_containment` writes a plot image
-(png by default) rather than only displaying one. The registry keeps every screened accession with its
-containment per genome, capped per genome by `--registry-max-screened` (default 5000). An unreadable
-match file makes `use_branchwater`, `parse_containment`, and `extract_branchwater_metadata` exit with
-status 1 rather than skipping it silently.
+`branchwater_search` needs the `sourmash` extra and network access. It sketches the FASTA with sourmash
+(or takes a k=21, scaled=1000 signature with `--signature`), queries the public search API and writes
+`branchwater/<genome>.csv`. The server is sent `--threshold` but is not always relied on to apply it, so
+the client drops any returned match below the threshold as well. A search that returns zero matches is
+reported as a warning, not an error. Check the index with a genome known to be abundant in metagenomes
+before trusting an empty result.
 
-`branchwater_search` retries a failing request automatically and caches a response under
-`.branchwater-cache/` next to its output, keyed by the genome, thresholds and server; `--no-cache`,
-`--refresh` and `--max-cache-age-days` control the cache. The server is sent `--threshold` but is not
-always relied on to honour it; the client re-applies the threshold to the response and drops anything
-below it.
+A request that fails with a network error or a 429 or 5xx response retries up to 4 times with growing
+backoff. Other 4xx client errors fail at once. A successful response is cached under
+`.branchwater-cache/` next to the output CSV, keyed by the genome, containment threshold, sourmash
+parameters and server URL, so a repeated search reads the cache. `--no-cache` neither reads nor writes
+it, `--refresh` queries again and updates it, and `--max-cache-age-days N` treats an entry older than N
+days as absent. Without these options a cache entry is reused until the cache file is deleted.
+
+`use_branchwater` and `parse_containment` read CSVs from the Branchwater web site
+(<https://branchwater.sourmash.bio/>) and from `branchwater_search`. A CSV needs only the columns `acc`
+and `containment`. An unreadable file makes `use_branchwater`, `parse_containment` and
+`extract_branchwater_metadata` exit with status 1 instead of skipping it.
+
+`parse_containment` records every sample and does not filter. It writes:
+
+- `parsed_containment.txt`: one row per SRA accession, one column per genome, plus `max_containment`;
+- `top_containments.txt` by default (`--summary-containment-file`): how many samples reach each
+  containment step, at `--step-size` intervals (default 0.1);
+- `parsed_containment_details.tsv`: one row per accession and genome pair that appears in a match file,
+  with the columns `parsed_containment.txt` does not carry.
+
+| Column of the details table | Meaning |
+|---|---|
+| `accession` | SRA run accession |
+| `genome_id` | target genome the row's containment refers to |
+| `containment` | containment value for this accession and genome |
+| `cANI` | Branchwater's estimated average nucleotide identity for the match |
+| `biosample`, `bioproject` | NCBI sample and project identifiers, when Branchwater reports them |
+| `assay_type`, `organism` | sequencing assay and the organism label from the metagenome record |
+| `geo_loc_name`, `lat_lon` | geographic label and coordinates, when present |
+
+Use the details table when a later step needs cANI or sample provenance. `parsed_containment.txt` stays
+the samples-by-genomes matrix that the rest of the pipeline reads. `plot_containment` writes a plot image
+(png by default). The registry keeps the screened accessions with their containment per genome, up to a
+cap described in [project_state.md](project_state.md#the-registry).
 
 ## 2. Select
 
-Decide which datasets are worth downloading, and which ones to leave out on purpose.
+Decide which datasets are worth downloading, and which to leave out on purpose.
 
 ```bash
 # Accessions whose containment for the genome is at or above the threshold
 prepare select_datasets --genome-id GCF_000008025.1 --threshold 0.5 --output accessions.txt
-
-# The same, restricted to a metadata value
-prepare select_datasets --genome-id GCF_000008025.1 --threshold 0.5 \
-    --metadata-column Sample_Scientific_Name --metadata-value "Drosophila melanogaster"
 
 # Only Illumina runs of at most 2 GB (needs the NCBI metadata table from parse_metadata)
 prepare select_datasets --genome-id GCF_000008025.1 --threshold 0.5 --max-run-size 2G --platform ILLUMINA
@@ -74,27 +110,11 @@ prepare blacklist --add SRR2517418 --reason "16S amplicon mislabelled as WGS"
 ```
 
 The registry records the column, threshold, metadata filter, date and output file of the latest
-selection; running `select_datasets` again replaces the previous selection. Exclusions are kept with
-their reason in the registry and in `blacklist.txt`, and `download_sra` honours them without further
-flags. `--top-n` keeps only the highest-containment accessions after every other filter; excluded
-accessions are dropped by default (`--skip-excluded`) and `--skip-downloaded` also drops accessions the
-registry already records as downloaded. `sra_info` (see [README](../README.md#downloading-reads))
-reports sizes of any accession list before downloading. It filters per
-experiment package, not per run: it lists every run of each experiment package that a requested run,
-experiment, sample, study, BioProject or BioSample accession matches (including sibling lanes or
-replicates of the same experiment as a requested run), and drops runs of packages that match none of the
-requested accessions; a reply that would be filtered down to nothing is listed in full with a warning.
-`--no-record` logs the counts and writes its list without touching the registry, for an exploratory
-run that should not replace the recorded selection. It refuses to overwrite a file that a recorded
-selection names (the default `accessions.txt` once a selection has been recorded), so `--output` should
-name a scratch file.
-
-`--max-run-size BYTES` (suffixes K, M, G, T as powers of 10), `--min-spots N`, `--max-spots N` and
-`--platform NAME` filter on `Run_Size`, `Run_Total_Spots` and `Platform` in the NCBI metadata table,
-after the metadata filter and before `--top-n`. A run absent from the table or without a value is dropped
-and counted in the log. A table without the column a requested filter reads (every Branchwater-derived
-table) is an error: the command exits with status 1, writes no output and records nothing. The registry
-records these four values with the selection.
+selection, and a new run replaces it. Exclusions are kept with their reason in the registry and in
+`blacklist.txt`, and `download_sra` honours them without further flags. `--no-record`, the filters (`--metadata-column`, `--metadata-value`,
+`--max-run-size`, `--min-spots`, `--max-spots`, `--platform`, `--top-n`, `--skip-excluded`,
+`--skip-downloaded`) and `sra_info`, which reports the sizes of an accession list before downloading, are
+described in [reads.md](reads.md).
 
 ## 3. Download
 
@@ -102,31 +122,23 @@ records these four values with the selection.
 prepare download_sra --accessions-file accessions.txt --fastq-folder fastq --max-workers 4
 ```
 
-Reads land in `fastq/<accession>/` by default (as `<accession>_1.fastq.gz`, `_2` for paired runs):
-`prefetch` fetches the archive, then `fasterq-dump` converts it (`--no-prefetch` calls fasterq-dump
-directly), and the resulting FASTQ files are gzip-compressed unless `--no-compress` is given. As each
-download finishes the registry records it as downloaded (with file sizes and a completeness verdict from
-comparing the read count against NCBI's spot count -- this verdict is only available when
-`download_metadata` (see "Metadata" below) has already fetched that accession's expected spot count, so
-run `download_metadata` before `download_sra` if the verdict matters), failed (with the attempt count and
-message) or skipped (blacklisted or cut by `--max-downloads`). Failed accessions are also written to
-`fastq/failed_accessions.txt` for a retry, and `--report-file` writes one row per accession. A rerun
-skips accessions already on disk; `--force` downloads them again. `--dry-run` reports the plan and
-touches neither the disk nor the registry. `--temp-folder DIR` sets where `fasterq-dump` writes scratch
-files; without it, a plain per-project download uses `fastq/.prepare-tmp/<accession>_fqtmp`, while a
-store-backed one (below) defaults to `<data-root>/tmp/<accession>_fqtmp`; either is removed once the
-accession's download ends. Ctrl-C cancels downloads not yet started and
-stops the running `prefetch`/`fasterq-dump` processes for the ones in progress.
+Reads land in `fastq/<accession>/` (as `<accession>_1.fastq.gz`, with `_2` for paired runs). `prefetch`
+fetches the archive and `fasterq-dump` converts it; with `--no-prefetch`, `fasterq-dump` is called
+directly. The FASTQ files are gzip-compressed unless `--no-compress` is given. As each download
+finishes, the registry records it as downloaded, failed (with the attempt count and message) or skipped
+(blacklisted or cut by `--max-downloads`). Failed accessions are also written to
+`fastq/failed_accessions.txt`, and `--report-file` writes one row per accession. A rerun skips accessions
+already on disk, `--force` downloads them again and `--dry-run` reports the plan without touching the
+disk or the registry. Ctrl-C cancels downloads not yet started and stops the tools of those in progress.
 
-When a shared data store is configured (`--data-root`, `PREPARE_DATA`, or the project's recorded
-store), `download_sra` looks up each accession in the store first. A complete or unverified dataset is
-linked into `fastq/<accession>` without a new download; a partial dataset is re-downloaded unless
-`--accept-partial`; an accession absent from the store is downloaded once, compressed, and added to the
-store for every project to reuse. A per-accession lock (`--lock-wait`) lets two projects on the same
-store cooperate on the same accession without downloading it twice. See the store commands
-(`store_init`, `store_status`, `store_adopt`, `store_usage`, `store_gc`, and related commands) in the
-[README](../README.md#shared-data-store) and the store package section of
-[ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
+Each download gets a completeness verdict from comparing its read count with NCBI's spot count:
+`complete`, `truncated` or `unverified` when no spot count is known. The four places the spot count is
+looked up, the verdict rules and `--redownload-truncated` are in [reads.md](reads.md).
+
+With a shared data store configured (`--data-root`, `PREPARE_DATA` or the project's recorded store),
+`download_sra` looks each accession up in the store first, links a usable copy into `fastq/<accession>`
+and otherwise downloads once and adds the dataset to the store. See [shared_store.md](shared_store.md)
+for the commands and [ARCHITECTURE.md](ARCHITECTURE.md) for the mechanics.
 
 ## 4. Analyse
 
@@ -136,30 +148,13 @@ prepare sra_profile --fastq-folder fastq --accessions-file accessions.txt
 prepare sra_report --fastq-folder fastq --groups-file groups.json --quality-profiles sra_quality_profiles
 ```
 
-`sra_validate` checks the FASTQ files, and with `--check-pairs` compares mate read counts, and with
-`--md5` compares each file's checksum against the value recorded for it. `sra_profile` writes one
-statistics table (`sra_statistics.csv`: read and base totals, read lengths, GC content, mean base
-quality, grade) and one profile JSON per accession into `sra_quality_profiles/`. `sra_report` writes
-one HTML report on the quality of the datasets and, with `--groups-file`, a comparison of the groups
-with t-test or ANOVA results; with `--quality-profiles` it reuses the profiles `sra_profile` saved
-instead of profiling the reads again. Each of them records one analysis entry per accession in the
-registry (`validate`, `profile`, `report`). All three take `--accessions-file`, and `sra_profile` and
-`sra_validate` also take repeated `--accession` flags; without either, every accession folder is used.
-
-Each dataset is profiled by one path. Read and base totals, mean read length and GC content come from
-the dataset's statistics record: exact read counts, and GC from a uniform sample of the first mate
-file's reads. Per-read quality, complexity and adapter figures come from a sample of `--sample-size`
-reads per dataset (default 10000) drawn from every mate file (uniformly across each file by default,
-or `--sampler head`). For a dataset held in the shared data store, the statistics record is cached in
-the store sidecar (the `stats` block, invalidated when a FASTQ file's size or modification time
-changes), so `sra_profile`, `sra_report` and `sra_validate --check-pairs` compute it once and reuse it
-rather than re-reading the files each time. GC is reported in percent (0 to 100) under `gc_percent` in
-the table, the profile JSON and the registry.
-
-`sra_profile` and `sra_report` label every printed read total "(mates counted)", since a paired-end
-run's two mate files are counted separately. Before 0.5.0 these steps were four commands,
-`sra_stats`, `sra_profile_quality`, `sra_dashboard` and `sra_compare`; those names now print where
-the command went and exit with status 2.
+`sra_validate` checks the FASTQ files. With `--check-pairs` it compares mate read counts and with `--md5`
+it compares each file's checksum with the recorded value. `sra_profile` writes one statistics table
+(`sra_statistics.csv`: read and base totals, read lengths, GC content in percent, mean base quality,
+grade) and one profile JSON per accession into `sra_quality_profiles/`. `sra_report` writes one HTML
+report and, with `--groups-file`, a comparison of the groups with t-test or ANOVA results. Each command
+records one analysis entry per accession in the registry (`validate`, `profile`, `report`). The sampling
+rules, the statistics cache in the store sidecar and the report contents are in [reads.md](reads.md).
 
 ## 5. Extract
 
@@ -171,23 +166,15 @@ prepare extract_target_reads --parsed-containment parsed_containment.txt \
 ```
 
 Samples at or above the threshold in the containment table are mapped with minimap2 (preset `sr` by
-default, `--threads` default 4) and the mapped reads are written with samtools to `targeted/<accession>/`
-as `<genome>_*.fastq.gz`. The registry records the number of mapped reads, the genome FASTA, preset,
-threshold and the files written, including samples that mapped no reads. For samples with mapped reads it
-also records the breadth of the reference genome covered at 1x or more and the length-weighted mean depth,
-computed with `samtools coverage` over the kept alignments (duplicate and QC-fail reads are skipped by its
-defaults) and written per sequence to `targeted/<accession>/<genome>_coverage.tsv`.
-A rerun with the same genome, preset and threshold skips samples already recorded; `--dry-run` lists what
-would be extracted and what would be skipped without running any tool (and without requiring
-minimap2/samtools/megahit to be on PATH), printing one summary line for samples not yet downloaded rather
-than one warning per sample; `--force` redoes them.
-
-The genome is indexed once per preset under `<output-folder>/.index/` and the index is reused across
-samples rather than rebuilt each time. Unmapped, secondary and supplementary alignments are always
-dropped; `--min-mapq` (default 0) additionally drops mapped records below a mapping-quality threshold.
-`--fastq-folder` accepts a folder made of store symlinks the same way it accepts plain per-accession
-folders, so extraction reads directly from the shared store when a project links into one; `--data-root`
-resolves it against a shared store the same way the other store-aware commands do.
+default, `--threads` default 4) and the mapped reads are written with samtools to
+`targeted/<accession>/` as `<genome>_*.fastq.gz`. The registry records the mapped read count, the genome
+FASTA, preset, threshold and files, including for samples that mapped no reads. For samples with mapped
+reads it also records the breadth of the reference covered at 1x or more and the length-weighted mean
+depth, from `samtools coverage`, and writes per-sequence values to `<genome>_coverage.tsv`. A rerun with
+the same genome, preset and threshold skips recorded samples, `--force` redoes them and `--dry-run` lists
+the plan without running a tool. A sample whose download is `truncated`, or whose store copy is `partial` or
+`failed`, is skipped unless `--allow-truncated` is given (see
+[extraction_assembly.md](extraction_assembly.md)).
 
 ## 6. Assemble
 
@@ -197,118 +184,147 @@ prepare extract_target_reads --parsed-containment parsed_containment.txt \
 ```
 
 With `--assemble` the extracted reads of each sample go through megahit into
-`targeted/<accession>/<genome>_assembly/`. The registry records contig count, total length, N50, largest
-contig, the megahit version and the parameters. An existing `final.contigs.fa` is kept unless `--force`;
-an assembly folder without contigs is reported as interrupted, and `--force` removes it and runs again.
-A megahit failure surfaces the tool's own stderr (last few lines), not just its exit code. On macOS
-megahit runs single-threaded by default (`--assembly-threads` overrides).
+`targeted/<accession>/<genome>_assembly/`. The registry records the contig count, total length, N50,
+largest contig, the megahit version and the parameters. An assembly whose marker matches its inputs is
+reused; one whose reads or settings changed is built again. The index, filtering options, assembly markers, scratch folders and the macOS thread
+default are described in [extraction_assembly.md](extraction_assembly.md); memory sizing for cluster jobs
+is in [hpc.md](hpc.md).
 
-megahit's scratch files need a filesystem with FIFOs, which ExFAT and some network shares do not
-provide; `--temp-folder DIR` points that scratch at a local POSIX filesystem instead of the default.
-Without `--temp-folder`, each run creates its own scratch folder directly under `--output-folder`,
-named `.megahit-tmp-<random suffix>`, and removes it once the run finishes, even on failure; the random
-suffix keeps two concurrent runs sharing one output folder from clashing. On such a volume, stray `._*`
-AppleDouble sidecar files are ignored wherever PREPARE lists a folder's contents. A `fastq/<ACC>`
-symlink whose target is missing is logged as one WARNING naming every such dangling link found.
+## Metadata
 
-`--assembly-preset` sets megahit's `--presets` value: `meta-sensitive` (the default), `meta-large`, or
-`default` for no preset. `intermediate_contigs/` is removed after a successful assembly unless
-`--keep-intermediate`. Unless `--no-coverage`, the extracted reads are mapped back onto the assembled
-contigs to report `reads_mapped`, `mapping_rate` and an estimated `mean_depth` in the assembly stats.
+Two routes give per-sample metadata. They can be combined.
 
-## Metadata (alongside stages 1 and 2)
+| Route | Command | Source | What it gives |
+|---|---|---|---|
+| Embedded fields | `extract_branchwater_metadata` | Columns of a Branchwater web-site CSV | Organism, biosample, bioproject, assay type, collection date, location and cANI, where the CSV has them. No NCBI request. |
+| NCBI records | `download_metadata`, `parse_metadata` | NCBI, one XML per accession | Full sample and run records, including run size, checksum, library strategy and spot count. Needs an email address and is rate limited. |
 
-Run `download_metadata` before `download_sra` if the download's spot-count verdict matters (see stage 3
-above); nothing in the command ordering below enforces this, it is on the user to sequence it that way.
+A CSV written by `branchwater_search` carries only accession, containment and cANI, so
+`extract_branchwater_metadata` has little to extract from it and `download_metadata` is the route that
+works. Run `download_metadata` before `download_sra` when the completeness verdict or the size and
+platform filters of `select_datasets` are needed.
+
+`extract_branchwater_metadata` renames a few Branchwater columns to canonical names; in particular
+`organism` becomes `Sample_Scientific_Name`. Use the output names (for example `--metadata-column
+Sample_Scientific_Name`) in `count_metadata` and `single_sample`. A CSV from `branchwater_search` leaves the
+`organism` column empty, so on that route `Sample_Scientific_Name` has values only in the NCBI table from
+`parse_metadata`.
 
 ```bash
-# extract_branchwater_metadata only has real metadata to extract when the CSVs came from the
-# Branchwater web site; a branchwater_search (API) CSV carries only accession, containment and cANI
 prepare extract_branchwater_metadata --branchwater-folder branchwater --metadata-folder metadata
 
-# Richer, and the only route that works when branchwater_search was used: NCBI metadata per
-# accession, then a consolidated table
 prepare download_metadata --email you@example.org --matches-folder matches --metadata-folder metadata
 prepare parse_metadata --metadata-folder metadata --metadata-table-file metadata_table.txt
+```
 
-# Summaries
-prepare count_metadata --metadata-column Sample_Scientific_Name --threshold 0.5
+`download_metadata --accessions-file accessions.txt` fetches metadata for the selected datasets only.
+Accessions are requested from NCBI in batches (`--batch-size`, default 200), and `--api-key` or the
+`NCBI_API_KEY` environment variable raises the rate limit. With `--data-root`, each XML is also copied
+into `<data-root>/metadata/`, where `store_verify --spots` finds it later. The registry keeps the
+metadata file, run size, run checksum, library strategy and organism per accession.
+
+### Metadata table commands
+
+`check_metadata_attributes`, `count_metadata` and `single_sample` read a metadata table. Without
+`--file-path` (for `check_metadata_attributes`) or `--metadata-file` (for the other two) they use the first
+of these that exists:
+
+1. `metadata_table.txt`
+2. `metadata/metadata_table.txt`
+3. `metadata/branchwater_metadata.txt` (from `extract_branchwater_metadata`)
+
+Either metadata route therefore works with the defaults. A table that `parse_metadata` writes under
+another name has to be passed explicitly to each of these commands.
+
+`check_metadata_attributes` counts the samples with a value for each attribute column of the table
+(columns starting with `Run_`, `Project_`, `Sample_` or `Experiment_` are left out), which shows which
+attributes are filled often enough to count. It writes one line per attribute, most frequent first
+(default output `metadata_attribute_counts.txt`):
+
+```bash
+prepare check_metadata_attributes --file-path metadata_table.txt --output-file metadata_table_overview.txt
+```
+
+`count_metadata` counts the values of one metadata column among the samples at or above `--threshold`
+(default 0.5) for each genome of the containment table (`--summary-file`, default
+`parsed_containment.txt`). It writes `metadata_counts.txt` (one row per value, one column per genome) and,
+next to it, the column totals in `metadata_counts_stats.txt` (`--stat-file` names it otherwise).
+`plot_metadata_counts` plots either file and writes an image only when `--save-format` is given.
+
+```bash
+prepare count_metadata --metadata-column Sample_Scientific_Name --threshold 0.9
+prepare count_metadata --summary-file parsed_containment.txt --metadata-file metadata_table.txt \
+    --metadata-column Sample_Scientific_Name --threshold 0.95 --output-file genome_counts.txt
 prepare plot_metadata_counts --file-path metadata_counts.txt --save-format png
 ```
 
-`count_metadata` writes `metadata_counts.txt` by default and defaults `--threshold` to 0.5.
-`plot_metadata_counts`, unlike `plot_containment`, only writes a file when `--save-format` is given.
+`single_sample` counts the values of one metadata column among the samples at or above `--threshold`
+(default 0.1) for one genome column of the containment table (`--summary-column`). It logs the `--top-n`
+most frequent values (default 100) and writes no file:
 
-`download_metadata --accessions-file accessions.txt` fetches metadata for the selected datasets only.
-The registry keeps the metadata file, run size, run checksum, library strategy and organism per
-accession. Accessions are fetched from NCBI in batches (`--batch-size`, default 200, one XML per
-accession written from each batch response) rather than one request per accession; `--api-key` (or the
-`NCBI_API_KEY` environment variable) raises the request rate limit. With `--data-root`, each fetched
-XML is also copied into `<data-root>/metadata/` so every project sharing the store has it, and
-`store_verify --spots` can find it there later even for a dataset downloaded before the metadata was
-fetched.
+```bash
+prepare single_sample --summary-column GCF_000008025.1 --metadata-column Sample_Scientific_Name --threshold 0.95
+```
 
-## Project state at any point
+## Project state
 
 ```bash
 prepare status                              # inventory and the accession by stage matrix, per genome
-prepare status --stage extracted --genome GCF_000008025.1
 prepare status --next                       # commands that would advance the most datasets
-prepare status --init                       # build the registry for a project created before it existed
-prepare status --reconcile                  # record files removed by hand, register untracked work
-prepare status --export-tsv registry        # registry_datasets.tsv and registry_extractions.tsv
-prepare status --json                       # the same report for scripts
-prepare results_table --output results.tsv  # one row per accession and genome, the study's results
+prepare results_table --output results.tsv  # one row per accession and genome
 ```
 
-`results_table` joins the registry with the parsed containment table into one row per screened
-accession and genome, from containment through read mapping, reference coverage and assembly.
+Presence is always re-checked on disk, so a folder deleted by hand shows up as missing. Decisions and
+provenance come from the registry. The registry, the status options (`--stage`, `--genome`, `--init`,
+`--reconcile`, `--export-tsv`, `--json`) and the `results_table` columns are described in
+[project_state.md](project_state.md).
 
-Presence is always re-checked on disk, so a folder deleted by hand shows up as missing rather than done.
-Decisions and provenance (why a dataset was selected or excluded, when it was downloaded, how many
-reads mapped) come from the registry. Commit `prepare_registry.json` with the project if the decisions
-should travel with the results.
+## Environment commands
 
-`status --data-root` reports whether the project uses a shared data store, and if so the store's root,
-whether each dataset is store-backed or local, and any dataset that is partial or whose store symlink is
-dangling. A wanted accession whose `fastq/<ACC>` link points at a store dataset that is not yet
-`complete` or `unverified` (still `downloading`, `failed`, or `partial`) is reported as linked to a store
-dataset that is not complete, rather than simply listed as missing. `status --reconcile` records a
-dangling link the same way it records other files removed by hand.
+These three commands read the environment or the project and are not stages.
 
-`status --next` also turns a `select_datasets --no-skip-excluded` selection's still-excluded accessions
-into a runnable `select_datasets ... --skip-excluded` command, reproducing that run's genome, threshold,
-metadata, top-N and run filter criteria, instead of suggesting `download_sra` directly on them.
+`doctor` reports whether the environment can run PREPARE and changes nothing. Its flags, checks and
+exit codes are in [configuration.md](configuration.md#checking-the-environment).
+
+`runs` lists the commands recorded in the project's run log (`<project>/.prepare/runs/`), shows one run
+(`--show`), compares two (`--diff`) or follows one accession through the runs (`--accession`).
+`project_report` writes one report of the project from its registry as Markdown, JSON and, with the
+`interactive` extra, HTML. Both are described in [project_state.md](project_state.md).
+
+```bash
+prepare runs --diff previous latest
+prepare project_report --output-dir project_report
+```
 
 ## The walkthrough
 
-`make pipeline` runs `local_test.sh` on the bundled sample data: `use_branchwater`, `parse_containment`,
-`extract_branchwater_metadata`, `count_metadata`, `plot_metadata_counts`, `plot_containment`,
-`select_datasets`, `status --init`, `blacklist`, `status --stage excluded`, `status`, a dry-run
-`extract_target_reads`, and a `status --json` check of the registry counts. It also walks through the
-shared data store on the same sample data: `store_init`, a `download_sra --dry-run` against the store
-(so no network access is needed), `store_status --json`, and `select_datasets --top-n`. It needs no
-network access and no external tools; the store steps redirect `HOME` and unset `PREPARE_DATA` so
-they never touch a real store or the user's configuration file.
+`make pipeline` runs `local_test.sh` on the bundled sample data. It runs `use_branchwater`,
+`parse_containment`, `extract_branchwater_metadata`, `count_metadata`, `plot_metadata_counts`,
+`plot_containment`, `select_datasets`, `status --init`, `blacklist`, `status --stage excluded`, `status`,
+a dry-run `extract_target_reads` and a `status --json` check of the registry counts. It also steps
+through the shared store: `store_init`, a `download_sra --dry-run` against the store, `store_status
+--json` and `select_datasets --top-n`. It needs no network access and no external tools, and the store
+steps redirect `HOME` and unset `PREPARE_DATA` so they never touch a real store or configuration file.
 
 ## External tools by stage
 
 | Stage | Tool | Purpose |
 |---|---|---|
+| Genome | datasets (`ncbi-datasets-cli`) | `genome_download` and `genome_prepare` |
 | Screen | sourmash (Python package) | sketching the genome for `branchwater_search` |
-| Download | sra-tools (`prefetch`, `fasterq-dump`) | fetching reads |
-| Download | pigz (optional) | parallel gzip compression of downloaded FASTQ files |
+| Download | sra-tools (`fasterq-dump`; `prefetch` optional) | fetching reads |
+| Download | pigz (optional) | parallel gzip compression; gzip is used without it |
 | Extract | minimap2, samtools | mapping and filtering reads |
-| Assemble | megahit | assembling the extracted reads |
+| Assemble | megahit (optional) | assembling the extracted reads; needed only for `--assemble` |
 | Analyse | seqkit (optional) | faster read statistics for `sra_profile` and `sra_report` |
 
 Python packages beyond the core install sit behind extras: `analysis` (scikit-learn, scipy) for
-`diversity_analysis` and the group statistics in `sra_report --groups-file`, `interactive` (plotly,
-jinja2) for the HTML outputs (`explore_containment`, `sra_report`, `interactive_plot`), `maps`
-(cartopy) and `sourmash`. A command that needs a missing extra exits with an error naming it; the
-download, parse, metadata, status and extraction stages above need none of them.
+`diversity_analysis`, the PCA, t-SNE, diversity and clustered heatmap plots of `interactive_plot` and the
+group statistics in `sra_report --groups-file`, `interactive` (plotly,
+jinja2) for the HTML outputs, `maps` (cartopy) and `sourmash`. A command that needs a missing extra exits
+with an error naming it. The download, parse, metadata, status and extraction stages need none of them.
 
-The README's installation section lists them; `environment.yml` installs sra-tools, pigz,
-ncbi-datasets-cli, minimap2, samtools, megahit and sourmash by default (pigz is a real dependency, not
-optional there), comments out `seqkit` as one additional, optional line, and installs PREPARE
-with every extra (`-e ".[all]"`).
+`environment.yml` installs sra-tools, pigz, ncbi-datasets-cli, minimap2, samtools, megahit and sourmash,
+leaves `seqkit` as a commented optional line, and installs PREPARE with every extra (`-e ".[all]"`).
+`prepare doctor` reports which of these are present. The tool table and the extras are listed in
+[README.md](../README.md).

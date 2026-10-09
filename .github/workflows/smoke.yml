@@ -4,8 +4,8 @@ name: Nightly Smoke Test
 # services, with the conda-installed tools (fasterq-dump, prefetch, minimap2,
 # samtools, megahit) the "prepare" environment provides. This is the only CI job
 # that talks to the network and downloads real sequencing data, so it runs nightly
-# rather than on every push or pull request; see CLAUDE.md's CI section and
-# README.md's "Nightly smoke" paragraph for what it covers.
+# rather than on every push or pull request; see "Network smoke test" in
+# CONTRIBUTING.md for what it covers.
 
 on:
   schedule:

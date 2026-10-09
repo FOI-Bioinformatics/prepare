@@ -1,28 +1,25 @@
 # Contributing to PREPARE
 
-Thank you for your interest in contributing to PREPARE! This document provides guidelines for contributing to the project.
+This document describes how to set up a development environment, check a change and submit it.
 
-## Development Setup
+## Development setup
 
 Requires Python 3.12 or newer.
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/FOI-Bioinformatics/prepare.git
-   cd prepare
-   ```
+```bash
+git clone https://github.com/FOI-Bioinformatics/prepare.git
+cd prepare
+pip install -e ".[dev]"
+make test
+```
 
-2. **Install in development mode**:
-   ```bash
-   pip install -e ".[dev]"
-   ```
-   Or, using conda: `make env`, `make env-dev` (installs into the `prepare` environment
-   directly, no activation needed for this step), then `conda activate prepare` for day-to-day use.
-
-3. **Run the test suite**:
-   ```bash
-   make test
-   ```
+With conda, `make env` creates the `prepare` environment from `environment.yml` (Python 3.12 and the
+external tools), and `make env-dev` installs the package with its development dependencies into it.
+`make env-dev` runs `conda run -n prepare pip install -e ".[dev]"`, so it installs into that
+environment whatever environment is active. Run `conda activate prepare` afterwards to use the
+`prepare` console script day to day. Do not keep PREPARE installed in another interpreter's
+site-packages at the same time; run `pip uninstall prepare` there, so the console script resolves to
+the copy in the `prepare` environment.
 
 ### Several worktrees and one environment
 
@@ -36,95 +33,62 @@ repository root before it changes into the scratch project directory. Do the sam
 (`PYTHONPATH=/path/to/worktree`) when running a helper script from outside a worktree, or
 re-run `pip install -e .` in the worktree you are working in.
 
-## Development Workflow
+## Checking a change
 
-1. **Code Quality**: Before submitting changes, ensure your code passes all quality checks:
-   ```bash
-   make check
-   ```
-   This runs:
-   - `black` for code formatting
-   - `flake8` for linting
-   - `mypy` for type checking
+```bash
+make format      # black, line length 120
+make check       # every quality gate
+make test        # the test suite with a coverage report
+make pipeline    # end-to-end run of local_test.sh
+make help        # every make target
+```
 
-2. **Auto-format code**:
-   ```bash
-   make format
-   ```
-
-3. **Run tests**:
-   ```bash
-   make test        # Run comprehensive test suite
-   make pipeline    # Run full integration test
-   ```
-
-## Architecture Guidelines
-
-### CLI Commands
-- All commands should inherit from base classes in `cli/base.py`
-- Register new commands in `cli/main.py`
-- Follow existing argument naming conventions (use dashes, not underscores)
-
-### Plugin Development
-- Format plugins inherit from `Plugin` class in `plugins/base.py`
-- Register with appropriate registries (`format_registry`, `visualizer_registry`)
-- Implement required methods: `validate_header`, `parse_file`, `extract_metadata`
-
-### Data Models
-- Use dataclasses in `core/models.py` for data structures
-- Follow the existing patterns for `Containment`, `SRAMetadata`, etc.
-
-### Error Handling
-- Use custom exceptions from `core/exceptions.py`
-- Follow the hierarchy starting with `PrepareError`
-
-## Testing
-
-- Write tests for new functionality in the `tests/` directory
-- Ensure both unit tests and integration tests pass
-- The `local_test.sh` script provides end-to-end testing
+`make check` runs, in order: black, flake8, mypy, the no-print check, the plotly CDN check, the radon
+complexity ceiling, the module size and maintainability ceilings, the ASCII check, the atomic-write
+check, and the check that README.md names every visible command and no unknown one. The `check`
+target in the Makefile is the authoritative list, and the "Quality gates" section of
+[CLAUDE.md](CLAUDE.md) explains each gate. `pip-audit --strict` runs in CI, not in `make check`.
 
 ### Network smoke test
 
 `make test-network` downloads one 425-spot SRA run (SRR2517620) with fasterq-dump and
 checks the files PREPARE writes. It needs `fasterq-dump` on the PATH and internet
 access, so it is excluded from `make test`. Run it before releasing any change to
-the `prepare/data/sra/` package or `prepare/utils/security.py`.
+the `prepare/data/sra/` package or `prepare/utils/security.py`. The same chain runs nightly in CI
+(`.github/workflows/smoke.yml`): it downloads the run, validates and profiles it, extracts reads against
+the test genome and writes the results table. It is the only CI job that uses the network.
 
-## Submitting Changes
+## Code guidelines
 
-1. **Create a feature branch**: `git checkout -b feature/your-feature-name`
-2. **Make your changes** following the guidelines above
-3. **Run quality checks**: `make check`
-4. **Run tests**: `make test`
-5. **Commit your changes**: Use clear, descriptive commit messages
-6. **Push and create a pull request**
+- **Commands** inherit from the base classes in `prepare/cli/base.py`, register through
+  `register_all_commands()` in `prepare/cli/main.py`, and use dashes in flag names
+  (`--matches-folder`). [CLAUDE.md](CLAUDE.md) lists the further rules a new command follows
+  (output through `emit`, run log, required tools, settings, errors).
+- **Plugins** subclass `Plugin` in `prepare/plugins/base.py`, which defines only a name, a
+  description and a version, and register with `format_registry` or `visualizer_registry` from the
+  same module. The methods a format handler provides follow the Branchwater handler in
+  `prepare/plugins/formats/branchwater.py`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **Data models** are the dataclasses in `prepare/core/models.py`.
+- **Errors** use the exceptions in `prepare/core/exceptions.py`, whose hierarchy starts with
+  `PrepareError`; each class carries its exit code.
+- **Style** is PEP 8 as enforced by black (line length 120) and flake8, with type hints and
+  docstrings on public functions and classes.
 
-## Code Style
+## Tests
 
-- Follow PEP 8 Python style guidelines
-- Use `black` for automatic code formatting (line length: 88)
-- Use type hints where appropriate
-- Write clear docstrings for functions and classes
+- Add tests for new behaviour in `tests/`, including error paths and boundary cases.
+- A bug fix comes with a test that fails before the fix.
+- Mock external services (NCBI, Branchwater, external tools); only `make test-network` uses the
+  network.
+- Keep tests independent of each other's state, and of the developer's own store and
+  configuration file.
 
-## Testing Guidelines
+## Submitting changes
 
-- **Comprehensive Coverage**: Include unit tests for all new functionality
-- **Edge Case Handling**: Test boundary conditions and degenerate cases
-- **Numerical Stability**: Verify proper handling of empty arrays, near-zero variances, and precision loss
-- **Mock External Dependencies**: Use proper test doubles for NCBI APIs, file operations, and system calls
-- **Test Isolation**: Ensure tests do not contaminate each other's state
-- **Error Path Testing**: Include tests for validation failures and error conditions
+1. Create a branch: `git checkout -b feature/your-feature-name`.
+2. Make the change, with tests and documentation where needed.
+3. Run `make check` and `make test`.
+4. Commit with a clear message, push, and open a pull request that describes the change and refers to
+   any related issue.
 
-## Pull Request Guidelines
-
-- Provide a clear description of the changes
-- Include tests for new functionality with proper edge case handling
-- Ensure all tests pass without warnings
-- Maintain numerical stability in statistical computations
-- Update documentation if necessary
-- Reference any related issues
-
-## Questions?
-
-If you have questions about contributing, please open an issue or start a discussion in the repository.
+Questions can be raised as an issue in the repository.

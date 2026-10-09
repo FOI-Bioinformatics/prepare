@@ -97,10 +97,10 @@ What each setting does:
   folder of its own beside the download: `fastq/.prepare-tmp/<accession>_fqtmp` in a project without a
   store, `<data-root>/tmp/<accession>_fqtmp` with one. Set it to a local disk when the project or store
   is on a network filesystem and the node has local scratch space.
-- `log_file`, `log_level`, `progress_every`, `log_host`: see "Logging" in the README.
+- `log_file`, `log_level`, `progress_every`, `log_host`: see [Logging](#logging) below.
   `progress_every` 0 turns the progress summaries off and logs one INFO line per item instead.
 - `min_free_gb`: the free space a download of unknown size needs on each filesystem it writes to;
-  0 turns the free-space check off. See "Downloading reads" in the README.
+  0 turns the free-space check off. See [reads.md](reads.md).
 - `prefetch_max_size`: the value passed to `prefetch --max-size`; a run whose `.sra` archive is larger is
   not fetched. A whole number of bytes, or a whole number with a K, M, G or T suffix (in either case).
 - `assembly_memory`: the value passed to megahit `--memory`. `auto` gives 90% of the memory limit detected
@@ -109,7 +109,7 @@ What each setting does:
   number of bytes (at least 1M) is passed in bytes. A fraction such as `0.5` is passed as it is; megahit
   applies it to the whole node's memory, so under a scheduler give a size or `auto` instead.
 - `run_log`: whether a command that keeps a run log adds a record of each run to
-  `<project>/.prepare/runs/` (see "Project state" in the README). Nothing is written in a folder
+  `<project>/.prepare/runs/` (see [project_state.md](project_state.md)). Nothing is written in a folder
   without a project registry, and a run log that cannot be written is reported as a warning without
   changing the command's exit code. false turns the run log off.
 
@@ -161,6 +161,86 @@ Runtime settings (value and source):
 
 The names in this list are the setting names of `SETTINGS`; they equal the config keys except for
 `subprocess_timeout`, whose config key is `timeout`.
+
+## Logging
+
+Log lines go to stderr; a command's result (tables, JSON) goes to stdout. These options work on every
+command, before or after the command name:
+
+| Option | Effect |
+|---|---|
+| `--log-level LEVEL` | Console level: DEBUG, INFO (the default), WARNING, ERROR or CRITICAL |
+| `-q`, `--quiet` | Only warnings and errors on the console (same as `--log-level WARNING`) |
+| `-v`, `--verbose` | Debug lines and full tracebacks on the console (same as `--log-level DEBUG`) |
+| `--log-file PATH` | Also append every line to `PATH`; its folder is created |
+| `--progress-every N` | Log a progress summary every N items of a long run (default 50) |
+
+`-q` and `-v` cannot be given together, and either one overrides `--log-level`. `store_status` keeps its
+own `--verbose` (list every dataset), so its log level is raised with `prepare -v store_status`. A flag
+takes precedence over the environment variable and the `[runtime]` key of the same setting.
+
+The log file is opened for appending, so several runs on one machine can share one file on a local disk.
+On a network filesystem give each process its own file (for example one per SLURM array task, see
+[hpc.md](hpc.md)), because appends from several hosts to one NFS file can interleave or be lost. The file
+receives every line at INFO or above, also when the console is quiet, and DEBUG lines when the console is
+at DEBUG. Each line names the host and process ID that wrote it:
+
+```
+2026-09-30 14:02:11 node17[48213] WARNING prepare.data.sra.retry: Failed to download SRR1234567: ...
+```
+
+When a command fails, the console shows the error on one line and the log file keeps the full traceback;
+without a log file, rerun with `-v`. At DEBUG a run also logs the PREPARE version, its command line (with
+the `--api-key` value hidden), the host, the process ID and, under SLURM, `SLURM_JOB_ID` and
+`SLURM_ARRAY_TASK_ID`. `PREPARE_LOG_HOST=true` (or `log_host = true` in `[runtime]`) puts the host and
+process ID on console lines too.
+
+`download_sra`, `download_metadata` and `extract_target_reads` log a progress summary every
+`--progress-every` items and at least every 5 minutes while items are finishing, then one closing line
+with the totals and the time taken (for `download_sra`, after the retry pass):
+
+```
+download_sra: 150/2000 done (148 ok, 2 failed), 3.1/min, about 9 h 57 min left
+download_sra: finished 2000/2000 (1990 ok, 10 failed) in 10 h 45 min
+```
+
+Lines about one accession or sample (a download starting, skipped or finished, its temporary folder, a
+store link, a retry, an NCBI metadata request, an extracted sample) are logged at DEBUG;
+`--progress-every 0` turns the summaries off and logs them at INFO instead. Warnings and errors about an
+accession keep their own level. Some per-accession lines stay at INFO: the first "prefetch not found on
+PATH" of a run and the lines about an unusual event (a download interrupted or redone with `--force`, a
+truncated archive removed for the next attempt, a wait for running downloads to free space, a wait for a
+lock another run holds).
+
+## Checking the environment
+
+`doctor` (group Environment in `prepare --help`) reports whether the environment can run PREPARE and
+changes nothing:
+
+```bash
+prepare doctor                              # every check, one line each
+prepare doctor --for extract_target_reads   # a tool this command needs is a failure, not a warning
+prepare doctor --json                       # the same report as one JSON document
+prepare doctor --network                    # also check that NCBI and Branchwater answer (10 s each)
+```
+
+The checks are:
+
+- the Python and PREPARE versions;
+- every external tool, with its path, version and the oldest supported version;
+- that the config file parses, with each runtime setting and where its value came from;
+- the shared data store, if one is configured, for its marker, write access and free space;
+- free space at the project folder (`--project`, default the working directory), the temporary folder and
+  the `.sra` cache against `min_free_gb`;
+- the CPUs available against the node's total, the memory limit and any SLURM job variables;
+- that the nearest project registry loads.
+
+A missing tool is a warning unless `--for` names a command that needs it. A tool below its oldest
+supported version, a config file or variable that does not parse, a store without its marker, an
+unreadable registry and, with `--network`, an unreachable service are failures. `doctor` exits with 0 when
+nothing failed (warnings allowed) and with 3 otherwise. It still runs when the config file is malformed,
+which stops every other command, and reports the parse error as a failed check. `make doctor` runs it
+from a checkout.
 
 ## Adding a setting
 

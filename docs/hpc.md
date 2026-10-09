@@ -41,7 +41,7 @@ sbatch download.sbatch
 
 ```bash
 #!/bin/bash
-#SBATCH --job-name=mq-download
+#SBATCH --job-name=prepare-download
 #SBATCH --array=0-9
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
@@ -124,11 +124,11 @@ give it more time with a larger value than 300.
 | Code | Meaning | In a pipeline |
 |---|---|---|
 | 0 | Success | continue |
-| 1 | Failure: bad input, a dataset not found, a tool error | stop and read the log |
-| 2 | Usage error or renamed command | fix the script |
+| 1 | Failure: bad input, a missing file, a dataset not found, a tool error | stop and read the log; a rerun alone will not help |
+| 2 | Usage error: an unknown flag or command, or a renamed command | fix the script |
 | 3 | Configuration: a missing or too old tool, a malformed config file, no NCBI email | fix the environment |
 | 4 | Retryable: a network failure, or a wait for a registry, catalogue or store lock that gave up | resubmit later |
-| 130 | Interrupted by a signal, including the walltime signal | resubmit to resume |
+| 130 | Interrupted by `SIGINT`, `SIGTERM` or `SIGHUP`, including the walltime signal | resubmit to resume; finished work is kept |
 
 `download_sra` exits with 4 only when every accession that failed did so for a network reason (a
 connection or timeout error, or a tool stopped by `--timeout`). If any accession failed for another
@@ -168,7 +168,7 @@ only the accessions still missing, so a rerun costs little.
 
 ## A shared data store on a group filesystem
 
-A shared store (see "Shared data store" in the README) keeps one copy of each downloaded run for every
+A shared store (see [shared_store.md](shared_store.md)) keeps one copy of each downloaded run for every
 project of a group. On a cluster it normally lives on a group filesystem:
 
 ```bash
@@ -231,7 +231,7 @@ splitting one genome over several jobs gains little.
 
 ```bash
 #!/bin/bash
-#SBATCH --job-name=mq-extract
+#SBATCH --job-name=prepare-extract
 #SBATCH --array=0-2
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
@@ -262,22 +262,8 @@ interrupted run never leaves a half-written assembly in place of a complete one.
 killed job is removed when the next job reaches that sample, and a folder without `final.contigs.fa` is
 assembled again. Each finished assembly carries a marker, `.prepare-assembly.json`, recording the reads
 and settings it was built from; a resubmitted job reuses an assembly whose marker matches and redoes one
-whose reads or settings have changed (see "Targeted Read Extraction Before Assembly" in the README). A
+whose reads or settings have changed (see [extraction_assembly.md](extraction_assembly.md)). A
 sample whose assembly fails is reported and the job continues with the next one, then exits with 1, so an
 `afterok` dependency on the job does not start; a sample another job is working on is skipped and does not
 fail the job. Each sample's assembly step loads the project registry once, also when its assembly is
-reused, which costs about one second per sample on a registry of about 15,000 datasets; a resubmitted job
-in which every assembly is reused spends that time and little else.
-
-## Reconciling after an upgrade to 0.8.0
-
-From 0.8.0, `status --reconcile` re-checks every download verdict recorded as `unverified` once a spot
-count is known for it. A store link costs nothing for this, since the read count comes from its sidecar,
-but a plain project download is counted again from its mate-1 file and its file of unpaired reads. The
-first reconcile after upgrading therefore reads, once, the mate-1 file of every `unverified` plain download
-that has a spot count; later runs read nothing again. On a large project, run that first reconcile as a job
-rather than on a login node. A project link into a store that is not mounted on the node is reported as
-store unavailable and left unchanged, so a reconcile on a node without the store mount does not mark its
-datasets missing. The same first reconcile drops every assembly record dated before its extraction record,
-which a 0.7.0 registry holds for a sample extracted again after its assembly, and lists it under
-`assemblies_dropped`; a later `extract_target_reads --assemble` job builds those assemblies again.
+reused, so on a large registry a resubmitted job in which every assembly is reused still takes time.

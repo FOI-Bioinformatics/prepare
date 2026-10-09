@@ -139,7 +139,7 @@ class TestRegisterAllCommands:
         assert "(default: parsed_containment.txt)" in help_text
 
     def test_check_metadata_attributes_is_registered(self):
-        """check_metadata_attributes is a real command (README step 7)."""
+        """check_metadata_attributes is a real command (README command table, Metadata group)."""
         assert "check_metadata_attributes" in self._subcommand_choices(create_parser())
 
     def test_register_all_commands_idempotent(self):
