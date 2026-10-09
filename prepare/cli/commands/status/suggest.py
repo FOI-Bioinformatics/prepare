@@ -123,8 +123,7 @@ def reselect_command(criteria: Dict[str, Any], output: str) -> str:
         column = criteria.get("column") or "max_containment"
         genome_part = f"--genome-id {shlex.quote(str(column))}"
     command = (
-        f"prepare select_datasets {genome_part}{threshold_part} "
-        f"--skip-excluded --output {shlex.quote(str(output))}"
+        f"prepare select_datasets {genome_part}{threshold_part} --skip-excluded --output {shlex.quote(str(output))}"
     )
 
     metadata_file = criteria.get("metadata_file")

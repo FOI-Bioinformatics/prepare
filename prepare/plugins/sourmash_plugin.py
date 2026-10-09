@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from sourmash.plugins import CommandLinePlugin
 else:
-    CommandLinePlugin = require("sourmash.plugins", "sourmash", "The prepare sourmash plugin").CommandLinePlugin
+    CommandLinePlugin = require("sourmash.plugins", "sourmash", "The PREPARE sourmash plugin").CommandLinePlugin
 
 
 class PrepareParsePlugin(CommandLinePlugin):

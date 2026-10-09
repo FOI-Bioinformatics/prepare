@@ -63,7 +63,7 @@ def visible_files(directory: Union[str, Path], *patterns: str, dirs: bool = Fals
     """Entries directly in ``directory`` matching any of ``patterns``, hidden names removed.
 
     Returns files (or directories when ``dirs`` is True), sorted by name, without duplicates.
-    A directory that does not exist yields an empty list. Every folder listing in prepare
+    A directory that does not exist yields an empty list. Every folder listing in PREPARE
     goes through here so that ``._*`` and ``.DS_Store`` never count as data.
     """
     base = Path(directory)

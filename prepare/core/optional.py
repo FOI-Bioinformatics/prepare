@@ -20,7 +20,7 @@ _DISTRIBUTION_NAMES = {"sklearn": "scikit-learn"}
 def install_hint(extra: str) -> str:
     """Install command for one extra, naming the interpreter this process runs under.
 
-    A user with several Python environments then installs into the one prepare actually uses.
+    A user with several Python environments then installs into the one PREPARE actually uses.
     """
     return f"{sys.executable} -m pip install 'prepare[{extra}]'"
 
@@ -30,7 +30,7 @@ def require(module: str, extra: str, purpose: str) -> ModuleType:
 
     Args:
         module: Module to import, for example ``"sklearn"`` or ``"plotly.graph_objects"``.
-        extra: The prepare extra that installs it, for example ``"analysis"``.
+        extra: The PREPARE extra that installs it, for example ``"analysis"``.
         purpose: What needs it, used as the start of the message ("Diversity analysis").
 
     Returns:

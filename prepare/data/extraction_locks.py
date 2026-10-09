@@ -33,7 +33,7 @@ __all__ = [
 
 #: Subfolder of an extraction output root holding per-sample locks. A leading dot keeps it
 #: invisible to every listing built on ``prepare.data.file_io.visible_files``, which is
-#: every folder listing in prepare, including ``status`` and ``scan_extractions``.
+#: every folder listing in PREPARE, including ``status`` and ``scan_extractions``.
 SAMPLE_LOCKS_DIRNAME = ".locks"
 
 #: How often a waiter re-checks a lock it is waiting for; a module-level name (rather than a

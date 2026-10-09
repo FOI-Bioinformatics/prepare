@@ -175,9 +175,7 @@ class Catalog:
     @_wrap_sqlite_errors
     def __enter__(self) -> "Catalog":
         if not self.create and not self.paths.catalog.is_file():
-            raise DataAccessError(
-                f"No store catalogue at {self.paths.catalog}; build one with: prepare store_reindex"
-            )
+            raise DataAccessError(f"No store catalogue at {self.paths.catalog}; build one with: prepare store_reindex")
         self.paths.root.mkdir(parents=True, exist_ok=True)
         # SQLite's own busy handler, on top of catalog_write's O_EXCL lock file: the implicit
         # default (5 s) is shorter than a store_reindex replay can hold the database, and
