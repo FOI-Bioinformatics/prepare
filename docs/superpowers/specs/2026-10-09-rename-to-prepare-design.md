@@ -37,8 +37,8 @@ Applied case-aware across the tree outside the files listed as untouched.
 | `fastq/.metaquest-tmp/` | `fastq/.prepare-tmp/` |
 | `metaquest-lock-heartbeat` thread name | `prepare-lock-heartbeat` |
 | sourmash entry points `metaquest_parse`, `_plot`, `_diversity`, `_taxonomy` | `prepare_parse`, `_plot`, `_diversity`, `_taxonomy` |
-| `metaquest_plugins` entry-point group | `prepare_plugins` |
-| logger names `metaquest.*` | `prepare.*` |
+| `PLUGIN_REGISTRY_NAME = "metaquest_plugins"` (`core/constants.py`) | `"prepare_plugins"` |
+| logger names `metaquest.*` (derived from `__name__`, follow the package rename) | `prepare.*` |
 | `github.com/FOI-Bioinformatics/metaquest` | `github.com/FOI-Bioinformatics/prepare` |
 | `~/Code/metaquest` | `~/Code/prepare` |
 | GitHub Actions workflow display names `MetaQuest CI` and similar | `PREPARE CI` and similar |
@@ -71,8 +71,8 @@ Four implementers on disjoint files after the mechanical commit, then one review
    produced, the plugin class names, the exception class, logger names, the thread name,
    settings prefix, config path, registry and store file names, run-log folder, assembly
    marker, scratch folder; and the matching unit tests for those names only
-   (`tests/test_settings*.py`, `tests/test_registry*.py`, `tests/test_store*.py`,
-   `tests/test_run_log*.py`, `tests/test_assembly*.py`).
+   (`tests/test_core_settings.py`, `tests/test_registry*.py`, `tests/test_store*.py`,
+   `tests/test_run_log.py`, `tests/test_assembly_*.py`).
 2. Tests and tooling (Sonnet): every other file under `tests/`, `scripts/`, `Makefile`,
    `setup.cfg`, `pyproject.toml`, `environment.yml`, `requirements*.txt`, `local_test.sh`,
    `.github/workflows/*.yml`, `tests/test_module_sizes.py` KNOWN_EXCEPTIONS paths,
