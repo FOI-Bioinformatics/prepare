@@ -974,9 +974,7 @@ class TestStoreVerifyCommand:
         monkeypatch.chdir(project_dir)
 
         rc = StoreVerifyCommand().execute(
-            _verify_args(
-                accessions=["SRR2"], data_root=str(root), registry=str(project_dir / "prepare_registry.json")
-            )
+            _verify_args(accessions=["SRR2"], data_root=str(root), registry=str(project_dir / "prepare_registry.json"))
         )
         out = capsys.readouterr().out
 
@@ -1779,9 +1777,7 @@ class TestStoreUsageCommand:
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
 
-        rc = StoreUsageCommand().execute(
-            _usage_args(unused=True, registry=str(project_dir / "prepare_registry.json"))
-        )
+        rc = StoreUsageCommand().execute(_usage_args(unused=True, registry=str(project_dir / "prepare_registry.json")))
         assert rc == 1
 
     def test_no_store_configured_with_json_prints_json_error(self, tmp_path, monkeypatch, capsys):

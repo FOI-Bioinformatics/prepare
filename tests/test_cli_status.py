@@ -428,9 +428,7 @@ class TestStatusWithRegistry:
         steps = download_next_steps(load_registry(str(root / "prepare_registry.json")))
         reselect = next(s["command"] for s in steps if s["command"].startswith("prepare select_datasets"))
         assert "pwned" not in reselect
-        assert reselect == (
-            "prepare select_datasets --genome-ids GCF_A GCF_B --skip-excluded --output sel_noskip.txt"
-        )
+        assert reselect == ("prepare select_datasets --genome-ids GCF_A GCF_B --skip-excluded --output sel_noskip.txt")
 
     def test_reselect_command_warns_on_malformed_threshold(self, caplog):
         """A recorded threshold that does not coerce to a float is dropped from the suggested

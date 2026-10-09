@@ -2613,9 +2613,7 @@ class TestDownloadSraStore:
         fastq_folder = tmp_path / "project" / "fastq"
         calls = []
 
-        with patch(
-            "prepare.data.sra.accession.download_accession", side_effect=self._fake_reads_download(calls, 1, 2)
-        ):
+        with patch("prepare.data.sra.accession.download_accession", side_effect=self._fake_reads_download(calls, 1, 2)):
             stats = download_sra(
                 fastq_folder,
                 self._accessions(tmp_path, "SRR1"),
@@ -2642,9 +2640,7 @@ class TestDownloadSraStore:
         fastq_folder = tmp_path / "project" / "fastq"
         calls = []
 
-        with patch(
-            "prepare.data.sra.accession.download_accession", side_effect=self._fake_reads_download(calls, 1, 1)
-        ):
+        with patch("prepare.data.sra.accession.download_accession", side_effect=self._fake_reads_download(calls, 1, 1)):
             stats = download_sra(
                 fastq_folder,
                 self._accessions(tmp_path, "SRR1"),
@@ -2716,9 +2712,7 @@ class TestDownloadSraStore:
         acc_dir = self._short_unverified_dataset(paths)
         fastq_folder = tmp_path / "project" / "fastq"
 
-        with patch(
-            "prepare.data.sra.accession.download_accession", side_effect=AssertionError("no download expected")
-        ):
+        with patch("prepare.data.sra.accession.download_accession", side_effect=AssertionError("no download expected")):
             stats = download_sra(
                 fastq_folder,
                 self._accessions(tmp_path, "SRR1"),
@@ -2993,9 +2987,7 @@ class TestDownloadSraStore:
         fastq_folder = tmp_path / "project" / "fastq"
         link_dataset(fastq_folder, "SRR1", paths)
 
-        with patch(
-            "prepare.data.sra.accession.download_accession", side_effect=AssertionError("no download expected")
-        ):
+        with patch("prepare.data.sra.accession.download_accession", side_effect=AssertionError("no download expected")):
             stats = download_sra(
                 fastq_folder, self._accessions(tmp_path, "SRR1"), store=paths, resume_partial=False, max_retries=0
             )
@@ -3014,9 +3006,7 @@ class TestDownloadSraStore:
         (elsewhere / "SRR1_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
         (fastq_folder / "SRR1").symlink_to(elsewhere)
 
-        with patch(
-            "prepare.data.sra.accession.download_accession", side_effect=AssertionError("no download expected")
-        ):
+        with patch("prepare.data.sra.accession.download_accession", side_effect=AssertionError("no download expected")):
             download_sra(
                 fastq_folder, self._accessions(tmp_path, "SRR1"), store=paths, resume_partial=False, max_retries=0
             )
@@ -3063,9 +3053,7 @@ class TestDownloadSraStore:
         self._store_dataset(paths)
         fastq_folder = tmp_path / "project" / "fastq"
 
-        with patch(
-            "prepare.data.sra.accession.download_accession", side_effect=AssertionError("no download expected")
-        ):
+        with patch("prepare.data.sra.accession.download_accession", side_effect=AssertionError("no download expected")):
             download_sra(fastq_folder, self._accessions(tmp_path, "SRR1"), store=paths, link_mode="copy", max_retries=0)
 
         assert (fastq_folder / "SRR1").is_dir() and not (fastq_folder / "SRR1").is_symlink()
@@ -3078,9 +3066,7 @@ class TestDownloadSraStore:
 
         link_dataset(fastq_folder, "SRR1", paths)
 
-        with patch(
-            "prepare.data.sra.accession.download_accession", side_effect=AssertionError("no download expected")
-        ):
+        with patch("prepare.data.sra.accession.download_accession", side_effect=AssertionError("no download expected")):
             stats = download_sra(fastq_folder, self._accessions(tmp_path, "SRR1"), store=paths, max_retries=0)
 
         assert stats["already_downloaded_accessions"] == ["SRR1"]
@@ -3666,9 +3652,7 @@ class TestDownloadInterrupt:
 
         with patch("prepare.data.sra.accession.SecureSubprocess.run_secure", side_effect=prefetch) as mock_run:
             with patch("prepare.data.sra.accession.shutil.which", return_value="/usr/bin/prefetch"):
-                with patch(
-                    "prepare.data.sra.accession._cached_sra_archive", return_value=tmp_path / "SRR2517620.sra"
-                ):
+                with patch("prepare.data.sra.accession._cached_sra_archive", return_value=tmp_path / "SRR2517620.sra"):
                     success, message = accession_mod.download_accession("SRR2517620", tmp_path / "fastq")
         assert (success, message) == (False, "interrupted")
         assert [c.args[0] for c in mock_run.call_args_list] == ["prefetch"]

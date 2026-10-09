@@ -369,9 +369,7 @@ def test_criteria_record_absent_run_filters_as_none(tmp_path, monkeypatch):
     (tmp_path / "parsed_containment.txt").write_text(_RUN_CONTAINMENT)
     rc = SelectDatasetsCommand().execute(_args(tmp_path, registry=None))
     assert rc == 0
-    criteria = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]["SRR1"]["selection"][
-        "criteria"
-    ]
+    criteria = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]["SRR1"]["selection"]["criteria"]
     assert criteria["metadata_file"] is None
     for key in ("max_run_size", "min_spots", "max_spots", "platform"):
         assert criteria[key] is None

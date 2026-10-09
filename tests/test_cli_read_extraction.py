@@ -707,9 +707,7 @@ class TestExtractTargetReadsCommand:
         with tempfile.TemporaryDirectory() as tmp:
             root, table, genome = _two_sample_tree(tmp)
             registry_file = root / "registry.json"
-            with patch(
-                "prepare.cli.commands.extraction_assembly.assemble_extracted_reads", side_effect=fail_on_second
-            ):
+            with patch("prepare.cli.commands.extraction_assembly.assemble_extracted_reads", side_effect=fail_on_second):
                 rc = cmd.execute(
                     _args(
                         tmp,
