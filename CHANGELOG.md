@@ -1,6 +1,29 @@
 # Changelog
 
-All notable changes to MetaQuest are documented in this file. Dates are in YYYY-MM-DD format.
+All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM-DD format.
+
+## [0.10.0] - 2026-10-09
+
+### Changed
+
+- The tool is renamed from MetaQuest to PREPARE, because the old name clashes with an unrelated
+  consumer product. The package, the command, the distribution and the repository
+  (`github.com/FOI-Bioinformatics/prepare`) are now `prepare`; the exception base class is
+  `PrepareError`; the sourmash plugin entry points are `prepare_parse`, `prepare_plot`,
+  `prepare_diversity` and `prepare_taxonomy`.
+- Every name the tool reads or writes follows the rename, with no fallback to the old name. A
+  project created with 0.9.0 or earlier is used with 0.10.0 by renaming, by hand:
+  `metaquest_registry.json` to `prepare_registry.json`; `.metaquest/` to `.prepare/`;
+  each `.metaquest-assembly.json` marker to `.prepare-assembly.json`; `fastq/.metaquest-tmp/`
+  to `fastq/.prepare-tmp/` (or delete it); in a shared store, `metaquest_store.json` to
+  `prepare_store.json` in the store root and in every dataset folder; `~/.config/metaquest/config.toml`
+  to `~/.config/prepare/config.toml`; and every `METAQUEST_<NAME>` environment variable to
+  `PREPARE_<NAME>` (`METAQUEST_DATA` to `PREPARE_DATA`, `METAQUEST_PERF_SCALE` to
+  `PREPARE_PERF_SCALE`). After renaming the store files, run `prepare store_reindex`.
+- The `metaquest_version` key in the data of `project_report` is now `prepare_version`. The registry and
+  the store sidecars do not hold a version key under either name.
+- The hidden pointers for the commands renamed in 0.5.0 (`sra_stats`, `sra_profile_quality`,
+  `sra_dashboard`, `sra_compare`) are unchanged.
 
 ## [0.9.0] - 2026-10-01
 

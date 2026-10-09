@@ -42,7 +42,7 @@ PREPARE is a command-line bioinformatics toolkit for analyzing metagenomic datas
 
 ## Architecture
 
-PREPARE follows a layered architecture with clear separation of concerns. As of 0.9.0,
+PREPARE follows a layered architecture with clear separation of concerns. As of 0.10.0,
 `prepare --help` lists 44 commands in seven groups (Containment, Metadata, Genomes, Reads,
 Store, Analysis, Environment; the Environment group holds `doctor`, `runs` and `project_report`); the four commands
 `sra_profile`/`sra_report` replaced (`sra_stats`, `sra_profile_quality`, `sra_dashboard`,

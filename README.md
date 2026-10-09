@@ -18,8 +18,8 @@ Requires Python 3.12 or newer.
 
 ### Quick Start (Recommended)
 ```bash
-git clone https://github.com/FOI-Bioinformatics/PREPARE.git
-cd PREPARE
+git clone https://github.com/FOI-Bioinformatics/prepare.git
+cd prepare
 make dev-install  # Installs every extra plus the development tools
 ```
 
@@ -1394,8 +1394,8 @@ We welcome contributions to PREPARE. Whether you want to report a bug, suggest a
 ### Quick Start for Contributors
 ```bash
 # 1. Fork and clone the repository
-git clone https://github.com/YOUR-USERNAME/PREPARE.git
-cd PREPARE
+git clone https://github.com/YOUR-USERNAME/prepare.git
+cd prepare
 
 # 2. Set up development environment  
 make dev-install

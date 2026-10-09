@@ -8,8 +8,8 @@ Requires Python 3.12 or newer.
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/FOI-Bioinformatics/PREPARE.git
-   cd PREPARE
+   git clone https://github.com/FOI-Bioinformatics/prepare.git
+   cd prepare
    ```
 
 2. **Install in development mode**:
