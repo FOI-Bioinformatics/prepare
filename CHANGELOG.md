@@ -16,10 +16,11 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   `metaquest_registry.json` to `prepare_registry.json`; `.metaquest/` to `.prepare/`;
   each `.metaquest-assembly.json` marker to `.prepare-assembly.json`; `fastq/.metaquest-tmp/`
   to `fastq/.prepare-tmp/` (or delete it); in a shared store, `metaquest_store.json` to
-  `prepare_store.json` in the store root and in every dataset folder; `~/.config/metaquest/config.toml`
+  `prepare_store.json` in the store root only (the per-dataset `<ACC>.json` sidecars and `catalog.sqlite`
+  keep their names); `~/.config/metaquest/config.toml`
   to `~/.config/prepare/config.toml`; and every `METAQUEST_<NAME>` environment variable to
   `PREPARE_<NAME>` (`METAQUEST_DATA` to `PREPARE_DATA`, `METAQUEST_PERF_SCALE` to
-  `PREPARE_PERF_SCALE`). After renaming the store files, run `prepare store_reindex`.
+  `PREPARE_PERF_SCALE`).
 - The `metaquest_version` key in the data of `project_report` is now `prepare_version`. The registry and
   the store sidecars do not hold a version key under either name.
 - The hidden pointers for the commands renamed in 0.5.0 (`sra_stats`, `sra_profile_quality`,
