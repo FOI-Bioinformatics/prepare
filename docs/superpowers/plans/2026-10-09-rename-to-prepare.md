@@ -180,7 +180,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: the Task 1 commit.
-- Produces: the constants `REGISTRY_FILENAME == "prepare_registry.json"` (or whatever the existing constant is named; keep the existing name, change the value), `PLUGIN_REGISTRY_NAME == "prepare_plugins"`, settings prefix `PREPARE_`, and the class names `PrepareError`, `PrepareParsePlugin`, `PreparePlotPlugin`, `PrepareDiversityPlugin`, `PrepareTaxonomyPlugin`. Task 3 relies on these class names in `pyproject.toml`.
+- Produces: `prepare.data.registry.REGISTRY_FILENAME == "prepare_registry.json"`, `prepare.core.constants.STORE_MARKER == "prepare_store.json"`, `PLUGIN_REGISTRY_NAME == "prepare_plugins"`, settings prefix `PREPARE_`, and the class names `PrepareError`, `PrepareParsePlugin`, `PreparePlotPlugin`, `PrepareDiversityPlugin`, `PrepareTaxonomyPlugin`. Task 3 relies on these class names in `pyproject.toml`.
 
 - [ ] **Step 1: Read the spec's name-mapping table and grep the package for each new name**
 
@@ -197,18 +197,20 @@ Create `tests/test_rename_clean_break.py`:
 
 ```python
 """The 0.10.0 rename is a clean break: old MetaQuest names are not read."""
-import os
 from importlib.metadata import entry_points
-
-import pytest
 
 from prepare.core import constants
 from prepare.core.settings import SETTINGS
-from prepare.core.exceptions import PrepareError
+from prepare.data.registry import REGISTRY_FILENAME, load_registry
+from prepare.store.resolve import resolve_store_root
 
 
 def test_registry_filename_is_prepare():
-    assert constants.REGISTRY_FILENAME == "prepare_registry.json"
+    assert REGISTRY_FILENAME == "prepare_registry.json"
+
+
+def test_store_marker_is_prepare():
+    assert constants.STORE_MARKER == "prepare_store.json"
 
 
 def test_plugin_registry_name_is_prepare():
@@ -217,23 +219,24 @@ def test_plugin_registry_name_is_prepare():
 
 def test_every_setting_env_var_uses_prepare_prefix():
     for spec in SETTINGS.values():
-        assert spec.env_var.startswith("PREPARE_"), spec.env_var
+        for name in (spec.env, *spec.aliases):
+            assert name.startswith("PREPARE_"), name
 
 
-def test_old_registry_file_is_not_read(tmp_path, monkeypatch):
-    from prepare.data.registry import load_registry  # adjust to the real loader name
-    (tmp_path / "metaquest_registry.json").write_text("{}")
-    with pytest.raises(PrepareError):
-        load_registry(tmp_path)
+def test_old_registry_file_is_not_read(tmp_path):
+    (tmp_path / "metaquest_registry.json").write_text('{"datasets": {"SRR1": {}}}')
+    registry = load_registry(tmp_path)
+    assert registry.path == tmp_path / "prepare_registry.json"
+    assert not (tmp_path / "prepare_registry.json").exists()
+    assert registry.datasets == {}  # use the real attribute that holds the dataset map
 
 
 def test_old_store_variable_is_ignored(tmp_path, monkeypatch):
-    from prepare.store.resolve import resolve_store_root  # adjust to the real resolver name
     monkeypatch.setenv("METAQUEST_DATA", str(tmp_path / "old"))
     monkeypatch.delenv("PREPARE_DATA", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    assert resolve_store_root(explicit=None, project=tmp_path) is None
+    assert resolve_store_root(explicit=None, registry_root=None) is None
 
 
 def test_sourmash_entry_points_use_prepare_names():
@@ -242,7 +245,7 @@ def test_sourmash_entry_points_use_prepare_names():
     assert not any(name.startswith("metaquest") for name in names)
 ```
 
-The two comments "adjust to the real ... name" mean: open `prepare/data/registry.py` and `prepare/store/resolve.py`, use the function that loads a registry from a project folder and the one that resolves the store root, with their real signatures, and delete the comment. The `SETTINGS` iteration uses the spec attribute that holds the environment variable name; read `prepare/core/settings.py` and use its real attribute name.
+The comment on the dataset-map assertion means: open `prepare/data/registry.py`, use the `Registry` attribute that holds the per-accession entries (it may be named differently), and delete the comment. `load_registry` returns an empty registry bound to the new file name when that file is absent; the test checks it never reads the old one.
 
 - [ ] **Step 3: Run the tests; fix the names so they pass**
 
@@ -250,7 +253,7 @@ The two comments "adjust to the real ... name" mean: open `prepare/data/registry
 conda run -n metaquest python -m pytest tests/test_rename_clean_break.py -v
 ```
 
-Expected after fixes: 6 passed. The entry-point test needs `pip install -e .` to have run after Task 1 (it did, in Task 1 step 5); if it fails only because the metadata is stale, run `conda run -n metaquest pip install -e . -q` once and rerun.
+Expected after fixes: 7 passed. The entry-point test needs `pip install -e .` to have run after Task 1 (it did, in Task 1 step 5); if it fails only because the metadata is stale, run `conda run -n metaquest pip install -e . -q` once and rerun.
 
 - [ ] **Step 4: Run the owned test modules**
 
@@ -439,7 +442,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - [ ] **Step 1: Residual search**
 
 ```bash
-grep -rIn -i "metaquest" . --exclude-dir=.git --exclude-dir=.claude --exclude-dir=.remember --exclude-dir=.superpowers --exclude-dir=docs/superpowers --exclude=CHANGELOG.md
+grep -rIn -i "metaquest" . --exclude-dir=.git --exclude-dir=.claude --exclude-dir=.remember --exclude-dir=.superpowers --exclude-dir=superpowers --exclude=CHANGELOG.md
 grep -rIn "prepareprepare\|PREPAREPREPARE\|PreparePrepare" . --exclude-dir=.git --exclude-dir=.claude
 awk '/^## \[0.9.0\]/{exit} {print}' CHANGELOG.md | grep -in "metaquest"
 ```
