@@ -26,29 +26,33 @@ jobs:
       
       - name: Download test data
         run: |
-          mkdir -p test_data/branchwater
+          # A folder of its own: test_data/branchwater/ in the checkout also holds two
+          # Salmonella fixtures (salmonella_mini.csv, salmonella_subset.csv), and every
+          # command below reads a whole folder, so running there yields 85 records
+          # instead of the 2 the checks expect.
+          mkdir -p ci_branchwater/branchwater
           # Create a proper Branchwater-formatted CSV file
-          echo "acc,containment,cANI,biosample,bioproject,assay_type,collection_date_sam,geo_loc_name_country_calc,organism,lat_lon" > test_data/branchwater/example.csv
-          echo "SRR12345678,0.95,0.98,SAMN12345678,PRJNA123456,AMPLICON,2019-05-01,USA,Francisella adeliensis,35.7N 100.2W" >> test_data/branchwater/example.csv
-          echo "SRR87654321,0.92,0.96,SAMN87654321,PRJNA123456,AMPLICON,2019-06-15,USA,Francisella adeliensis,36.1N 99.8W" >> test_data/branchwater/example.csv
+          echo "acc,containment,cANI,biosample,bioproject,assay_type,collection_date_sam,geo_loc_name_country_calc,organism,lat_lon" > ci_branchwater/branchwater/example.csv
+          echo "SRR12345678,0.95,0.98,SAMN12345678,PRJNA123456,AMPLICON,2019-05-01,USA,Francisella adeliensis,35.7N 100.2W" >> ci_branchwater/branchwater/example.csv
+          echo "SRR87654321,0.92,0.96,SAMN87654321,PRJNA123456,AMPLICON,2019-06-15,USA,Francisella adeliensis,36.1N 99.8W" >> ci_branchwater/branchwater/example.csv
           
           # Let's also create a debug file to check the content format
-          cat test_data/branchwater/example.csv
+          cat ci_branchwater/branchwater/example.csv
       
       - name: Process Branchwater files
         run: |
-          mkdir -p test_data/processed
-          prepare use_branchwater --branchwater-folder test_data/branchwater --matches-folder test_data/processed
+          mkdir -p ci_branchwater/processed
+          prepare use_branchwater --branchwater-folder ci_branchwater/branchwater --matches-folder ci_branchwater/processed
       
       - name: Extract metadata
         run: |
-          mkdir -p test_data/metadata
-          prepare extract_branchwater_metadata --branchwater-folder test_data/branchwater --metadata-folder test_data/metadata
+          mkdir -p ci_branchwater/metadata
+          prepare extract_branchwater_metadata --branchwater-folder ci_branchwater/branchwater --metadata-folder ci_branchwater/metadata
       
       - name: Parse containment
         run: |
           # Use proper argument syntax with hyphens instead of underscores
-          prepare parse_containment --matches-folder test_data/processed --parsed-containment-file test_data/parsed_containment.txt --summary-containment-file test_data/summary_containment.txt
+          prepare parse_containment --matches-folder ci_branchwater/processed --parsed-containment-file ci_branchwater/parsed_containment.txt --summary-containment-file ci_branchwater/summary_containment.txt
       
       - name: Verify outputs
         run: |
@@ -64,7 +68,7 @@ jobs:
               with open(path, newline='') as fh:
                   return list(csv.reader(fh, delimiter=delimiter))
 
-          processed = Path('test_data/processed/example.csv')
+          processed = Path('ci_branchwater/processed/example.csv')
           assert processed.is_file(), f'missing {processed}'
           rows = read_rows(processed)
           expected_columns = [
@@ -75,14 +79,14 @@ jobs:
           assert len(rows) - 1 == 2, f'expected 2 data rows in {processed}, got {len(rows) - 1}'
           print(f'processed CSV OK: {len(rows) - 1} rows, {len(rows[0])} columns')
 
-          metadata = Path('test_data/metadata/branchwater_metadata.txt')
+          metadata = Path('ci_branchwater/metadata/branchwater_metadata.txt')
           assert metadata.is_file(), f'missing {metadata}'
           meta_rows = read_rows(metadata, delimiter='\t')
           assert 'Run_ID' in meta_rows[0], f'Run_ID missing from metadata header: {meta_rows[0]}'
           assert len(meta_rows) - 1 == 2, f'expected 2 metadata rows, got {len(meta_rows) - 1}'
           print(f'metadata OK: {len(meta_rows) - 1} rows')
 
-          parsed = Path('test_data/parsed_containment.txt')
+          parsed = Path('ci_branchwater/parsed_containment.txt')
           assert parsed.is_file(), f'missing {parsed}'
           parsed_rows = read_rows(parsed, delimiter='\t')
           header = parsed_rows[0]
@@ -91,7 +95,7 @@ jobs:
           assert len(parsed_rows) - 1 == 2, f'expected 2 parsed containment rows, got {len(parsed_rows) - 1}'
           print(f'parsed containment OK: {len(parsed_rows) - 1} rows')
 
-          summary = Path('test_data/summary_containment.txt')
+          summary = Path('ci_branchwater/summary_containment.txt')
           assert summary.is_file(), f'missing {summary}'
           summary_rows = read_rows(summary, delimiter='\t')
           assert summary_rows[0] == ['Threshold', 'Count'], f'unexpected summary header: {summary_rows[0]}'
