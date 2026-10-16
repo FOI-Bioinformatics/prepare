@@ -323,3 +323,11 @@ def test_html_has_every_section_id_and_escapes_text(registry, no_checks):
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "attempts_total" in html and "over all runs" in html
+
+
+def test_html_stat_cards_include_the_analysed_stage(registry, no_checks):
+    pytest.importorskip("plotly")
+    pytest.importorskip("jinja2")
+    from prepare.visualization.project_report import render_html
+
+    assert '<p class="k">analysed</p>' in render_html(_report(registry))

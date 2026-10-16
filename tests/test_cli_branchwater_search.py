@@ -67,17 +67,18 @@ class TestBranchwaterSearchCommand:
         monkeypatch.chdir(tmp_path)
         mock_sketch.return_value = {"signatures": []}
         mock_search.return_value = [("SRR1", 0.9)]
+        folder = tmp_path.resolve() / "branchwater"  # anchored on the project root (the registry's folder)
         rc = BranchwaterSearchCommand().execute(_args(tmp_path, genome_fasta="genomes/GCF_000008025.1.fna"))
         assert rc == 0
         mock_search.assert_called_once_with(
             {"signatures": []},
             0.1,
             server="https://s",
-            cache_dir=Path("branchwater") / ".branchwater-cache",
+            cache_dir=folder / ".branchwater-cache",
             refresh=False,
             max_cache_age_days=None,
         )
-        mock_write.assert_called_once_with([("SRR1", 0.9)], Path("branchwater") / "GCF_000008025.1.csv")
+        mock_write.assert_called_once_with([("SRR1", 0.9)], folder / "GCF_000008025.1.csv")
         data = json.loads((tmp_path / "prepare_registry.json").read_text())
         screening = data["datasets"]["SRR1"]["screening"]
         assert screening["genomes"]["GCF_000008025.1"]["source"] == "branchwater"

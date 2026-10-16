@@ -5,7 +5,7 @@ Branchwater-related CLI commands.
 import argparse
 from typing import List
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import BaseCommand, anchored_folder
 from pathlib import Path
 
 from prepare.core.exceptions import PrepareError
@@ -44,6 +44,7 @@ class UseBranchwaterCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            args.matches_folder = str(anchored_folder(args.matches_folder, getattr(args, "registry", None)))
             errors: List[str] = []
             process_branchwater_files(args.branchwater_folder, args.matches_folder, errors=errors)
             if errors:
@@ -84,6 +85,7 @@ class ExtractBranchwaterMetadataCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
             metadata_folder = Path(args.metadata_folder)
             metadata_folder.mkdir(exist_ok=True)
             output_file = metadata_folder / "branchwater_metadata.txt"

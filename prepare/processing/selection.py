@@ -74,9 +74,14 @@ def _check_columns_exist(containment: pd.DataFrame, columns: List[str], table_na
         )
 
 
+def _rank_descending(values: pd.Series) -> pd.Series:
+    """Sort values from high to low, resolving ties by index name so the order is reproducible."""
+    return values.sort_index().sort_values(ascending=False, kind="stable")
+
+
 def _rank_single_column(containment: pd.DataFrame, column: str, threshold: float) -> pd.Series:
     values = pd.to_numeric(containment[column], errors="coerce").fillna(0.0)
-    return values[values >= threshold].sort_values(ascending=False)
+    return _rank_descending(values[values >= threshold])
 
 
 def _rank_multi_column(
@@ -90,7 +95,7 @@ def _rank_multi_column(
         values = numeric.max(axis=1)
         keep = values >= threshold
     column = "+".join(genome_ids)
-    return column, values[keep].sort_values(ascending=False)
+    return column, _rank_descending(values[keep])
 
 
 def _load_metadata(metadata_file: Union[str, Path]) -> pd.DataFrame:

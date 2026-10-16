@@ -326,7 +326,7 @@ class TestPlotContainment:
         call_args = mock_create.call_args
         assert call_args[0][1].shape[0] == 3  # 3 samples above 0.1 threshold
         assert call_args[0][2] == "max_containment"
-        assert call_args[0][3] == "blue"
+        assert call_args[0][3] == ["blue"]
         assert call_args[0][4] == "rank"
 
     def test_plot_containment_all_plot_types(self, tmp_path):
@@ -682,6 +682,84 @@ class TestCountsLoader:
         f.write_text("a\t3\nb\t1\n")
         plot_metadata_counts(file_path=str(f), plot_type="bar", save_format="png")
         assert (tmp_path / "counts_bar.png").exists()
+
+    def test_bar_plot_saves_beside_input(self, tmp_path, monkeypatch):
+        """The image lands in the input's folder, not the working directory."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        f = data_dir / "counts.txt"
+        f.write_text("a\t3\nb\t1\n")
+        plot_metadata_counts(file_path=str(f), plot_type="bar", save_format="png")
+        assert (data_dir / "counts_bar.png").exists()
+        assert not (elsewhere / "counts_bar.png").exists()
+
+    def test_pie_plot_saves_beside_input(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.chdir(tmp_path)
+        f = data_dir / "counts.txt"
+        f.write_text("a\t3\nb\t1\n")
+        plot_metadata_counts(file_path=str(f), plot_type="pie", save_format="png")
+        assert (data_dir / "counts_pie.png").exists()
+
+    def test_pie_accepts_a_single_colour(self, tmp_path):
+        f = tmp_path / "counts.txt"
+        f.write_text("a\t3\nb\t1\nc\t2\n")
+        fig = plot_metadata_counts(file_path=str(f), plot_type="pie", colors="red")
+        assert fig is not None
+        assert len(fig.axes[0].patches) == 3
+
+    def test_title_alone_is_drawn(self, tmp_path):
+        f = tmp_path / "counts.txt"
+        f.write_text("a\t3\nb\t1\nc\t2\n")
+        fig = plot_metadata_counts(file_path=str(f), plot_type="pie", title="My title", show_title=False)
+        assert fig.axes[0].get_title() == "My title"
+
+    def test_dataframe_input_is_not_saved(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        df = pd.DataFrame({"category": ["a", "b"], "count": [3, 1]})
+        plot_metadata_counts(file_path=df, plot_type="pie", save_format="png")
+        assert list(tmp_path.glob("*.png")) == []
+
+    def test_radar_fallback_keeps_limit(self, tmp_path):
+        f = tmp_path / "counts.txt"
+        f.write_text("a\t5\nb\t3\nc\t2\n")
+        with patch("prepare.visualization.plots.plot_metadata_counts", wraps=plot_metadata_counts) as spy:
+            plot_metadata_counts(file_path=str(f), plot_type="radar", limit=2)
+        assert spy.call_args_list[-1].kwargs["limit"] == 2
+
+    def test_figures_are_closed_after_saving(self, tmp_path):
+        import matplotlib.pyplot as plt
+
+        plt.close("all")
+        f = tmp_path / "counts.txt"
+        f.write_text("a\t3\nb\t1\nc\t2\n")
+        plot_metadata_counts(file_path=str(f), plot_type="pie", save_format="png")
+        plot_metadata_counts(file_path=str(f), plot_type="bar", save_format="png")
+        assert len(plt.get_fignums()) == 0
+
+    def test_containment_closes_figure_after_saving(self, tmp_path):
+        import matplotlib.pyplot as plt
+
+        plt.close("all")
+        f = tmp_path / "cont.txt"
+        pd.DataFrame({"max_containment": [0.1, 0.5, 0.9]}, index=["a", "b", "c"]).to_csv(f, sep="\t")
+        plot_containment(file_path=str(f), column="max_containment", save_format="png")
+        assert len(plt.get_fignums()) == 0
+
+    def test_containment_title_alone_is_drawn(self, tmp_path):
+        f = tmp_path / "cont.txt"
+        pd.DataFrame({"max_containment": [0.1, 0.5, 0.9]}, index=["a", "b", "c"]).to_csv(f, sep="\t")
+        fig = plot_containment(file_path=str(f), column="max_containment", title="Mine", show_title=False)
+        assert fig.axes[0].get_title() == "Mine"
+
+    def test_containment_single_colour_string_still_draws(self, tmp_path):
+        f = tmp_path / "cont.txt"
+        pd.DataFrame({"max_containment": [0.1, 0.5, 0.9]}, index=["a", "b", "c"]).to_csv(f, sep="\t")
+        assert plot_containment(file_path=str(f), column="max_containment", colors="red") is not None
 
 
 if __name__ == "__main__":

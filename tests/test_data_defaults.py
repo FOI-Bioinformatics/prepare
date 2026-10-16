@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from prepare.core.exceptions import DataAccessError
-from prepare.data.defaults import read_matrix, read_table, resolve_metadata_table
+from prepare.data.defaults import _separator_for, read_matrix, read_table, resolve_metadata_table
 
 
 class TestResolveMetadataTable:
@@ -86,3 +86,11 @@ class TestReadRecords:
         f = tmp_path / "v.csv"
         f.write_text("original_name,is_valid\nE. coli,True\n")
         assert list(read_records(f).columns) == ["original_name", "is_valid"]
+
+
+class TestSeparatorFor:
+    def test_gzipped_tsv_is_tab_separated(self):
+        assert _separator_for(Path("a.tsv.gz")) == "\t"
+
+    def test_gzipped_csv_is_comma_separated(self):
+        assert _separator_for(Path("a.csv.gz")) == ","

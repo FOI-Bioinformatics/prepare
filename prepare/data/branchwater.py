@@ -6,6 +6,7 @@ This module provides functions for processing Branchwater containment files.
 
 import logging
 from collections import defaultdict
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any, DefaultDict, Dict, List, Optional, Tuple, Union
 
@@ -23,13 +24,9 @@ from prepare.data.file_io import (
     visible_files,
     write_csv,
 )
-from prepare.plugins.base import format_registry
 from prepare.plugins.formats.branchwater import BranchWaterFormatPlugin
 
 logger = logging.getLogger(__name__)
-
-# Register format plugins
-format_registry.register(BranchWaterFormatPlugin)
 
 # Columns of the details table written alongside the parsed containment table. It carries the
 # cANI and sample metadata a Branchwater match brings, which the wide containment matrix (one
@@ -133,7 +130,7 @@ def process_branchwater_files(
 
         try:
             # Validate branchwater format
-            BranchWaterFormatPlugin.validate_header(read_csv(csv_file, nrows=0).columns.tolist())
+            BranchWaterFormatPlugin.require_headers(csv_file, read_csv(csv_file, nrows=0).columns.tolist())
 
             # Copy the file
             result_file = copy_file(csv_file, output_file)
@@ -344,7 +341,7 @@ def _process_genome_containments(csv_file, genome_id, containment_data, details_
         df_headers = read_csv(csv_file, nrows=0)
         headers = df_headers.columns.tolist()
 
-        BranchWaterFormatPlugin.validate_header(headers)
+        BranchWaterFormatPlugin.require_headers(csv_file, headers)
 
         # Parse file to get containments
         containments = BranchWaterFormatPlugin.parse_file(csv_file, genome_id)
@@ -374,11 +371,21 @@ def _threshold_counts(max_values: np.ndarray, step_size: float) -> Tuple[List[fl
 
     A row counts at a threshold when its maximum containment is at or above it. One sorted copy
     of the maxima answers every threshold with a binary search.
+
+    The grid has ``round(1 / step_size)`` steps, so a step that does not divide 1 evenly (for
+    example 0.007) gives the nearest whole number of steps, and the top threshold can lie slightly
+    above 1.0. Thresholds and maxima are compared after rounding to 10 decimals, which removes
+    floating point noise. Labels are the half-up two-decimal rendering of ``k * step_size``,
+    computed in decimal arithmetic.
     """
-    raw = np.arange(int(1 / step_size), -1, -1) * step_size
-    ordered = np.sort(max_values)
+    steps = int(round(1 / step_size))
+    ks = np.arange(steps, -1, -1)
+    raw = np.round(ks * step_size, 10)
+    ordered = np.round(np.sort(max_values), 10)
     reached = len(ordered) - np.searchsorted(ordered, raw, side="left")
-    return [round(float(threshold), 2) for threshold in raw], [int(count) for count in reached]
+    step = Decimal(str(step_size))
+    labels = [float((Decimal(int(k)) * step).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) for k in ks]
+    return labels, [int(count) for count in reached]
 
 
 def _positive_mappings(df: pd.DataFrame) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:

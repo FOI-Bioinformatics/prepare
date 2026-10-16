@@ -417,7 +417,7 @@ class TestFindByTaxonomyCommand:
             output_format="table",
         )
         result = cmd.execute(args)
-        assert result == 1
+        assert result == 2
 
     @patch("prepare.cli.commands.explore.load_taxonomy_cache")
     @patch("prepare.cli.commands.explore.annotate_containment_with_taxonomy")
@@ -481,3 +481,58 @@ class TestFindByTaxonomyCommand:
         )
         result = cmd.execute(args)
         assert result == 1
+
+    def test_table_output_has_no_index_column(self, tmp_path):
+        containment = tmp_path / "containment.tsv"
+        _write_containment_tsv(containment)
+        tax_map = tmp_path / "tax.tsv"
+        _write_taxonomy_tsv(tax_map)
+        annotated = pd.DataFrame(
+            {"sample": ["S1"], "genome": ["genA"], "containment": [0.5], "family": ["Fam1"]},
+            index=pd.Index(["S1"], name="Run_ID"),
+        )
+        output_file = tmp_path / "results.tsv"
+        args = argparse.Namespace(
+            parsed_containment=str(containment),
+            taxonomy_map=str(tax_map),
+            family="Fam1",
+            genus=None,
+            species=None,
+            min_containment=0.0,
+            output=str(output_file),
+            output_format="table",
+        )
+        with (
+            patch("prepare.cli.commands.explore.load_taxonomy_cache"),
+            patch("prepare.cli.commands.explore.annotate_containment_with_taxonomy", return_value=annotated),
+            patch("prepare.cli.commands.explore.filter_by_taxonomy", return_value=annotated),
+        ):
+            assert FindByTaxonomyCommand().execute(args) == 0
+        assert output_file.read_text().splitlines()[0].split("\t")[0] == "sample"
+
+    def test_table_output_to_stdout_has_no_index_column(self, tmp_path, capsys):
+        containment = tmp_path / "containment.tsv"
+        _write_containment_tsv(containment)
+        tax_map = tmp_path / "tax.tsv"
+        _write_taxonomy_tsv(tax_map)
+        annotated = pd.DataFrame(
+            {"sample": ["S1"], "genome": ["genA"], "containment": [0.5], "family": ["Fam1"]},
+            index=pd.Index(["S1"], name="Run_ID"),
+        )
+        args = argparse.Namespace(
+            parsed_containment=str(containment),
+            taxonomy_map=str(tax_map),
+            family="Fam1",
+            genus=None,
+            species=None,
+            min_containment=0.0,
+            output=None,
+            output_format="table",
+        )
+        with (
+            patch("prepare.cli.commands.explore.load_taxonomy_cache"),
+            patch("prepare.cli.commands.explore.annotate_containment_with_taxonomy", return_value=annotated),
+            patch("prepare.cli.commands.explore.filter_by_taxonomy", return_value=annotated),
+        ):
+            assert FindByTaxonomyCommand().execute(args) == 0
+        assert capsys.readouterr().out.splitlines()[0].split("\t")[0] == "sample"

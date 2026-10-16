@@ -247,6 +247,25 @@ def _project_tree(root):
     (root / "accessions.txt").write_text("SRR1\nSRR2\nSRR3\n")
 
 
+def test_reconcile_from_a_subfolder_uses_the_project_above(tmp_path, monkeypatch, capsys):
+    """Folders are taken relative to the registry's project, not the working directory (audit H4)."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _project_tree(root)
+    assert StatusCommand().execute(_status_args(root, init=True)) == 0
+    sub = root / "sub"
+    sub.mkdir()
+    monkeypatch.chdir(sub)
+    args = _args("unused", reconcile=True, json=True)
+    args.registry = None
+    capsys.readouterr()
+    assert StatusCommand().execute(args) == 0
+    assert json.loads(capsys.readouterr().out)["on_disk"]["fastq_accessions"] == 2
+    reg = load_registry(root / "prepare_registry.json")
+    assert reg.datasets["SRR1"]["download"]["state"] == "downloaded"
+    assert not (sub / "fastq").exists()
+
+
 class TestStatusWithRegistry:
     def test_without_registry_bootstraps_in_memory_and_hints(self, tmp_path, capsys):
         _project_tree(tmp_path)
@@ -266,6 +285,8 @@ class TestStatusWithRegistry:
         assert rc == 0 and (tmp_path / "prepare_registry.json").exists()
         data = json.loads((tmp_path / "prepare_registry.json").read_text())
         assert data["datasets"]["SRR1"]["download"]["inferred"] is True
+        # Bootstrapped screening records the match CSV relative to the project root.
+        assert data["datasets"]["SRR1"]["screening"]["genomes"]["GCF_1"]["csv"] == "matches/GCF_1.csv"
 
     def test_second_init_refuses_to_overwrite(self, tmp_path, capsys):
         _project_tree(tmp_path)

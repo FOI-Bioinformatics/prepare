@@ -376,29 +376,29 @@ _PAGE_TEMPLATE = """
     <style>{{ report_css|safe }}</style>
 </head>
 <body>
-    <header class="mq-header"><div class="mq-wrap">
-        <p class="mq-eyebrow">PREPARE &middot; {{ eyebrow }}</p>
-        <h1 class="mq-title">{{ title }}</h1>
-        <p class="mq-readout"><span>generated <b>{{ timestamp }}</b></span>
+    <header class="pre-header"><div class="pre-wrap">
+        <p class="pre-eyebrow">PREPARE &middot; {{ eyebrow }}</p>
+        <h1 class="pre-title">{{ title }}</h1>
+        <p class="pre-readout"><span>generated <b>{{ timestamp }}</b></span>
         {% if quality %}<span><b>{{ quality.total_datasets }}</b> datasets</span>{% endif %}</p>
     </div></header>
-    <main class="mq-wrap">
+    <main class="pre-wrap">
     {% if quality %}{% with summary_stats=quality.summary_stats, anomaly_report=quality.anomaly_report,
         plots=quality.plots %}
-        <section class="mq-stats" aria-label="Quality summary">
-            <div class="mq-stat"><p class="k">Total reads</p>
+        <section class="pre-stats" aria-label="Quality summary">
+            <div class="pre-stat"><p class="k">Total reads</p>
                 <div class="v">{{ "{:,.0f}".format(summary_stats.total_reads) }}</div></div>
-            <div class="mq-stat"><p class="k">Average GC content</p>
+            <div class="pre-stat"><p class="k">Average GC content</p>
                 <div class="v">{{ "%.1f"|format(summary_stats.average_gc_percent) }}%</div></div>
-            <div class="mq-stat"><p class="k">High quality</p>
+            <div class="pre-stat"><p class="k">High quality</p>
                 <div class="v">{{ summary_stats.quality_grade_distribution.get('excellent', 0)
                     + summary_stats.quality_grade_distribution.get('good', 0) }}</div></div>
-            <div class="mq-stat"><p class="k">Contamination issues</p>
+            <div class="pre-stat"><p class="k">Contamination issues</p>
                 <div class="v">{{ summary_stats.high_contamination_count }}</div></div>
         </section>
 
         {% if anomaly_report.anomalous_datasets %}
-        <div class="mq-note warn">
+        <div class="pre-note warn">
             <h3>Anomalies detected</h3>
             <p><b>{{ anomaly_report.anomalous_datasets|length }}</b> datasets flagged for review:</p>
             <ul>
@@ -413,11 +413,11 @@ _PAGE_TEMPLATE = """
         {% endif %}
 
         {% if plots %}
-        <section class="mq-section">
+        <section class="pre-section">
             <h2>Quality metrics</h2>
-            <div class="mq-grid">
+            <div class="pre-grid">
             {% for plot_name, plot_html in plots.items() %}
-                <div class="mq-panel">{{ plot_html|safe }}</div>
+                <div class="pre-panel">{{ plot_html|safe }}</div>
             {% endfor %}
             </div>
         </section>
@@ -426,18 +426,18 @@ _PAGE_TEMPLATE = """
 
     {% if comparative %}{% with comparison=comparative.comparison, group_counts=comparative.group_counts,
         plots=comparative.plots %}
-        <section class="mq-stats" aria-label="Group summary">
+        <section class="pre-stats" aria-label="Group summary">
             {% for group_name, count in group_counts.items() %}
-            <div class="mq-stat"><p class="k">{{ group_name }}</p>
+            <div class="pre-stat"><p class="k">{{ group_name }}</p>
                 <div class="v">{{ count }}<span style="font-size:0.9rem"> datasets</span></div></div>
             {% endfor %}
         </section>
 
         {% if comparison.statistical_tests %}
-        <section class="mq-section">
+        <section class="pre-section">
             <h2>Statistical tests</h2>
             {% for test_name, test_result in comparison.statistical_tests.items() %}
-            <div class="mq-note{% if test_result.significant %} warn{% endif %}">
+            <div class="pre-note{% if test_result.significant %} warn{% endif %}">
                 <h3>{{ test_name.replace('_', ' ').title() }}</h3>
                 <p>{{ test_result.test }} &middot; p-value
                     <b>{{ "%.4f"|format(test_result.p_value) }}</b> &middot;
@@ -448,18 +448,18 @@ _PAGE_TEMPLATE = """
         {% endif %}
 
         {% if plots %}
-        <section class="mq-section">
+        <section class="pre-section">
             <h2>Comparative visualizations</h2>
-            <div class="mq-grid">
+            <div class="pre-grid">
             {% for plot_name, plot_html in plots.items() %}
-                <div class="mq-panel">{{ plot_html|safe }}</div>
+                <div class="pre-panel">{{ plot_html|safe }}</div>
             {% endfor %}
             </div>
         </section>
         {% endif %}
 
         {% if comparison.recommendations %}
-        <div class="mq-note">
+        <div class="pre-note">
             <h3>Recommendations</h3>
             <ul>
                 {% for rec in comparison.recommendations %}<li>{{ rec }}</li>{% endfor %}
@@ -467,7 +467,7 @@ _PAGE_TEMPLATE = """
         </div>
         {% endif %}
     {% endwith %}{% endif %}
-        <footer class="mq-footer">Generated by PREPARE</footer>
+        <footer class="pre-footer">Generated by PREPARE</footer>
     </main>
 </body>
 </html>

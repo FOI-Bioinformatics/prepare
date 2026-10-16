@@ -258,22 +258,22 @@ def test_no_run_log_exits_1_with_json_error(project, capsys):
 
 def test_bad_selector_is_validation_error(project, two_profiles, capsys, caplog):
     with caplog.at_level(logging.ERROR):
-        assert main(["runs", "--registry", _registry(project), "--show", "nosuchrun"]) == 1
+        assert main(["runs", "--registry", _registry(project), "--show", "nosuchrun"]) == 2
     assert "No run matches 'nosuchrun'" in caplog.text
-    assert main(["runs", "--registry", _registry(project), "--show", "nosuchrun", "--json"]) == 1
+    assert main(["runs", "--registry", _registry(project), "--show", "nosuchrun", "--json"]) == 2
     assert "No run matches" in _json(capsys)["error"]
 
 
 def test_ambiguous_prefix_is_validation_error(project, two_profiles, caplog):
     with caplog.at_level(logging.ERROR):
-        assert main(["runs", "--registry", _registry(project), "--show", "2026"]) == 1
+        assert main(["runs", "--registry", _registry(project), "--show", "2026"]) == 2
     assert "matches 2 runs" in caplog.text
 
 
 def test_previous_with_one_run_is_validation_error(project, caplog):
     _profile_run(project, 0, 41.2)
     with caplog.at_level(logging.ERROR):
-        assert main(["runs", "--registry", _registry(project), "--diff", "previous", "latest"]) == 1
+        assert main(["runs", "--registry", _registry(project), "--diff", "previous", "latest"]) == 2
     assert "No previous run" in caplog.text
 
 

@@ -8,7 +8,7 @@ annotating containment data with taxonomy information.
 import csv
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, Iterable, List, Optional, Union
 
 import pandas as pd
 import requests
@@ -92,6 +92,13 @@ def _extract_search_rows(data) -> list:
     return []
 
 
+def _same_assembly(found: Optional[str], requested: str) -> bool:
+    """Whether two accessions name the same assembly, treating GCA_ and GCF_ siblings as equal."""
+    if not found:
+        return False
+    return str(found).split("_", 1)[-1] == requested.split("_", 1)[-1]
+
+
 def _lookup_genome_taxonomy_gtdb(accession: str) -> Optional[TaxonomyInfo]:
     """Query the GTDB API for a single genome's taxonomy.
 
@@ -116,7 +123,7 @@ def _lookup_genome_taxonomy_gtdb(accession: str) -> Optional[TaxonomyInfo]:
         response = session.get(search_url, params=params, timeout=REQUEST_TIMEOUT)
         if response.status_code == 200:
             rows = _extract_search_rows(response.json())
-            if rows:
+            if rows and _same_assembly(rows[0].get("accession") or rows[0].get("gid"), accession):
                 return _taxonomy_from_record(rows[0], accession)
 
     except requests.exceptions.RequestException as e:
@@ -152,41 +159,17 @@ def load_taxonomy_cache(cache_file: Path) -> Dict[str, TaxonomyInfo]:
     return cache
 
 
-def save_taxonomy_cache(taxonomy: Dict[str, TaxonomyInfo], cache_file: Path) -> None:
-    """Save a genome-to-taxonomy mapping to a TSV file."""
-    with open_atomic(cache_file, newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=_CACHE_COLUMNS, delimiter="\t")
-        writer.writeheader()
-        for info in taxonomy.values():
-            writer.writerow(
-                {
-                    "genome_id": info.genome_id,
-                    "species": info.species or "",
-                    "genus": info.genus or "",
-                    "family": info.family or "",
-                    "order": info.order or "",
-                    "class_name": info.class_name or "",
-                    "phylum": info.phylum or "",
-                    "organism": info.organism or "",
-                    "tax_id": info.tax_id or "",
-                }
-            )
-    logger.info("Saved %d entries to taxonomy cache %s", len(taxonomy), cache_file)
+def _write_cache(handle, infos: Iterable[TaxonomyInfo], header: bool = True) -> int:
+    """Write ``infos`` to the open TSV ``handle`` in cache format and return the row count.
 
-
-def _append_taxonomy_cache_row(cache_file: Path, info: TaxonomyInfo) -> None:
-    """Append one genome's taxonomy to the TSV cache, writing the header only when the file is new.
-
-    Only a successfully resolved lookup reaches here; a miss or a failed API call is not written,
-    so a later run retries it instead of caching the gap forever.
+    The one place that maps a ``TaxonomyInfo`` to cache columns, shared by the full save and the
+    per-genome append. ``header`` controls whether the column names are written first.
     """
-    cache_path = Path(cache_file)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    is_new = not cache_path.exists() or cache_path.stat().st_size == 0
-    with open(cache_path, "a", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=_CACHE_COLUMNS, delimiter="\t")
-        if is_new:
-            writer.writeheader()
+    writer = csv.DictWriter(handle, fieldnames=_CACHE_COLUMNS, delimiter="\t")
+    if header:
+        writer.writeheader()
+    count = 0
+    for info in infos:
         writer.writerow(
             {
                 "genome_id": info.genome_id,
@@ -200,6 +183,28 @@ def _append_taxonomy_cache_row(cache_file: Path, info: TaxonomyInfo) -> None:
                 "tax_id": info.tax_id or "",
             }
         )
+        count += 1
+    return count
+
+
+def save_taxonomy_cache(taxonomy: Dict[str, TaxonomyInfo], cache_file: Path) -> None:
+    """Save a genome-to-taxonomy mapping to a TSV file."""
+    with open_atomic(cache_file, newline="") as f:
+        _write_cache(f, taxonomy.values())
+    logger.info("Saved %d entries to taxonomy cache %s", len(taxonomy), cache_file)
+
+
+def _append_taxonomy_cache_row(cache_file: Path, info: TaxonomyInfo) -> None:
+    """Append one genome's taxonomy to the TSV cache, writing the header only when the file is new.
+
+    Only a successfully resolved lookup reaches here; a miss or a failed API call is not written,
+    so a later run retries it instead of caching the gap forever.
+    """
+    cache_path = Path(cache_file)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    is_new = not cache_path.exists() or cache_path.stat().st_size == 0
+    with open(cache_path, "a", encoding="utf-8", newline="") as f:
+        _write_cache(f, [info], header=is_new)
 
 
 def enrich_genomes_with_taxonomy(

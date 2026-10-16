@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import finite_float, BaseCommand, anchored_folder
 from prepare.cli.commands.extraction_assembly import assemble_samples
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD
 from prepare.core.exceptions import PrepareError
@@ -112,7 +112,7 @@ class ExtractTargetReadsCommand(BaseCommand):
         parser.add_argument("--output-folder", default="targeted", help="Root folder for the extracted reads")
         parser.add_argument(
             "--threshold",
-            type=float,
+            type=finite_float,
             default=DEFAULT_CONTAINMENT_THRESHOLD,
             help="Minimum containment for a sample to be included",
         )
@@ -204,7 +204,7 @@ class ExtractTargetReadsCommand(BaseCommand):
         parser.add_argument(
             "--timeout",
             dest="timeout",
-            type=float,
+            type=finite_float,
             default=None,
             help=(
                 "Seconds before minimap2, samtools or megahit is stopped; 0 (the default) means no "
@@ -555,6 +555,8 @@ class ExtractTargetReadsCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         try:
             self._check_required_tools(args)
+            args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
+            args.output_folder = str(anchored_folder(args.output_folder, getattr(args, "registry", None)))
             self._warn_dangling_links(args)
             registry = load_registry(args.registry)
             store = self._resolve_store(args, registry)

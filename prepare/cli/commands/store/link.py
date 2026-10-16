@@ -10,15 +10,15 @@ as the download hand-off does.
 """
 
 import argparse
-from pathlib import Path
 from typing import List, Optional
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import BaseCommand, anchored_folder, refuse_bad_accessions
 from prepare.cli.commands.sra_verdicts import store_sidecar_verdict, store_spot_count, store_verdict
 from prepare.cli.commands.store._shared import _no_store_hint
 from prepare.core.exceptions import DataAccessError
 from prepare.data import registry_blocks as rb
-from prepare.data.registry import load_registry, record_download, registry_transaction, update_linked
+from prepare.data.registry import load_registry, record_download
+from prepare.data.registry import registry_transaction, update_linked
 from prepare.data.registry_timing import set_download_timing
 from prepare.data.sra.store_handoff import _reverify_sidecar, _short_unverified
 from prepare.store.layout import StorePaths, sidecar_path, store_paths
@@ -126,6 +126,8 @@ class StoreLinkCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         """Run the command; return the exit code."""
+        if (rc := refuse_bad_accessions(self.logger, args.accessions)) is not None:
+            return rc
         try:
             registry = load_registry(args.registry)
             root = resolve_store_root(args.data_root, rb.store_block(registry).root)
@@ -137,6 +139,7 @@ class StoreLinkCommand(BaseCommand):
             return 1
 
         paths = store_paths(root)
+        fastq = anchored_folder(args.fastq_folder, args.registry)
         accept_partial = getattr(args, "accept_partial", False)
         linked: List[str] = []
         failed: List[str] = []
@@ -147,7 +150,7 @@ class StoreLinkCommand(BaseCommand):
                 failed.append(accession)
                 continue
             try:
-                link_dataset(args.fastq_folder, accession, paths, mode=args.link_mode)
+                link_dataset(fastq, accession, paths, mode=args.link_mode)
                 linked.append(accession)
             except DataAccessError as e:
                 self.logger.error("%s: %s", accession, e)
@@ -163,7 +166,7 @@ class StoreLinkCommand(BaseCommand):
                         reg,
                         accession,
                         "downloaded",
-                        args.fastq_folder,
+                        fastq,
                         attempt=False,
                         complete=complete,
                         source="store",
@@ -211,16 +214,19 @@ class StoreUnlinkCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         """Run the command; return the exit code."""
+        if (rc := refuse_bad_accessions(self.logger, args.accessions)) is not None:
+            return rc
+        fastq = anchored_folder(args.fastq_folder, args.registry)
         removed: List[str] = []
         refused: List[str] = []
         for accession in args.accessions:
-            link_path = Path(args.fastq_folder) / accession
+            link_path = fastq / accession
             if link_path.exists() and not link_path.is_symlink():
                 self.logger.error("%s is a real directory, not a store link; refusing to remove it", accession)
                 refused.append(accession)
                 continue
             try:
-                was_removed = unlink_dataset(args.fastq_folder, accession)
+                was_removed = unlink_dataset(fastq, accession)
             except DataAccessError as e:
                 self.logger.error("%s: %s", self.name, e)
                 refused.append(accession)
@@ -231,7 +237,7 @@ class StoreUnlinkCommand(BaseCommand):
         if removed:
             with registry_transaction(args.registry) as reg:
                 for accession in removed:
-                    record_download(reg, accession, "missing", args.fastq_folder, attempt=False)
+                    record_download(reg, accession, "missing", fastq, attempt=False)
                     set_download_timing(reg, accession, None, None)
                 for accession in removed:
                     update_linked(reg, accession, add=False)

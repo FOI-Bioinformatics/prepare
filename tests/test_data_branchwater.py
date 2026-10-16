@@ -6,6 +6,7 @@ Tests for Branchwater file processing, metadata extraction, and containment anal
 
 from pathlib import Path
 from unittest.mock import Mock, patch
+import numpy as np
 import pandas as pd
 import pytest
 from collections import defaultdict
@@ -19,6 +20,7 @@ from prepare.data.branchwater import (
     _process_genome_containments,
     _generate_containment_summary,
     parse_containment_data,
+    _threshold_counts,
 )
 from prepare.core.exceptions import DataAccessError, ValidationError
 from prepare.core.models import ContainmentSummary
@@ -94,18 +96,24 @@ class TestProcessBranchwaterFiles:
         invalid_content = "invalid,header,format\ndata1,data2,data3"
         (source_dir / "invalid.csv").write_text(invalid_content)
 
-        with patch("prepare.data.branchwater.read_csv") as mock_read_csv:
-            mock_df = pd.DataFrame(columns=["invalid", "header", "format"])
-            mock_read_csv.return_value = mock_df
-
-            with patch(
-                "prepare.data.branchwater.BranchWaterFormatPlugin.validate_header",
-                side_effect=ValidationError("Invalid"),
-            ):
-                result = process_branchwater_files(source_dir, target_dir)
+        result = process_branchwater_files(source_dir, target_dir)
 
         # Should have empty result due to validation errors
         assert result == {}
+
+    def test_process_branchwater_files_bad_header_recorded(self, tmp_path):
+        """A file without the required columns is not copied and is reported."""
+        source_dir = tmp_path / "source"
+        target_dir = tmp_path / "target"
+        source_dir.mkdir()
+        (source_dir / "bad.csv").write_text("foo,bar\n1,2\n")
+
+        errors = []
+        result = process_branchwater_files(source_dir, target_dir, errors)
+
+        assert result == {}
+        assert errors == ["bad.csv"]
+        assert not (target_dir / "bad.csv").exists()
 
     def test_process_branchwater_files_source_not_exist(self):
         """Test with non-existent source folder."""
@@ -418,7 +426,7 @@ class TestProcessGenomeContainments:
             mock_read_csv.return_value = mock_headers
 
             with patch("prepare.data.branchwater.BranchWaterFormatPlugin") as mock_plugin:
-                mock_plugin.validate_header.return_value = True
+                mock_plugin.require_headers.return_value = None
                 mock_plugin.parse_file.return_value = [
                     Mock(accession="ERR123", value=0.95),
                     Mock(accession="ERR456", value=0.87),
@@ -441,7 +449,7 @@ class TestProcessGenomeContainments:
             mock_read_csv.return_value = mock_headers
 
             with patch("prepare.data.branchwater.BranchWaterFormatPlugin") as mock_bw_plugin:
-                mock_bw_plugin.validate_header.side_effect = ValidationError("Not branchwater")
+                mock_bw_plugin.require_headers.side_effect = ValidationError("Not branchwater")
 
                 with pytest.raises(DataAccessError, match="Error processing"):
                     _process_genome_containments(csv_file, "genome1", containment_data)
@@ -459,7 +467,7 @@ class TestProcessGenomeContainments:
             mock_read_csv.return_value = mock_headers
 
             with patch("prepare.data.branchwater.BranchWaterFormatPlugin") as mock_plugin:
-                mock_plugin.validate_header.return_value = True
+                mock_plugin.require_headers.return_value = None
                 mock_plugin.parse_file.return_value = [Mock(accession="ERR123", value=0.95)]  # Higher value
 
                 _process_genome_containments(csv_file, "genome1", containment_data)
@@ -916,3 +924,28 @@ def test_data_access_error_from_metadata_extraction_chains_the_cause(tmp_path):
     with pytest.raises(DataAccessError) as exc:
         extract_metadata_from_branchwater(tmp_path / "missing", tmp_path / "out.tsv")
     assert isinstance(exc.value.__cause__, DataAccessError)
+
+
+class TestThresholdCounts:
+    """The threshold grid uses exact decimals."""
+
+    def test_maximum_on_a_threshold_is_counted(self):
+        thresholds, counts = _threshold_counts(np.array([0.3, 0.6, 0.7]), 0.1)
+
+        assert thresholds == [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0]
+        assert counts == [0, 0, 0, 1, 2, 2, 2, 3, 3, 3, 3]
+
+    def test_labels_are_half_up_decimals(self):
+        thresholds, _ = _threshold_counts(np.array([0.5]), 0.005)
+
+        assert thresholds[200 - 191] == 0.96
+        assert thresholds[200 - 139] == 0.70
+        thresholds, _ = _threshold_counts(np.array([0.5]), 0.1)
+        assert thresholds == [round(i / 10, 1) for i in range(10, -1, -1)]
+
+    def test_step_that_does_not_divide_one_uses_the_nearest_whole_number_of_steps(self):
+        thresholds, counts = _threshold_counts(np.array([0.5]), 0.007)
+
+        assert len(thresholds) == len(counts) == 144
+        assert thresholds[0] == 1.0
+        assert thresholds[-1] == 0.0

@@ -111,6 +111,19 @@ class TestSequenceQualityAnalyzer:
 
         assert complexity_low["homopolymer_rate_mean"] > 0
 
+    def test_trailing_homopolymer_run_is_counted(self):
+        """A run of four or more bases that ends the read counts like one inside it."""
+        for seq in ("ACGTAAAA", "AAAACGTA"):
+            result = self.analyzer._analyze_sequence_complexity([seq])
+            assert result["homopolymer_rate_mean"] == pytest.approx(1 / 8)
+
+    def test_head_sampler_tolerates_an_empty_read(self, tmp_path):
+        """A zero-length record has an N fraction of 0.0 rather than raising."""
+        fastq = tmp_path / "reads.fastq"
+        fastq.write_text("@empty\n\n+\n\n@r1\nACGT\n+\nIIII\n")
+        _lengths, _gc, _hist, n_contents, _seqs = self.analyzer._sample_head(fastq, 10)
+        assert n_contents == [0.0, 0.0]
+
     def test_detect_contamination_indicators(self):
         """Test contamination detection."""
         # Sequences with adapter contamination

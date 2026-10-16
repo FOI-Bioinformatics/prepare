@@ -14,9 +14,9 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from prepare.cli.base import BaseCommand, read_accessions_file, resolve_command_store
+from prepare.cli.base import BaseCommand, anchored_folder, read_accessions_file, resolve_command_store
 from prepare.cli.commands.sra_profile import add_sampling_arguments
-from prepare.core.exceptions import PrepareError, ValidationError
+from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
 from prepare.core.optional import require
 from prepare.data import run_log
 from prepare.data.file_io import write_text_atomic
@@ -39,13 +39,13 @@ _GROUPS_EXAMPLE = json.dumps({"Group_A": ["SRR123456", "SRR123457"], "Group_B": 
 def load_groups(path: str) -> Dict[str, List[str]]:
     """Accession groups from a JSON file mapping each group name to a list of accessions.
 
-    Raises ``ValidationError`` for a missing or unreadable file, invalid JSON, or any other
-    shape, with an example of the expected format.
+    Raises ``DataAccessError`` for a missing or unreadable file, and ``ValidationError`` for
+    invalid JSON or any other shape, with an example of the expected format.
     """
     try:
         groups = json.loads(Path(path).read_text())
     except OSError as e:
-        raise ValidationError(f"Cannot read groups file {path}: {e}") from e
+        raise DataAccessError(f"Cannot read groups file {path}: {e}") from e
     except json.JSONDecodeError as e:
         raise ValidationError(f"Invalid JSON in groups file {path}: {e}; expected e.g. {_GROUPS_EXAMPLE}") from e
     valid = isinstance(groups, dict) and all(
@@ -332,6 +332,7 @@ class SRAReportCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         """Write the report; 1 when no dataset could be profiled."""
         try:
+            args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
             return self._run(args)
         except (PrepareError, OSError) as e:
             return self.fail(e, "Report failed")

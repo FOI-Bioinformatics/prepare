@@ -626,3 +626,19 @@ def test_a_catalogue_lock_taken_over_during_a_write_commits_nothing(paths):
         catalog.migrate()
         assert catalog.get_dataset("SRR1") is None
     assert json.loads(paths.catalog_lock.read_text())["token"] == "feedbeef"
+
+
+def test_migrate_refuses_a_catalogue_from_a_newer_schema(paths):
+    with catalog_write(paths) as catalog:
+        catalog.set_meta("schema_version", "99")
+
+    with Catalog(paths, create=True) as catalog:
+        with pytest.raises(DataAccessError) as excinfo:
+            catalog.migrate()
+    message = str(excinfo.value)
+    assert "99" in message and "1" in message
+    assert "upgrade prepare" in message
+
+    with pytest.raises(DataAccessError, match="upgrade prepare"):
+        with catalog_write(paths):
+            pass

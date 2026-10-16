@@ -25,6 +25,7 @@ and the lock stress tests across threads and processes are ``tests/test_lockfile
 
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -446,9 +447,10 @@ def test_store_gc_keeps_a_dataset_whose_download_is_in_progress(store_harness):
     live = h.project("live", ["SRR1"])
     gone = h.project("gone", ["SRR1"])
     h.finish(h.download(gone))
-    # The only project that used SRR1 disappears, and its last use is two days old, so gc
-    # would remove the dataset with --include-stale.
-    (gone / "prepare_registry.json").unlink()
+    # The only project that used SRR1 disappears (folder, registry and symlink), and its last
+    # use is two days old, so gc would remove the dataset with --include-stale. A symlink left
+    # behind would keep it: a live link on this host protects a dataset whatever the registry.
+    shutil.rmtree(gone)
     two_days_ago = time.time() - 2 * 86400
     os.utime(h.store / "locks" / "SRR1.used", (two_days_ago, two_days_ago))
     dry = h.check(run_cli(["store_gc", "--include-stale", "--json"], live, h.env))

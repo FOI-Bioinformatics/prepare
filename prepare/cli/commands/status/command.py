@@ -34,6 +34,7 @@ from prepare.data.registry import (
     STAGES,
     bootstrap_from_disk,
     load_registry,
+    project_root,
     registry_path,
 )
 from prepare.data.registry_batch import registry_update
@@ -168,14 +169,16 @@ class StatusCommand(BaseCommand):
         and swallowed here so the CLI exits cleanly instead of printing a traceback).
         """
         try:
-            paths = ProjectPaths(
-                Path(args.fastq_folder),
-                Path(args.metadata_folder),
-                Path(args.genomes_folder),
-                Path(args.targeted_folder),
-                Path(args.matches_folder),
-            )
             registry_file = registry_path(args.registry)
+            # Relative folders belong to the project that owns the registry, not the working directory.
+            paths = ProjectPaths.anchored(
+                project_root(registry_file),
+                fastq=args.fastq_folder,
+                metadata=args.metadata_folder,
+                genomes=args.genomes_folder,
+                targeted=args.targeted_folder,
+                matches=args.matches_folder,
+            )
             existed = registry_file.exists()
             if existed and args.init:
                 self.logger.error(

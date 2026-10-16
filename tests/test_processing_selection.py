@@ -404,3 +404,15 @@ def test_repeated_run_id_rows_warn_and_use_the_first_row(tmp_path, caplog):
     warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
     assert warnings == ["2 repeated Run_ID row(s) in metadata_table.txt; the first row of each is used"]
     assert "Selected volume: 0.00 GB across 1 run(s) (0 with unknown size)" in caplog.text
+
+
+def test_ties_resolve_by_run_name(tmp_path):
+    cont = tmp_path / "parsed_containment.txt"
+    cont.write_text(
+        "\tGCF_A\tmax_containment\tmax_containment_annotation\n"
+        "SRR9\t0.50\t0.50\tGCF_A\n"
+        "SRR1\t0.50\t0.50\tGCF_A\n"
+        "SRR5\t0.50\t0.50\tGCF_A\n"
+        "SRR2\t0.90\t0.90\tGCF_A\n"
+    )
+    assert select_accessions(cont, threshold=0.1) == ["SRR2", "SRR1", "SRR5", "SRR9"]

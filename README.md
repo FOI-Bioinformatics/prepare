@@ -31,7 +31,7 @@ Other features need an extra:
 |---|---|---|
 | `analysis` | scikit-learn, scipy | `diversity_analysis`, the PCA, t-SNE, diversity and clustered heatmap plots of `interactive_plot`, group statistics in `sra_report --groups-file` |
 | `interactive` | plotly, jinja2 | `interactive_plot`, `explore_containment`, the `sra_report` HTML report, the `project_report` HTML page |
-| `maps` | cartopy | geographic sample maps |
+| `maps` | cartopy | `plot_map` (geographic sample maps) |
 | `sourmash` | sourmash | sketching a genome in `branchwater_search`, and the `sourmash scripts prepare_*` plugin |
 | `all` | all of the above | everything |
 
@@ -114,6 +114,7 @@ of one command.
 | | `count_metadata` | Count metadata values by genome |
 | | `single_sample` | Analyse a single sample |
 | | `plot_metadata_counts` | Plot metadata counts |
+| | `plot_map` | Draw sample locations from a metadata table on a map |
 | Genomes | `genome_search` | Search GTDB for genome accessions by species or genus |
 | | `genome_download` | Download genome assemblies from NCBI by accession, species or genus |
 | | `genome_prepare` | Search GTDB, download genomes and write a manifest CSV |

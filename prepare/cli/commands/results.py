@@ -6,7 +6,7 @@ from typing import Optional
 
 import pandas as pd
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import finite_float, BaseCommand
 from prepare.core.constants import DEFAULT_PARSED_CONTAINMENT_FILE
 from prepare.core.exceptions import PrepareError
 from prepare.data import run_log
@@ -46,7 +46,7 @@ class ResultsTableCommand(BaseCommand):
         )
         parser.add_argument(
             "--min-containment",
-            type=float,
+            type=finite_float,
             default=0.0,
             help="Only pairs with at least this containment; above 0 this also drops pairs never screened",
         )

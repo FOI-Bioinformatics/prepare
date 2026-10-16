@@ -2,6 +2,165 @@
 
 All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM-DD format.
 
+## [0.10.1] - 2026-10-15
+
+This release fixes the findings of the code audit of 2026-10-12 (H1-H5, M1-M16, L1-L11 and the
+likely bugs it lists). PERMANOVA results from earlier versions should be recomputed (see Changed).
+
+### Added
+
+- `plot_map` (`maps` extra) draws sample locations from a metadata table.
+
+### Fixed
+
+Data safety and the shared store:
+
+- A malformed line in an accessions file (`..`, `../x` or an absolute path) could become a folder name
+  and be deleted by `download_sra`; accessions are now checked before any path is built (H1).
+- `store_link`, `store_unlink` and `store_verify` refuse malformed accessions instead of acting on
+  paths outside `fastq/` or the store (M1).
+- A project bound to a store with a relative `--registry` looked stale from other folders, and
+  `store_gc --include-stale` could remove a dataset it still linked to; registry paths are now stored
+  resolved and a live link always protects its dataset (H2).
+- `status --reconcile`, `store_link` and `store_unlink` run from a subfolder marked downloads missing
+  or created a stray `fastq/` folder; they now act on the project that owns the registry (H4).
+- `store_link` takes the dataset lock, so `store_gc` cannot remove a dataset while it is being linked
+  or copied.
+- `store_adopt --move` removes the project folder and links the store copy under one dataset lock; a
+  held lock leaves the project folder in place.
+- `store_gc` drops the catalogue row of a dataset whose folder is already gone instead of listing it
+  as a candidate on every run.
+- `status --reconcile` takes an accession it marks missing off the store's linked list.
+- A registry written by a newer version is refused instead of being saved back as version 2, and
+  unknown top-level keys are kept; a non-integer version is reported as a data error.
+- `store_adopt` and `store_verify` skip a folder that is not named like an SRA accession (notes
+  kept in `fastq/` or `<store>/sra/`) with one warning, instead of stopping before the others.
+- Journal rewrites keep every line they do not parse byte-identical and flush the file to disk.
+- Match CSV paths in the registry are recorded relative to the project root, so a registry moves
+  with its project.
+- `branchwater_search` anchors its output folder on the project root, like the other commands.
+
+Statistics and results:
+
+- PERMANOVA in `diversity_analysis` and `prepare_diversity` overstated F and computed p without the
+  +1 correction, and samples without a group label were counted; see Changed (H3).
+- PCA and t-SNE plots of `interactive_plot` colour and size by metadata again; before, every value
+  was read as missing (H5).
+- Branchwater containment thresholds are exact decimals, so maxima of exactly 0.3, 0.6 or 0.7 are
+  counted at their threshold (M6).
+- A Branchwater file with an unexpected header is refused instead of being copied as a match file (M7).
+- `sra_profile --sampler head` and `sra_report` no longer stop on a zero-length read (M5).
+- A homopolymer run at the 3' end of a read is counted (L1).
+- `taxonomic_summary --min-abundance` is applied (L3).
+- Selection ties are broken by run name, so the order does not depend on input order.
+
+Downloads and retries:
+
+- The retry pass of `download_sra` keeps `--force`, so a failed forced re-download is not reported as
+  already present (M2).
+- Results of the retry pass are classified like first-pass results: a store link found on retry is
+  recorded as a link with its usage row, without download timing, and settled incomplete results
+  are not fetched again (M3).
+- A duplicated accession no longer holds a free-space reservation for the rest of the run (M4).
+- A forced re-extraction that maps no reads removes the earlier FASTQ files and record (M9).
+
+NCBI, GTDB and Branchwater clients:
+
+- The NCBI taxonomy client paced 10 requests per second without an API key and 3 with one; the
+  limits are now the other way round (M8).
+- A single-run metadata download kept the whole efetch response, so a package listing another run
+  first was parsed as that run; only the requested run is kept, and an unusable response writes no
+  file (M10).
+- An NCBI reply that is not XML is no longer kept as a metadata file.
+- The SRA metadata search uses `[ACCN]` terms, allows two records per accession and warns about
+  requested runs that are not returned.
+- `SRA_Normalized_URL` comes from the SRA Normalized file, not the second file listed.
+- The taxonomy cache keeps tax IDs as text, so an empty entry no longer turns IDs into `562.0` (L2).
+  Validating an empty species list returns an empty table with the cache columns.
+- A Branchwater CSV with a byte-order mark is read correctly (L4).
+- A Branchwater search that returns no rows is not cached, so a later search queries the server
+  again.
+- GTDB taxon searches request further pages instead of stopping at the first 100 rows, and stop when
+  a page adds nothing new; the search fallback ignores rows of a different accession.
+- Genome downloads extract into a per-process folder, so concurrent runs do not collide, and report
+  requested genomes that are absent from the NCBI zip.
+- A `.tsv.gz` table is read as tab-separated.
+
+Visualization and reports:
+
+- The containment explorer escapes taxonomy family names in its HTML (M11) and fills its Location and
+  Date columns from the metadata columns prepare writes (M12).
+- The map plugin reads NCBI `lat_lon` values such as `38.98 N 77.10 W` and numeric values (M13).
+- `sourmash scripts prepare_parse` reports unreadable match files with a non-zero exit and records
+  screening like `parse_containment` (M14); the sourmash plugins print their errors to stderr (M15).
+- `plot_metadata_counts` saves beside its input, warns when no `--save-format` is given and so
+  nothing is written, keeps `limit` in the radar fallback and keeps a given title (L6); a single
+  `--colors` value is accepted (L5). Figures are closed after saving.
+- `project_report` shows the analysed stage. The CSV export of HTML report tables guards cells that
+  start with a formula character, and table sorting is consistent for mixed numbers and text.
+
+Command line:
+
+- A broken pipe (`find_by_taxonomy ... | head`) exits 0 without an error line (M16).
+- `find_by_taxonomy` output has no unnamed index column (L7).
+- The global `-v` works for every command, including `store_status` (L8).
+- `download_metadata --dry-run` creates no folder (L9).
+- `--log-level` is case-insensitive; a config error no longer drops `--log-file`, `-q` or `-v` for
+  `doctor`; a startup error under `--json` prints `{"error": ...}`.
+- `PREPARE_ASSEMBLY_MEMORY` is checked at startup with the parser the assembly step uses, so a value
+  such as `0G` is refused before any work. A `store` value of the wrong type in the config file is a
+  configuration error, not a traceback.
+- Numeric options refuse `nan` and `inf`.
+- The `make` hint names `plotly_js_script` (L10), and the wheel carries `py.typed` (L11).
+- The plugin registry refuses an abstract plugin class.
+
+### Changed
+
+- Accessions are checked at every command-line entry point, including `--accession` values; a
+  malformed accession is refused with exit code 2, and for an accessions file the error names the
+  file and line. Accessions files skip `#` comments and repeats.
+- Invalid input (a `ValidationError`) exits with code 2, the usage-error code, instead of 1.
+- Relative project folders are taken against the folder that holds the project registry, not the
+  working directory, so a command run from a subfolder acts on the project above it.
+- A stale project's live symlink now keeps its dataset out of `store_gc`; the reason line names the
+  project with " (stale)".
+- PERMANOVA uses the standard sums of squares (Anderson 2001) and the p-value
+  (1 + #{F_perm >= F}) / (1 + permutations), so F and p differ from 0.10.0.
+- Containment threshold labels are the half-up decimal rendering of k * step; some labels at
+  half-way values differ from 0.10.0, the counts do not.
+- Linking from a store needs a writable `<store>/locks`; a read-only store cannot be linked from.
+- `store_status --details` replaces `--verbose`, which is kept as a hidden, deprecated alias.
+- The CSS classes of the HTML reports use the `pre-` prefix.
+- The default cache of `taxonomy_validation` is `taxonomy_validation_cache.csv`; an existing
+  `taxonomy_cache.csv` is not read by default.
+- The SRA metadata client paces 3 requests per second without an NCBI API key and 10 with one.
+- Size accounting in `store_gc`, `store_link` and cleanup no longer follows symlinks.
+- Genome accession files are de-duplicated.
+- A stop during the retry pass of `download_sra` leaves the accessions not yet attempted unrecorded
+  instead of recording them as failed.
+- A forced re-extraction that maps no reads removes the FASTQ files of the earlier extraction.
+- `--log-level` together with `-v` or `-q` is a usage error.
+- `MissingGenomesError`, a `DataAccessError`, reports requested genomes absent from an NCBI zip,
+  after the extracted genomes are registered.
+- The containment explorer shows at most 5000 table rows, highest containment first, and notes how
+  many were left out.
+- `--help` no longer prints "(default: False)" for on/off flags.
+
+### Internal
+
+- One thread-safe `RequestPacer` (`data/ncbi_pacing.py`) for the three NCBI clients.
+- Plugin base: abstract `FormatPlugin` and `VisualizerPlugin` interfaces, idempotent registration,
+  built-in plugins loaded on first lookup, and third-party plugins discovered through the
+  `prepare_plugins` entry-point group.
+- Module splits: `registry_io` and `registry_scan` from `registry`, `read_extraction_export` from
+  `read_extraction`, `sra_record` from the `download_sra` command, `metadata_fetch` from `metadata`;
+  the SRA download tests are split into three files.
+- The store journal is pruned by `store_gc` and compacted by `store_reindex`; `store_gc` loads each
+  project registry once; a catalogue written by a newer version is refused.
+- Shared helpers for folder sizes (`utils/sizes.py`), matrix preparation and figure writing.
+- CI runs `make check`; the release workflow checks the tag against the package version
+  (`scripts/check_version.py`).
+
 ## [0.10.0] - 2026-10-09
 
 ### Changed

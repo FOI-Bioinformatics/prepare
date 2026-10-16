@@ -277,6 +277,23 @@ class TestApplyRechecksAgainstTheRegistryItIsGiven:
         assert "SRR7" not in report.untracked_fastq
         assert rb.download_block(registry, "SRR7") is None
 
+    def test_a_store_link_marked_missing_leaves_the_linked_list(self, tmp_path, fixed_clock):
+        """An accession on the registry's list of store links whose project entry is gone is
+        marked missing and taken off that list, so the store no longer counts it as linked."""
+        paths = _project(tmp_path)
+        paths.fastq.mkdir()
+        registry = reg.Registry()
+        registry.store = {"root": str(tmp_path / "store"), "linked": ["SRR1"]}
+        reg.record_download(
+            registry, "SRR1", "downloaded", paths.fastq, attempt=False, source="store", store_name="SRR1"
+        )
+
+        report = apply_reconcile(registry, scan_reconcile(registry, paths))
+
+        assert report.recorded_missing == ["SRR1"]
+        assert rb.download_block(registry, "SRR1").state == "missing"
+        assert rb.store_block(registry).linked == []
+
     def test_a_verdict_is_used_only_for_the_spot_count_it_was_computed_for(self, tmp_path, fixed_clock):
         registry, paths = _drifted_project(tmp_path)
         plan = scan_reconcile(registry, paths)

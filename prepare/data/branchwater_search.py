@@ -266,9 +266,23 @@ def search_index(
 
     if fetched_now and cache_path is not None:
         assert cache_key is not None  # set together with cache_path above
-        _cache_write(cache_path, cache_key, text, server, threshold, len(kept))
+        _cache_fresh_result(cache_path, cache_key, text, server, threshold, len(kept), len(matches))
 
     return kept
+
+
+def _cache_fresh_result(
+    cache_path: Path, cache_key: str, text: str, server: str, threshold: float, n_kept: int, n_rows: int
+) -> None:
+    """Cache a fetched reply, except a reply with no rows at all.
+
+    An empty reply is often an outage or a transient server state; caching it would
+    hide later results for the lifetime of the cache entry.
+    """
+    if n_rows == 0:
+        logger.info("Branchwater returned no rows: empty result not cached")
+        return
+    _cache_write(cache_path, cache_key, text, server, threshold, n_kept)
 
 
 def _parse_search_rows(lines) -> List[Tuple[str, float]]:

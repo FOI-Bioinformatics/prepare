@@ -8,8 +8,8 @@ interactive visualization, and taxonomic validation.
 import logging
 from pathlib import Path
 
-from prepare.cli.base import BaseCommand
-from prepare.core.exceptions import ConfigurationError, PrepareError
+from prepare.cli.base import finite_float, BaseCommand
+from prepare.core.exceptions import ConfigurationError, PrepareError, ValidationError
 from prepare.core.optional import require
 from prepare.core.settings import require_email, setting_for
 from prepare.data.file_io import open_atomic, write_csv
@@ -69,6 +69,7 @@ class DiversityAnalysisCommand(BaseCommand):
         from prepare.processing.diversity import (
             calculate_alpha_diversity,
             calculate_beta_diversity,
+            check_metadata_covers_samples,
             perform_permanova,
         )
 
@@ -83,6 +84,9 @@ class DiversityAnalysisCommand(BaseCommand):
             if args.metadata_file:
                 logger.info("Loading metadata...")
                 metadata_df = read_table(args.metadata_file)
+                if args.permanova_formula:
+                    # Every sample needs a metadata row; check before any output is written.
+                    check_metadata_covers_samples(abundance_df.index, metadata_df)
 
             # Create output directory
             output_dir = Path(args.output_dir)
@@ -125,7 +129,7 @@ class DiversityAnalysisCommand(BaseCommand):
             logger.info("Diversity analysis completed successfully!")
             return 0
 
-        except ConfigurationError:
+        except (ConfigurationError, ValidationError):
             raise
         except Exception as e:
             logger.error(f"Diversity analysis failed: {e}")
@@ -284,8 +288,8 @@ class TaxonomyValidationCommand(BaseCommand):
         )
         parser.add_argument(
             "--cache-file",
-            default="taxonomy_cache.csv",
-            help="Cache file for storing results",
+            default="taxonomy_validation_cache.csv",
+            help="Cache file for the NCBI taxonomy lookups (not the GTDB cache of enrich_taxonomy)",
         )
 
     def execute(self, args):
@@ -386,7 +390,7 @@ class TaxonomicSummaryCommand(BaseCommand):
         )
         parser.add_argument(
             "--min-abundance",
-            type=float,
+            type=finite_float,
             default=0.001,
             help="Minimum abundance threshold",
         )
@@ -407,6 +411,7 @@ class TaxonomicSummaryCommand(BaseCommand):
                 taxonomy_df,
                 levels=args.levels,
                 output_dir=args.output_dir,
+                min_abundance=args.min_abundance,
             )
 
             # Print summary statistics

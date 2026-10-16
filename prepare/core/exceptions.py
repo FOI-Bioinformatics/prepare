@@ -27,7 +27,9 @@ class PrepareError(Exception):
 
 
 class ValidationError(PrepareError):
-    """Exception raised for validation errors in input data."""
+    """Exception raised for validation errors in input data; a usage error (exit code 2)."""
+
+    exit_code = ExitCode.USAGE
 
 
 class FormatError(ValidationError):

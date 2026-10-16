@@ -248,3 +248,100 @@ def test_backfill_sqlite_error_becomes_data_access_error(tmp_path, monkeypatch):
     with Catalog(paths) as c:
         with pytest.raises(DataAccessError):
             journal.backfill_from_catalog(paths, c)
+
+
+def test_prune_usage_drops_only_the_named_accessions_and_keeps_corrupt_lines(tmp_path, caplog):
+    import logging
+
+    paths = init_store(tmp_path / "store")
+    with catalog_write(paths) as c:
+        c.upsert_project("pid1", "proj", str(tmp_path / "proj"), "r.json")
+        c.record_usage("SRR1", "pid1", "", "downloaded", "")
+        c.record_usage("SRR2", "pid1", "", "downloaded", "")
+        c.record_usage("SRR3", "pid1", "", "downloaded", "")
+    usage_file = paths.journal / "usage.jsonl"
+    with open(usage_file, "a", encoding="utf-8") as handle:
+        handle.write("{broken\n[1, 2]\n")
+
+    with caplog.at_level(logging.WARNING):
+        dropped = journal.prune_usage(paths, {"SRR1", "SRR3"})
+
+    assert dropped == 2
+    lines = usage_file.read_text(encoding="utf-8").splitlines()
+    assert lines[-2:] == ["{broken", "[1, 2]"]
+    assert [json.loads(line)["accession"] for line in lines[:-2]] == ["SRR2"]
+    assert sum("could not be parsed" in record.message for record in caplog.records) == 1
+
+
+def test_prune_usage_leaves_the_file_untouched_when_nothing_matches(tmp_path):
+    paths = init_store(tmp_path / "store")
+    with catalog_write(paths) as c:
+        c.upsert_project("pid1", "proj", str(tmp_path / "proj"), "r.json")
+        c.record_usage("SRR2", "pid1", "", "downloaded", "")
+    usage_file = paths.journal / "usage.jsonl"
+    before = usage_file.stat().st_mtime_ns, usage_file.read_text(encoding="utf-8")
+
+    assert journal.prune_usage(paths, {"SRR1"}) == 0
+    assert (usage_file.stat().st_mtime_ns, usage_file.read_text(encoding="utf-8")) == before
+
+
+def test_prune_usage_without_a_journal_is_a_noop(tmp_path):
+    paths = init_store(tmp_path / "store")
+    assert journal.prune_usage(paths, {"SRR1"}) == 0
+    assert not (paths.journal / "usage.jsonl").exists()
+
+
+def test_compact_projects_keeps_the_latest_line_per_project_and_corrupt_lines(tmp_path):
+    paths = init_store(tmp_path / "store")
+    with catalog_write(paths) as c:
+        c.upsert_project("p1", "first", "/a", "r1.json")
+        c.upsert_project("p2", "other", "/b", "r2.json")
+        c.upsert_project("p1", "second", "/a", "r1.json")
+    projects_file = paths.journal / "projects.jsonl"
+    with open(projects_file, "a", encoding="utf-8") as handle:
+        handle.write('{oops\n{"name": "no id"}\n')
+
+    assert journal.compact_projects(paths) == 1
+
+    lines = projects_file.read_text(encoding="utf-8").splitlines()
+    assert json.loads(lines[0])["project_id"] == "p2"
+    assert json.loads(lines[1])["name"] == "second"
+    assert lines[2:] == ["{oops", '{"name": "no id"}']
+
+
+def test_prune_usage_writes_kept_lines_back_byte_identical(tmp_path):
+    """Kept lines are written exactly as read: no whitespace stripping, and no split on the
+    other separators ``str.splitlines`` honours (U+2028, U+0085) inside a foreign line."""
+    paths = init_store(tmp_path / "store")
+    paths.journal.mkdir(parents=True, exist_ok=True)
+    keep_record = '{"accession": "SRR2", "project_id": "p1", "stage": "downloaded"}  '
+    corrupt = "{broken \u2028 still the same line \x85 and more   "
+    drop_record = '{"accession": "SRR1", "project_id": "p1", "stage": "downloaded"}'
+    usage_file = paths.journal / "usage.jsonl"
+    with open(usage_file, "w", encoding="utf-8", newline="") as handle:
+        handle.write(keep_record + "\n" + corrupt + "\n" + drop_record + "\n")
+
+    assert journal.prune_usage(paths, {"SRR1"}) == 1
+
+    expected = (keep_record + "\n" + corrupt + "\n").encode("utf-8")
+    assert usage_file.read_bytes() == expected
+
+
+def test_journal_rewrites_are_fsynced(tmp_path, monkeypatch):
+    paths = init_store(tmp_path / "store")
+    with catalog_write(paths) as c:
+        c.upsert_project("pid1", "proj", str(tmp_path / "proj"), "r.json")
+        c.upsert_project("pid1", "proj", str(tmp_path / "proj"), "r.json")
+        c.record_usage("SRR1", "pid1", "", "downloaded", "")
+    calls = []
+    real = journal.write_text_atomic
+
+    def recording(path, text, *args, **kwargs):
+        calls.append(kwargs.get("fsync"))
+        return real(path, text, *args, **kwargs)
+
+    monkeypatch.setattr(journal, "write_text_atomic", recording)
+
+    assert journal.prune_usage(paths, {"SRR1"}) == 1
+    assert journal.compact_projects(paths) == 1
+    assert calls == [True, True]

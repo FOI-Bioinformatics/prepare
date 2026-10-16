@@ -73,8 +73,9 @@ class TestUseBranchwaterCommand:
             parser.parse_args([])  # Missing required --branchwater-folder
 
     @patch("prepare.cli.commands.branchwater.process_branchwater_files")
-    def test_execute_success(self, mock_command):
-        """Test successful command execution."""
+    def test_execute_success(self, mock_command, tmp_path, monkeypatch):
+        """Test successful command execution; the matches folder resolves against the project root."""
+        monkeypatch.chdir(tmp_path)
         mock_command.return_value = {"file1": Path("test")}
         command = UseBranchwaterCommand()
 
@@ -82,11 +83,12 @@ class TestUseBranchwaterCommand:
 
         result = command.execute(args)
         assert result == 0
-        mock_command.assert_called_once_with("test_folder", "matches", errors=[])
+        mock_command.assert_called_once_with("test_folder", str(tmp_path.resolve() / "matches"), errors=[])
 
     @patch("prepare.cli.commands.branchwater.process_branchwater_files")
-    def test_execute_failure(self, mock_command):
+    def test_execute_failure(self, mock_command, tmp_path, monkeypatch):
         """Test command execution failure."""
+        monkeypatch.chdir(tmp_path)
         mock_command.side_effect = PrepareError("Test error")
         command = UseBranchwaterCommand()
 
@@ -94,7 +96,7 @@ class TestUseBranchwaterCommand:
 
         result = command.execute(args)
         assert result == 1
-        mock_command.assert_called_once_with("test_folder", "matches", errors=[])
+        mock_command.assert_called_once_with("test_folder", str(tmp_path.resolve() / "matches"), errors=[])
 
     def test_use_branchwater_returns_1_on_file_error(self, tmp_path):
         source = tmp_path / "bw"
@@ -141,10 +143,11 @@ class TestExtractBranchwaterMetadataCommand:
 
     @patch("prepare.cli.commands.branchwater.extract_metadata_from_branchwater")
     @patch("pathlib.Path.mkdir")
-    def test_execute(self, mock_mkdir, mock_command):
+    def test_execute(self, mock_mkdir, mock_command, tmp_path, monkeypatch):
         """Test command execution."""
         import pandas as pd
 
+        monkeypatch.chdir(tmp_path)
         mock_command.return_value = pd.DataFrame()
         command = ExtractBranchwaterMetadataCommand()
 
@@ -153,7 +156,8 @@ class TestExtractBranchwaterMetadataCommand:
         result = command.execute(args)
         assert result == 0
         mock_mkdir.assert_called_once_with(exist_ok=True)
-        mock_command.assert_called_once_with("test_folder", Path("metadata/branchwater_metadata.txt"), errors=[])
+        expected = tmp_path.resolve() / "metadata" / "branchwater_metadata.txt"
+        mock_command.assert_called_once_with("test_folder", expected, errors=[])
 
 
 class TestParseContainmentCommand:
@@ -226,7 +230,12 @@ class TestParseContainmentCommand:
         result = command.execute(args)
         assert result == 0
         mock_command.assert_called_once_with(
-            "test_matches", str(tmp_path / "parsed.txt"), "summary.txt", 0.05, details_file=None, errors=[]
+            str(tmp_path.resolve() / "test_matches"),
+            str(tmp_path / "parsed.txt"),
+            "summary.txt",
+            0.05,
+            details_file=None,
+            errors=[],
         )
 
     def test_execute_records_screening_in_registry(self, tmp_path):
@@ -478,8 +487,8 @@ class TestDownloadMetadataCommand:
         assert result == 0
         mock_command.assert_called_once_with(
             email="test@example.com",
-            matches_folder="matches",
-            metadata_folder="metadata",
+            matches_folder=str(tmp_path.resolve() / "matches"),
+            metadata_folder=str(tmp_path.resolve() / "metadata"),
             threshold=0.0,
             dry_run=False,
             accessions_file=None,
@@ -825,8 +834,9 @@ class TestDownloadTestGenomeCommand:
         assert args.output_folder == "custom_genomes"
 
     @patch("prepare.cli.commands.test_data.download_test_genome")
-    def test_execute(self, mock_command):
+    def test_execute(self, mock_command, tmp_path, monkeypatch):
         """Test command execution."""
+        monkeypatch.chdir(tmp_path)
         mock_command.return_value = None
         command = DownloadTestGenomeCommand()
 
@@ -834,7 +844,7 @@ class TestDownloadTestGenomeCommand:
         result = command.execute(args)
 
         assert result == 0
-        mock_command.assert_called_once_with("genomes")
+        mock_command.assert_called_once_with(str(tmp_path.resolve() / "genomes"))
 
 
 class TestDownloadSraCommand:
@@ -2377,6 +2387,56 @@ class TestDownloadSraCommand:
 
     @patch("prepare.cli.commands.sra.require_tools")
     @patch("prepare.cli.commands.sra.download_sra")
+    def test_retry_prefixed_store_link_is_recorded_as_a_link(self, mock_download, _which, tmp_path):
+        from prepare.data.registry import load_registry
+        from prepare.store.layout import init_store
+
+        store_root = tmp_path / "store"
+        init_store(store_root)
+        registry_file = tmp_path / "prepare_registry.json"
+        self._seed_project(registry_file)
+        message = "Retry 1: linked from store, 1 files"
+
+        def fake_download_sra(**kwargs):
+            kwargs["timings"]["SRR1"] = ("2026-01-01T00:00:00Z", 3.0)
+            kwargs["on_result"]("SRR1", True, message)
+            return {
+                "total": 1,
+                "already_downloaded": 0,
+                "blacklisted": 0,
+                "successful": 1,
+                "failed": 0,
+                "failed_accessions": [],
+                "results": {"SRR1": message},
+            }
+
+        mock_download.side_effect = fake_download_sra
+        args = argparse.Namespace(
+            accessions_file=str(tmp_path / "acc.txt"),
+            fastq_folder=str(tmp_path / "fastq"),
+            max_downloads=None,
+            num_threads=4,
+            max_workers=4,
+            dry_run=False,
+            force=False,
+            max_retries=1,
+            temp_folder=None,
+            blacklist=None,
+            report_file=None,
+            registry=str(registry_file),
+            data_root=str(store_root),
+        )
+
+        assert DownloadSraCommand().execute(args) == 0
+
+        rows = self._usage_rows(store_root)
+        assert rows == [{"accession": "SRR1", "project_id": "proj1", "genome_id": "", "stage": "linked"}]
+        block = rb.download_block(load_registry(str(registry_file)), "SRR1")
+        assert (block.source, block.attempts, block.message) == ("store", 0, message)
+        assert block.seconds is None
+
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_already_downloaded_store_backed_records_usage_stage_linked(self, mock_download, _which, tmp_path):
         from prepare.store.layout import init_store
 
@@ -2722,7 +2782,7 @@ class TestParseMetadataCommand:
 
         result = command.execute(args)
         assert result == 0
-        mock_command.assert_called_once_with("metadata", "metadata_table.txt")
+        mock_command.assert_called_once_with(str(tmp_path.resolve() / "metadata"), "metadata_table.txt")
 
     @patch("prepare.cli.commands.metadata.parse_metadata")
     def test_execute_resolves_the_project_root_once(self, mock_parse, tmp_path):
@@ -3047,6 +3107,23 @@ class TestPlotContainmentCommand:
         assert "parsed_containment_rank_max_containment.png" in caplog.text
         assert "Next:" in caplog.text
 
+    @patch("prepare.cli.commands.containment.viz_plot_containment")
+    def test_title_alone_shows_the_title(self, mock_command):
+        mock_command.return_value = None
+        command = PlotContainmentCommand()
+        args = argparse.Namespace(
+            file_path="c.txt",
+            column="max_containment",
+            plot_type="rank",
+            title="Mine",
+            colors=None,
+            save_format="png",
+            threshold=None,
+            show_title=False,
+        )
+        assert command.execute(args) == 0
+        assert mock_command.call_args.kwargs["show_title"] is True
+
 
 class TestPlotMetadataCountsCommand:
     """Test PlotMetadataCountsCommand."""
@@ -3119,6 +3196,25 @@ class TestPlotMetadataCountsCommand:
         mock_command.assert_called_once_with(
             file_path="counts.txt", title=None, plot_type="bar", colors=None, show_title=False, save_format=None
         )
+
+    @patch("prepare.cli.commands.metadata.plot_metadata_counts")
+    def test_title_alone_shows_the_title(self, mock_command):
+        command = PlotMetadataCountsCommand()
+        args = argparse.Namespace(
+            file_path="counts.txt", plot_type="bar", title="Mine", colors=None, save_format="png", show_title=False
+        )
+        assert command.execute(args) == 0
+        assert mock_command.call_args.kwargs["show_title"] is True
+
+    @patch("prepare.cli.commands.metadata.plot_metadata_counts")
+    def test_warns_when_nothing_is_saved(self, mock_command, caplog):
+        command = PlotMetadataCountsCommand()
+        args = argparse.Namespace(
+            file_path="counts.txt", plot_type="bar", title=None, colors=None, save_format=None, show_title=False
+        )
+        with caplog.at_level("WARNING"):
+            assert command.execute(args) == 0
+        assert "no --save-format given; nothing was written" in caplog.text
 
 
 class TestDownloadSraMintsAProjectIdentity:
@@ -3361,6 +3457,20 @@ class TestDownloadSraRegistryWrites:
         second = rb.download_block(registry, "SRR2")
         assert (second.state, second.attempts) == ("downloaded", 0)
 
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
+    def test_retry_prefixed_already_exists_is_not_an_attempt(self, mock_download, _which, tmp_path):
+        args = self._args(tmp_path)
+
+        def fake_download_sra(**kwargs):
+            kwargs["on_result"]("SRR2", True, "Retry 1: already exists")
+            return {"total": 1, "successful": 1, "failed": 0, "failed_accessions": []}
+
+        mock_download.side_effect = fake_download_sra
+        assert DownloadSraCommand().execute(args) == 0
+        second = rb.download_block(load_registry(args.registry), "SRR2")
+        assert (second.state, second.attempts) == ("downloaded", 0)
+
 
 class TestDownloadSraTerminationAndFinalFlush:
     """SIGTERM/SIGHUP take the interrupt path, and a failed final registry flush is retried once."""
@@ -3508,3 +3618,100 @@ class TestDownloadSraMaxDownloadsArgument:
     def test_positive_value_is_accepted(self):
         assert self._parser().parse_args(["--accessions-file", "a.txt", "--max-downloads", "5"]).max_downloads == 5
         assert self._parser().parse_args(["--accessions-file", "a.txt"]).max_downloads is None
+
+
+class TestFoldersAnchoredOnTheProject:
+    """Run from proj/sub with the registry in proj/, relative folders resolve to proj/ (audit H4 follow-up)."""
+
+    @staticmethod
+    def _parse(argv):
+        from prepare.cli.main import create_parser
+
+        return create_parser().parse_args(argv)
+
+    @pytest.fixture
+    def proj(self, tmp_path, monkeypatch):
+        proj = tmp_path / "proj"
+        (proj / "sub").mkdir(parents=True)
+        save_registry(load_registry(proj / "prepare_registry.json"))
+        monkeypatch.chdir(proj / "sub")
+        return proj.resolve()
+
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
+    def test_download_sra_dry_run_uses_the_project_fastq_folder(self, mock_download, _tools, proj, caplog):
+        mock_download.return_value = {"total": 1, "to_download": 1, "already_downloaded": 0, "failed": 0}
+        (proj / "sub" / "accessions.txt").write_text("SRR1\n")
+        args = self._parse(["download_sra", "--accessions-file", "accessions.txt", "--dry-run"])
+        with caplog.at_level(logging.INFO):
+            assert DownloadSraCommand().execute(args) == 0
+        assert mock_download.call_args.kwargs["fastq_folder"] == str(proj / "fastq")
+        assert f"Output folder would be: {proj / 'fastq'}" in caplog.text
+
+    @patch("prepare.cli.commands.metadata.download_metadata")
+    def test_download_metadata_dry_run_targets_the_project_folders(self, mock_download, proj):
+        mock_download.return_value = {}
+        args = self._parse(["download_metadata", "--email", "a@b.c", "--dry-run"])
+        assert DownloadMetadataCommand().execute(args) == 0
+        assert mock_download.call_args.kwargs["metadata_folder"] == str(proj / "metadata")
+        assert mock_download.call_args.kwargs["matches_folder"] == str(proj / "matches")
+
+    @patch("prepare.cli.commands.branchwater.process_branchwater_files")
+    def test_use_branchwater_writes_the_project_matches_folder(self, mock_process, proj):
+        args = self._parse(["use_branchwater", "--branchwater-folder", "bw"])
+        assert UseBranchwaterCommand().execute(args) == 0
+        assert mock_process.call_args.args == ("bw", str(proj / "matches"))
+
+    def test_extract_branchwater_metadata_writes_the_project_metadata_folder(self, proj):
+        (proj / "sub" / "bw").mkdir()
+        args = self._parse(["extract_branchwater_metadata", "--branchwater-folder", "bw"])
+        assert ExtractBranchwaterMetadataCommand().execute(args) == 0
+        assert not (proj / "sub" / "metadata").exists()
+        assert (proj / "metadata").is_dir()
+
+    @patch("prepare.cli.commands.containment.parse_containment_data")
+    def test_parse_containment_reads_the_project_matches_folder(self, mock_parse, proj):
+        table = pd.DataFrame({"GCF_1": [0.9]}, index=pd.Index(["SRR1"]))
+        mock_parse.return_value = argparse.Namespace(table=table, genome_to_samples={})
+        args = self._parse(["parse_containment"])
+        assert ParseContainmentCommand().execute(args) == 0
+        assert mock_parse.call_args.args[0] == str(proj / "matches")
+        # Recorded relative to the project root, so the registry stays movable with its project.
+        csv = load_registry(proj / "prepare_registry.json").datasets["SRR1"]["screening"]["genomes"]["GCF_1"]["csv"]
+        assert csv == "matches/GCF_1.csv"
+
+    @patch("prepare.cli.commands.branchwater_search.search_index", return_value=[("SRR1", 0.9)])
+    @patch("prepare.cli.commands.branchwater_search.load_signature", return_value=object())
+    def test_branchwater_search_writes_the_project_branchwater_folder(self, _sig, _search, proj):
+        from prepare.cli.commands.branchwater_search import BranchwaterSearchCommand
+
+        args = self._parse(["branchwater_search", "--signature", "GCF_1.sig", "--no-cache"])
+        assert BranchwaterSearchCommand().execute(args) == 0
+        assert (proj / "branchwater" / "GCF_1.csv").exists()
+        assert not (proj / "sub" / "branchwater").exists()
+        csv = load_registry(proj / "prepare_registry.json").datasets["SRR1"]["screening"]["genomes"]["GCF_1"]["csv"]
+        assert csv == "branchwater/GCF_1.csv"
+
+    @patch("prepare.cli.commands.test_data.download_test_genome")
+    def test_download_test_genome_writes_the_project_genomes_folder(self, mock_download, proj):
+        args = self._parse(["download_test_genome"])
+        assert DownloadTestGenomeCommand().execute(args) == 0
+        mock_download.assert_called_once_with(str(proj / "genomes"))
+
+    def test_sra_validate_reads_the_project_fastq_folder(self, proj, caplog):
+        from prepare.cli.commands.sra_enhanced import SRAValidateCommand
+
+        (proj / "fastq" / "SRR1").mkdir(parents=True)
+        (proj / "fastq" / "SRR1" / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        args = self._parse(["sra_validate"])
+        assert SRAValidateCommand().execute(args) == 0
+        assert "does not exist" not in caplog.text
+
+    def test_sra_profile_reads_the_project_fastq_folder(self, proj, caplog):
+        from prepare.cli.commands.sra_profile import SRAProfileCommand
+
+        (proj / "fastq" / "SRR1").mkdir(parents=True)
+        (proj / "fastq" / "SRR1" / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n" * 4)
+        args = self._parse(["sra_profile", "--output-dir", str(proj / "profiles")])
+        assert SRAProfileCommand().execute(args) == 0
+        assert "does not exist" not in caplog.text

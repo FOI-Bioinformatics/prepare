@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from prepare.data import registry as reg
-from prepare.data.extraction_staging import publish_staged, staged_sample_outputs
+from prepare.data.extraction_staging import publish_staged, remove_published, staged_sample_outputs
 from prepare.data.file_io import visible_files
 from prepare.data.read_extraction import _map_and_extract
 from prepare.data.registry_reconcile import apply_reconcile, scan_reconcile
@@ -166,3 +166,60 @@ class TestPublishStaged:
         assert published == [out_dir / "G_1.fastq.gz", out_dir / "G_2.fastq.gz"]
         assert sorted(p.name for p in visible_files(out_dir)) == ["G_1.fastq.gz", "G_2.fastq.gz"]
         assert sorted(p.name for p in out_dir.iterdir()) == [".G.extracted.json", "G_1.fastq.gz", "G_2.fastq.gz"]
+
+
+class TestRemovePublished:
+    def test_removes_the_recorded_files_and_the_record(self, tmp_path):
+        out_dir = tmp_path / "out"
+        with staged_sample_outputs(out_dir, "G") as staging:
+            staged = [staging / "G_1.fastq.gz", staging / "G_2.fastq.gz"]
+            for path in staged:
+                path.write_bytes(b"x")
+            publish_staged(staging, staged, out_dir, "G")
+        (out_dir / "other.txt").write_text("keep")
+
+        removed = remove_published(out_dir, "G")
+
+        assert sorted(p.name for p in removed) == ["G_1.fastq.gz", "G_2.fastq.gz"]
+        assert sorted(p.name for p in out_dir.iterdir()) == ["other.txt"]
+
+    def test_is_a_no_op_without_a_record(self, tmp_path):
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        (out_dir / "G_1.fastq.gz").write_bytes(b"older")
+        assert remove_published(out_dir, "G") == []
+        assert (out_dir / "G_1.fastq.gz").exists()
+
+    def test_keeps_a_file_another_genomes_record_lists(self, tmp_path):
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        (out_dir / "G1_1.fastq.gz").write_bytes(b"x")
+        (out_dir / ".G1.extracted.json").write_text('["G1_1.fastq.gz"]\n')
+        (out_dir / ".G1_1.extracted.json").write_text('["G1_1.fastq.gz"]\n')
+        assert remove_published(out_dir, "G1") == []
+        assert (out_dir / "G1_1.fastq.gz").exists()
+        assert not (out_dir / ".G1.extracted.json").exists()
+
+
+class TestZeroMappingForcedRerun:
+    def _first_run(self, tmp_path, out_dir):
+        _extract(tmp_path, out_dir, {})
+        assert (out_dir / "GCF_1_1.fastq.gz").is_file()
+        assert (out_dir / ".GCF_1.extracted.json").is_file()
+
+    def test_nothing_mapped_in_the_alignment_removes_earlier_reads(self, tmp_path):
+        out_dir = tmp_path / "targeted" / "SRR1"
+        self._first_run(tmp_path, out_dir)
+        result = _extract(tmp_path, out_dir, {"mapped_total": 0, "mapped": 0})
+        assert result.files == []
+        assert not (out_dir / "GCF_1_1.fastq.gz").exists()
+        assert not (out_dir / "GCF_1_2.fastq.gz").exists()
+        assert not (out_dir / ".GCF_1.extracted.json").exists()
+
+    def test_nothing_kept_after_filtering_removes_earlier_reads(self, tmp_path):
+        out_dir = tmp_path / "targeted" / "SRR1"
+        self._first_run(tmp_path, out_dir)
+        result = _extract(tmp_path, out_dir, {"mapped_total": 5, "mapped": 0})
+        assert result.files == []
+        assert not (out_dir / "GCF_1_1.fastq.gz").exists()
+        assert not (out_dir / ".GCF_1.extracted.json").exists()

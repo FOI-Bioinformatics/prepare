@@ -7,9 +7,15 @@ from typing import Optional
 
 from prepare.cli.base import BaseCommand
 from prepare.core.constants import GENOME_FASTA_GLOBS
+from prepare.data.accessions import read_accessions_file
 from prepare.core.exceptions import PrepareError
 from prepare.data.file_io import open_atomic, visible_files, write_text_atomic
-from prepare.data.genome_download import download_genomes, extract_and_organize, partition_present_genomes
+from prepare.data.genome_download import (
+    MissingGenomesError,
+    download_genomes,
+    extract_and_organize,
+    partition_present_genomes,
+)
 from prepare.data.gtdb import (
     get_accessions_for_genus,
     get_accessions_for_species,
@@ -175,13 +181,7 @@ class GenomeDownloadCommand(BaseCommand):
             accessions.extend(args.accessions)
 
         if args.accession_file:
-            path = Path(args.accession_file)
-            if not path.exists():
-                raise PrepareError(f"Accession file not found: {path}")
-            for line in path.read_text().strip().splitlines():
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    accessions.append(line)
+            accessions.extend(read_accessions_file(args.accession_file, validate=False))
 
         if args.species:
             accessions.extend(get_accessions_for_species(args.species, representative_only=args.representative_only))
@@ -227,7 +227,13 @@ class GenomeDownloadCommand(BaseCommand):
                 assembly_level=args.assembly_level,
             )
 
-            genome_paths = extract_and_organize(zip_path, output_dir)
+            missing_error: Optional[MissingGenomesError] = None
+            try:
+                genome_paths = extract_and_organize(zip_path, output_dir, expected=to_download)
+            except MissingGenomesError as e:
+                # Record what did extract before reporting the rest, so a rerun does not
+                # treat the unregistered files as already handled.
+                genome_paths, missing_error = e.genome_paths, e
             self.logger.info("Downloaded and extracted %d genome(s)", len(genome_paths))
 
             if genome_paths:
@@ -239,6 +245,8 @@ class GenomeDownloadCommand(BaseCommand):
                         manifest = resolve_project_path(reg, earlier) if earlier else ""
                         record_genome(reg, genome_id, path, manifest)
 
+            if missing_error is not None:
+                raise missing_error
             return 0
         except PrepareError as e:
             return self.fail(e, "Error downloading genomes")
@@ -302,13 +310,7 @@ class GenomePrepareCommand(BaseCommand):
         accessions = []
 
         if args.accession_file:
-            path = Path(args.accession_file)
-            if not path.exists():
-                raise PrepareError(f"Accession file not found: {path}")
-            for line in path.read_text().strip().splitlines():
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    accessions.append(line)
+            accessions.extend(read_accessions_file(args.accession_file, validate=False))
 
         if args.species:
             accessions.extend(get_accessions_for_species(args.species, representative_only=args.representative_only))
@@ -369,7 +371,12 @@ class GenomePrepareCommand(BaseCommand):
                 self.logger.info("Downloading %d genome(s) to %s", len(accessions), output_dir)
 
                 zip_path = download_genomes(accessions, output_dir)
-                extract_and_organize(zip_path, output_dir)
+                try:
+                    extract_and_organize(zip_path, output_dir, expected=accessions)
+                except MissingGenomesError:
+                    # Manifest and registry cover the genomes that did extract; then report the rest.
+                    self._create_manifest(output_dir, args.manifest_file, args.registry)
+                    raise
 
             self._create_manifest(output_dir, args.manifest_file, args.registry)
             return 0

@@ -14,7 +14,7 @@ from typing import Optional, Tuple, Union
 
 from prepare.core.exceptions import ConfigurationError, VisualizationError
 from prepare.core.optional import require
-from prepare.plugins.base import Plugin
+from prepare.plugins.base import VisualizerPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def _draw_matrix(
                 ax.text(col, row, format(values.data[row, col], fmt), ha="center", va="center", fontsize=8)
 
 
-class HeatmapPlugin(Plugin):
+class HeatmapPlugin(VisualizerPlugin):
     """Plugin for creating heatmap visualizations."""
 
     name = "heatmap"
@@ -131,8 +131,11 @@ class HeatmapPlugin(Plugin):
             plt.tight_layout()
 
             if output_file:
-                fig.savefig(output_file, format=output_format, dpi=300, bbox_inches="tight")
-                logger.info(f"Saved heatmap to {output_file}")
+                try:
+                    fig.savefig(output_file, format=output_format, dpi=300, bbox_inches="tight")
+                    logger.info(f"Saved heatmap to {output_file}")
+                finally:
+                    plt.close(fig)
 
             return fig
 
@@ -190,8 +193,11 @@ class HeatmapPlugin(Plugin):
             plt.tight_layout()
 
             if output_file:
-                fig.savefig(output_file, format=output_format, dpi=300, bbox_inches="tight")
-                logger.info(f"Saved correlation heatmap to {output_file}")
+                try:
+                    fig.savefig(output_file, format=output_format, dpi=300, bbox_inches="tight")
+                    logger.info(f"Saved correlation heatmap to {output_file}")
+                finally:
+                    plt.close(fig)
 
             return fig
 

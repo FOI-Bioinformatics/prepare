@@ -187,7 +187,7 @@ def test_download_metadata_exits_4_when_ncbi_cannot_be_reached(tmp_path):
     )
     with (
         patch("prepare.data.metadata.Entrez.efetch", side_effect=URLError("connection refused")),
-        patch("prepare.data.metadata._pace_requests"),
+        patch("prepare.data.metadata_fetch._pace_requests"),
         patch("prepare.data.metadata.time.sleep"),
     ):
         assert DownloadMetadataCommand().execute(args) == 4

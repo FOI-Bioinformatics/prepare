@@ -31,8 +31,8 @@ from prepare.utils.logging import ConsoleFormatter
     "error, code",
     [
         (PrepareError("x"), 1),
-        (ValidationError("x"), 1),
-        (FormatError("x"), 1),
+        (ValidationError("x"), 2),
+        (FormatError("x"), 2),
         (DataAccessError("x"), 1),
         (ProcessingError("x"), 1),
         (SecurityError("x"), 1),
@@ -110,7 +110,7 @@ class _Failing(BaseCommand):
 
 
 @pytest.mark.parametrize(
-    "error, code", [(ValidationError("bad"), 1), (ConfigurationError("bad"), 3), (NetworkError("bad"), 4)]
+    "error, code", [(ValidationError("bad"), 2), (ConfigurationError("bad"), 3), (NetworkError("bad"), 4)]
 )
 def test_fail_logs_one_line_and_returns_the_code(error, code, caplog):
     with caplog.at_level(logging.ERROR):
@@ -155,6 +155,16 @@ def test_main_maps_an_escaping_error_to_its_exit_code(error, code, tmp_path, mon
     monkeypatch.chdir(tmp_path)
     with patch("prepare.cli.commands.blacklist.BlacklistCommand.execute", side_effect=error):
         assert _main(["blacklist", "--list"]) == code
+
+
+def test_main_broken_pipe_from_a_command_exits_0(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with (
+        patch("prepare.cli.commands.blacklist.BlacklistCommand.execute", side_effect=BrokenPipeError()),
+        patch("prepare.cli.main.os.dup2") as dup2,
+    ):
+        assert _main(["blacklist", "--list"]) == 0
+    dup2.assert_called_once()
 
 
 def test_main_keyboard_interrupt_without_graceful_shutdown(tmp_path, monkeypatch):
@@ -303,3 +313,56 @@ def test_fail_gives_no_hint_when_a_log_file_keeps_the_traceback(tmp_path, caplog
         logging.getLogger().removeHandler(handler)
         handler.close()
     assert "Use --log-level DEBUG" not in caplog.text
+
+
+def _bad_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("PREPARE_PROGRESS_EVERY", "many")
+
+
+def test_json_startup_error_is_one_line_on_stdout(tmp_path, monkeypatch, capsys):
+    import json
+
+    from prepare.cli.main import main
+
+    _bad_config(tmp_path, monkeypatch)
+    code = main(["store_status", "--json", "--data-root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert code == ExitCode.CONFIGURATION
+    assert list(json.loads(out)) == ["error"] and out.count("\n") == 1
+
+
+def test_doctor_fallback_keeps_the_logging_flags(tmp_path, monkeypatch):
+    from unittest.mock import patch as _patch
+
+    from prepare.cli.main import main
+
+    _bad_config(tmp_path, monkeypatch)
+    log = tmp_path / "doctor.log"
+    with _patch("prepare.cli.main.setup_logging") as setup:
+        main(["--log-file", str(log), "-v", "doctor"])
+    assert setup.call_args.kwargs["log_file"] == str(log)
+    assert setup.call_args.kwargs["level"] == logging.DEBUG
+
+
+def test_float_options_reject_nan_and_inf():
+    from prepare.cli.main import create_parser
+
+    for value in ("nan", "inf", "-inf"):
+        with pytest.raises(SystemExit) as raised:
+            create_parser().parse_args(["select", "--threshold", value])
+        assert raised.value.code == 2
+
+
+def test_a_bad_line_in_an_accessions_file_exits_2_and_creates_nothing(tmp_path, monkeypatch, caplog):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "acc.txt").write_text("SRR1\n../../x\n")
+
+    with caplog.at_level(logging.ERROR):
+        assert _main(["download_sra", "--accessions-file", "acc.txt", "--dry-run"]) == 2
+
+    assert "line 2" in caplog.text
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["acc.txt"]
+
+
+def test_validation_errors_are_usage_errors():
+    assert exit_code_for(ValidationError("bad input")) == ExitCode.USAGE

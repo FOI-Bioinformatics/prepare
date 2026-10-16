@@ -15,7 +15,7 @@ from typing import List, Optional, Tuple, Union
 
 from prepare.core.exceptions import VisualizationError
 from prepare.core.optional import require
-from prepare.plugins.base import Plugin
+from prepare.plugins.base import VisualizerPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -64,62 +64,63 @@ def _add_map_features(ax):
     ax.add_feature(cfeature.BORDERS, linestyle=":")
 
 
-def _parse_coordinate_string(coord_str):
+_COORDINATE_PATTERN = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*([NS])?\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*([EW])?\s*$")
+
+
+def _signed(value: float, hemisphere: Optional[str], negative_letter: str) -> float:
+    """Apply a hemisphere letter to a value; an explicit minus sign is kept and never negated twice."""
+    if hemisphere == negative_letter and value > 0:
+        return -value
+    return value
+
+
+def _parse_coordinate_string(coord_str) -> Tuple[Optional[float], Optional[float]]:
     """
     Parse a coordinate string into latitude and longitude.
+
+    Accepts NCBI ``lat_lon`` values such as "38.98 N 77.10 W", plain pairs such
+    as "12.5,-3.1" and JSON arrays such as "[52.6, 1.2]". An S suffix makes the
+    latitude negative and a W suffix makes the longitude negative. A value that
+    already carries a minus sign is kept as written, so "-33.9 S" is -33.9.
 
     Args:
         coord_str: String containing latitude and longitude
 
     Returns:
-        Tuple of (latitude, longitude) or (None, None) if parsing fails
+        Tuple of (latitude, longitude), or (None, None) when the value is not
+        a string, cannot be parsed or lies outside |lat| <= 90, |lon| <= 180
     """
-    if pd.isna(coord_str) or not coord_str:
+    if not isinstance(coord_str, str):
         return None, None
-
-    # Try to parse coordinates
+    text = coord_str.strip()
     try:
-        # Handle JSON array format, e.g. "[52.6237924, 1.2243845]"
-        coord_str_stripped = coord_str.strip()
-        if coord_str_stripped.startswith("["):
-            parsed = json.loads(coord_str_stripped)
-            if isinstance(parsed, list) and len(parsed) == 2:
-                lat, lon = float(parsed[0]), float(parsed[1])
-                return lat, lon
-            return None, None
-
-        # Handle various formats
-        if "," in coord_str:
-            # Format: "lat, lon"
-            lat_str, lon_str = coord_str.split(",")
-            lat = float(lat_str.strip().rstrip("NS"))
-            lon = float(lon_str.strip().rstrip("EW"))
-
-            # Handle N/S and E/W designations
-            if lat_str.strip().endswith("S"):
-                lat = -lat
-            if lon_str.strip().endswith("W"):
-                lon = -lon
-
-        elif " " in coord_str:
-            # Format: "lat lon"
-            lat_str, lon_str = coord_str.split()
-            lat = float(re.sub(r"[NS]", "", lat_str))
-            lon = float(re.sub(r"[EW]", "", lon_str))
-
-            # Handle N/S and E/W designations
-            if "S" in lat_str:
-                lat = -lat
-            if "W" in lon_str:
-                lon = -lon
+        if text.startswith("["):
+            parsed = json.loads(text)
+            if not (isinstance(parsed, list) and len(parsed) == 2):
+                return None, None
+            lat, lon = float(parsed[0]), float(parsed[1])
         else:
-            # Unknown format
-            return None, None
-
-        return lat, lon
-
-    except (ValueError, IndexError):
+            match = _COORDINATE_PATTERN.match(text)
+            if match is None:
+                return None, None
+            lat = _signed(float(match.group(1)), match.group(2), "S")
+            lon = _signed(float(match.group(3)), match.group(4), "W")
+    except (ValueError, TypeError):
         return None, None
+    if abs(lat) > 90 or abs(lon) > 180:
+        return None, None
+    return lat, lon
+
+
+def _log_country_only_rows(data, plot_df, country_column) -> None:
+    """Log once how many rows have a country but no coordinates; they are not plotted (no geocoding)."""
+    if not country_column or country_column not in data.columns:
+        return
+    has_country = data[country_column].notna() & (data[country_column].astype(str).str.strip() != "")
+    placed = data.index.isin(plot_df.index) if plot_df is not None else False
+    skipped = int((has_country & ~placed).sum())
+    if skipped:
+        logger.info(f"{skipped} rows have a country but no coordinates and are not plotted (no geocoding)")
 
 
 def _extract_coordinates(data, lat_lon_column):
@@ -205,7 +206,7 @@ def _plot_points(ax, plot_df, value_column, marker_size, cmap, **kwargs):
         return scatter
 
 
-class MapVisualizerPlugin(Plugin):
+class MapVisualizerPlugin(VisualizerPlugin):
     """Plugin for creating geographic map visualizations."""
 
     name = "map"
@@ -234,7 +235,8 @@ class MapVisualizerPlugin(Plugin):
         Args:
             data: DataFrame containing geographic data
             lat_lon_column: Column containing latitude/longitude as "lat, lon"
-            country_column: Column containing country names
+            country_column: Column containing country names; rows with a country but no
+                coordinates are counted in a log line and not plotted
             value_column: Column containing values for coloring/sizing
             title: Title for the plot
             cmap: Colormap to use
@@ -263,6 +265,7 @@ class MapVisualizerPlugin(Plugin):
 
             # Extract coordinates if lat_lon_column is provided
             plot_df = _extract_coordinates(data, lat_lon_column)
+            _log_country_only_rows(data, plot_df, country_column)
 
             # Plot points
             _plot_points(ax, plot_df, value_column, marker_size, cmap, **kwargs)
@@ -276,8 +279,11 @@ class MapVisualizerPlugin(Plugin):
 
             # Save plot if output_file specified
             if output_file:
-                fig.savefig(output_file, format=output_format, dpi=300, bbox_inches="tight")
-                logger.info(f"Saved map to {output_file}")
+                try:
+                    fig.savefig(output_file, format=output_format, dpi=300, bbox_inches="tight")
+                    logger.info(f"Saved map to {output_file}")
+                finally:
+                    plt.close(fig)
 
             return fig
 

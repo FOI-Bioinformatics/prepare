@@ -38,6 +38,10 @@ def _project(tmp_path: Path) -> reg.ProjectPaths:
 
 
 class TestLoadSave:
+    def test_registry_path_resolves_an_explicit_relative_path(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        assert reg.registry_path("prepare_registry.json") == (tmp_path / "prepare_registry.json").resolve()
+
     def test_absent_registry_is_empty(self, tmp_path):
         r = reg.load_registry(tmp_path / "prepare_registry.json")
         assert r.datasets == {} and r.version == reg.SCHEMA_VERSION and r.path == tmp_path / "prepare_registry.json"
@@ -52,6 +56,34 @@ class TestLoadSave:
         again = reg.load_registry(target)
         assert again.datasets["SRR1"]["exclusion"]["reason"] == "amplicon"
         assert json.loads(target.read_text())["version"] == reg.SCHEMA_VERSION
+
+    @pytest.mark.parametrize("text", ["[]", '"x"', "3"])
+    def test_non_object_json_raises_data_access_error(self, tmp_path, text):
+        target = tmp_path / "prepare_registry.json"
+        target.write_text(text)
+        with pytest.raises(DataAccessError, match="not a JSON object"):
+            reg.load_registry(target)
+
+    def test_non_numeric_version_raises_data_access_error(self, tmp_path):
+        target = tmp_path / "prepare_registry.json"
+        target.write_text('{"version": "x"}')
+        with pytest.raises(DataAccessError, match="version is not a number"):
+            reg.load_registry(target)
+
+    def test_newer_schema_is_refused(self, tmp_path):
+        target = tmp_path / "prepare_registry.json"
+        target.write_text('{"version": %d}' % (reg.SCHEMA_VERSION + 1))
+        with pytest.raises(DataAccessError, match="newer"):
+            reg.load_registry(target)
+
+    def test_unknown_top_level_keys_survive_a_round_trip(self, tmp_path):
+        target = tmp_path / "prepare_registry.json"
+        target.write_text('{"version": 2, "notes": {"a": 1}, "datasets": {}}')
+        loaded = reg.load_registry(target)
+        assert loaded.extra == {"notes": {"a": 1}}
+        reg.save_registry(loaded)
+        written = json.loads(target.read_text())
+        assert written["notes"] == {"a": 1} and written["version"] == reg.SCHEMA_VERSION
 
     def test_invalid_json_raises(self, tmp_path):
         target = tmp_path / "prepare_registry.json"
@@ -588,7 +620,7 @@ class TestRecords:
         count = reg.record_screening_from_table(r, table, matches_folder)
         assert count == 2
         assert r.datasets["SRR1"]["screening"]["genomes"]["GCF_A"]["containment"] == 0.9
-        assert r.datasets["SRR1"]["screening"]["genomes"]["GCF_A"]["csv"] == str(matches_folder / "GCF_A.csv")
+        assert r.datasets["SRR1"]["screening"]["genomes"]["GCF_A"]["csv"] == "matches/GCF_A.csv"
         assert r.datasets["SRR1"]["screening"]["genomes"]["GCF_A"]["source"] == "matches"
         assert "GCF_B" not in r.datasets["SRR1"]["screening"]["genomes"]
         assert r.datasets["SRR2"]["screening"]["genomes"]["GCF_B"]["containment"] == 0.3
@@ -1348,3 +1380,22 @@ class TestRegistryBatch:
             batch.apply(lambda r: reg.record_exclusion(r, "SRR1", "test"))
         assert seen == [["SRR1"]]
         assert batch.registry is not None and "SRR1" in batch.registry.datasets
+
+
+class TestProjectFolders:
+    """Project folders are anchored on the registry's folder (audit H4)."""
+
+    def test_anchored_joins_relative_folders_onto_the_root(self, tmp_path):
+        outside = tmp_path / "shared" / "genomes"
+        paths = reg.ProjectPaths.anchored(tmp_path / "proj", fastq="reads", genomes=str(outside))
+        assert paths.fastq == tmp_path / "proj" / "reads"
+        assert paths.genomes == outside
+        assert paths.metadata == tmp_path / "proj" / "metadata"
+        assert paths.targeted == tmp_path / "proj" / "targeted"
+        assert paths.matches == tmp_path / "proj" / "matches"
+
+    def test_project_root_of_a_registry_file_is_its_folder(self, tmp_path, monkeypatch):
+        (tmp_path / "elsewhere").mkdir()
+        monkeypatch.chdir(tmp_path / "elsewhere")
+        assert reg.project_root(tmp_path / "proj" / "prepare_registry.json") == (tmp_path / "proj").resolve()
+        assert reg.project_root("prepare_registry.json") == (tmp_path / "elsewhere").resolve()

@@ -216,13 +216,16 @@ class SpaceGuard:
         this accession alone and leaves the rest of the run going. A disk that actually fills up
         during a download is reported by the tool itself and handled as disk-full by the loops.
         ``should_stop`` is checked while waiting; once it returns True the wait ends with
-        ``"interrupted"`` and nothing is reserved.
+        ``"interrupted"`` and nothing is reserved. Reserving an accession that is still held
+        raises ``RuntimeError``: it would be counted twice and only one release could return it.
         """
         if not self.enabled:
             return None
         needs = self.needs(accession)
         waiting = False
         with self._cond:
+            if accession in self._held:
+                raise RuntimeError(f"{accession} is already reserved")
             while (short := self._shortfall(needs)) is not None:
                 device, free, need = short
                 reserved = self._reserved.get(device, 0)

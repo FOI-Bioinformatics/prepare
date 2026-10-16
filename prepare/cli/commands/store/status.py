@@ -44,7 +44,13 @@ class StoreStatusCommand(BaseCommand):
             help="Path to the project registry file (defaults to the nearest prepare_registry.json)",
         )
         parser.add_argument("--json", action="store_true", help="Emit the report as JSON")
-        parser.add_argument("--verbose", action="store_true", help="Also list every dataset in the store")
+        parser.add_argument(
+            "--details",
+            action="store_true",
+            help="Also list every dataset in the store (formerly --verbose; -v now sets the log level)",
+        )
+        # Before the global -v/--verbose existed, --verbose meant --details. -v is now the log level.
+        parser.add_argument("--verbose", dest="details_alias", action="store_true", help=argparse.SUPPRESS)
 
     @staticmethod
     def _dataset_counts_and_bytes(catalog: Catalog) -> Any:
@@ -84,6 +90,15 @@ class StoreStatusCommand(BaseCommand):
     def _stale_project_rows(catalog: Catalog) -> List[Dict[str, Any]]:
         return [_stale_project_row(row) for row in stale_projects(catalog)]
 
+    def _wants_details(self, args: argparse.Namespace) -> bool:
+        """True for ``--details``; the old ``--verbose`` spelling still works and logs a deprecation line."""
+        if getattr(args, "details_alias", False):
+            if not getattr(args, "_alias_warned", False):
+                args._alias_warned = True
+                self.logger.warning("store_status --verbose is deprecated and will be removed; use --details")
+            return True
+        return bool(args.details)
+
     def _build_report(self, root: Path, args: argparse.Namespace) -> Dict[str, Any]:
         paths = store_paths(root)
         marker = read_marker(root) or {}
@@ -99,7 +114,7 @@ class StoreStatusCommand(BaseCommand):
                 "projects": project_count,
                 "stale_projects": stale,
             }
-            if args.verbose:
+            if self._wants_details(args):
                 report["datasets_list"] = self._datasets_list(catalog)
         return report
 
@@ -145,5 +160,5 @@ class StoreStatusCommand(BaseCommand):
         if args.json:
             self.emit_json(report)
         else:
-            self._print_report(report, args.verbose)
+            self._print_report(report, self._wants_details(args))
         return 0

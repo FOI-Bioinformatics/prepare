@@ -50,9 +50,11 @@ def _separator_for(path: Path) -> str:
     """Return the field separator implied by a file's extension.
 
     Tab-separated ``.txt``/``.tsv`` files (as written by parse_containment and
-    parse_metadata) and comma-separated files are both accepted.
+    parse_metadata) and comma-separated files are both accepted. A trailing ``.gz``
+    is ignored, so ``table.tsv.gz`` is tab-separated.
     """
-    return "\t" if path.suffix.lower() in {".txt", ".tsv"} else ","
+    suffix = Path(path.name.lower().removesuffix(".gz")).suffix
+    return "\t" if suffix in {".txt", ".tsv"} else ","
 
 
 def read_matrix(path: Union[str, Path]) -> pd.DataFrame:

@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 
 from prepare.core import settings
 from prepare.core.constants import MAX_CONCURRENT_DOWNLOADS
-from prepare.core.exceptions import DataAccessError, PrepareError
+from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
+from prepare.data.accessions import read_accessions_file
 from prepare.data.file_io import ensure_directory
 from prepare.data.sra import accession as accession_mod
 from prepare.data.sra import fastq as fastq_mod
@@ -146,13 +147,16 @@ def _log_download_run_summary(
 ) -> None:
     """Log the summary for a completed (non-dry-run) ``download_sra`` call.
 
-    A result the store served from a copy it already had is counted in ``successful_count``,
+    A result the store served from a copy it already had (on the first pass or, behind a
+    ``Retry <n>: `` prefix, on the retry pass) is counted in ``successful_count``,
     but it downloaded nothing this run; it is reported separately ("Linked from store") rather
     than folded into "Newly downloaded", which would overstate how much this run actually
     fetched. Kept out of ``download_sra`` itself to keep that function's branching down.
     """
     linked_count = sum(
-        1 for message in download_results.values() if message.startswith(store_handoff_mod.STORE_LINKED_PREFIX)
+        1
+        for message in download_results.values()
+        if accession_mod.result_body(message).startswith(store_handoff_mod.STORE_LINKED_PREFIX)
     )
 
     logger.info("Download summary:")
@@ -316,12 +320,11 @@ def download_sra(
         DataAccessError: If the download fails
     """
     try:
+        # Read and validate the accessions before anything touches the disk
+        all_accessions = read_accessions_file(accessions_file)
+
         # Handle the output folder based on dry run status
         fastq_path = _resolve_fastq_path(fastq_folder, dry_run)
-
-        # Read accessions from file
-        with open(accessions_file, "r") as f:
-            all_accessions = [line.strip() for line in f if line.strip()]
 
         logger.info(f"Found {len(all_accessions)} accessions in file")
 
@@ -445,5 +448,7 @@ def download_sra(
 
         return download_stats
 
+    except ValidationError:
+        raise
     except (OSError, ValueError, PrepareError) as e:
         raise DataAccessError(f"Downloading SRA data: {e}") from e

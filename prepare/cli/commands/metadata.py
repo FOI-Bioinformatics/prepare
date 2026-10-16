@@ -9,14 +9,15 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Tuple
 
+import matplotlib.pyplot as plt
 import pandas as pd
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import finite_float, BaseCommand, anchored_folder
 from prepare.core.exceptions import DataAccessError, PrepareError
 from prepare.core.settings import require_email, setting_for
 from prepare.data import registry_blocks as rb
 from prepare.data.defaults import resolve_metadata_table
-from prepare.data.file_io import copy_file
+from prepare.data.file_io import atomic_path, copy_file
 from prepare.data.metadata import (
     check_metadata_attributes,
     download_metadata,
@@ -27,6 +28,7 @@ from prepare.data.metadata_fields import FIELD_COLUMNS, metadata_fields
 from prepare.data.registry import Registry, record_metadata, registry_path
 from prepare.data.registry_batch import registry_batch, registry_update
 from prepare.processing.counts import count_metadata
+from prepare.plugins.base import visualizer_registry
 from prepare.store.resolve import resolve_optional_store
 from prepare.visualization.plots import plot_metadata_counts
 
@@ -71,7 +73,7 @@ class DownloadMetadataCommand(BaseCommand):
         )
         parser.add_argument(
             "--threshold",
-            type=float,
+            type=finite_float,
             default=0.0,
             help="Threshold for containment values (inclusive)",
         )
@@ -123,6 +125,8 @@ class DownloadMetadataCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         email = require_email(args)
         try:
+            args.matches_folder = str(anchored_folder(args.matches_folder, getattr(args, "registry", None)))
+            args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
             downloaded = download_metadata(
                 email=email,
                 matches_folder=args.matches_folder,
@@ -229,6 +233,7 @@ class ParseMetadataCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
             df = parse_metadata(args.metadata_folder, args.metadata_table_file)
             metadata_folder = Path(args.metadata_folder)
             # Only the columns the registry records, as plain dicts: a wide table (one column per
@@ -320,7 +325,7 @@ class CountMetadataCommand(BaseCommand):
         )
         parser.add_argument(
             "--threshold",
-            type=float,
+            type=finite_float,
             default=0.5,
             help="Threshold for containment values (inclusive)",
         )
@@ -386,9 +391,55 @@ class PlotMetadataCountsCommand(BaseCommand):
                 title=args.title,
                 plot_type=args.plot_type,
                 colors=args.colors,
-                show_title=args.show_title,
+                show_title=args.show_title or args.title is not None,
                 save_format=args.save_format,
             )
+            if args.save_format is None:
+                self.logger.warning("no --save-format given; nothing was written")
             return 0
         except PrepareError as e:
             return self.fail(e, "Error plotting metadata counts")
+
+
+class PlotMapCommand(BaseCommand):
+    """Command for drawing sample locations from a metadata table on a map."""
+
+    @property
+    def name(self) -> str:
+        return "plot_map"
+
+    @property
+    def help(self) -> str:
+        return "Draw sample locations from a metadata table on a map"
+
+    @property
+    def group(self) -> str:
+        return "Metadata"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--metadata-file", required=True, help="Metadata table (tab-separated)")
+        parser.add_argument("--output", required=True, help="Image file to write (png, jpg, pdf or svg)")
+        parser.add_argument(
+            "--lat-lon-column", default="lat_lon", help="Column holding coordinates, e.g. '38.98 N 77.10 W'"
+        )
+
+    def execute(self, args: argparse.Namespace) -> int:
+        fig = None
+        try:
+            data = pd.read_csv(resolve_metadata_table(args.metadata_file), sep="\t")
+            plugin = visualizer_registry.get("map")
+            suffix = Path(args.output).suffix.lstrip(".").lower()
+            with atomic_path(args.output) as tmp:
+                fig = plugin.create_plot(
+                    data,
+                    lat_lon_column=args.lat_lon_column,
+                    output_file=tmp,
+                    output_format=suffix if suffix in ("png", "jpg", "pdf", "svg") else "png",
+                )
+            self.logger.info("Saved map to %s", args.output)
+            return 0
+        except PrepareError as e:
+            return self.fail(e, "Error plotting map")
+        finally:
+            if fig is not None:
+                plt.close(fig)

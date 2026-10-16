@@ -108,12 +108,16 @@ class TestPluginRegistry:
         assert "mock_visualizer" in registry.list()
 
     def test_duplicate_registration_error(self):
-        """Test error when registering duplicate plugins."""
+        """A different class under an already registered name is rejected."""
         registry = PluginRegistry()
         registry.register(MockFormatPlugin)
+        registry.register(MockFormatPlugin)  # same class again: no-op
+
+        class OtherFormatPlugin(MockFormatPlugin):
+            pass
 
         with pytest.raises(PluginError, match="Plugin 'mock_format' is already registered"):
-            registry.register(MockFormatPlugin)
+            registry.register(OtherFormatPlugin)
 
     def test_plugin_retrieval(self):
         """Test retrieving registered plugins."""
@@ -319,9 +323,19 @@ SRR789012,0.85
         assert metadata is None
 
     def test_parse_file_io_error(self):
-        """Test parsing non-existent file."""
-        with pytest.raises(ValidationError, match="Error parsing Branchwater file"):
+        """A file that cannot be read is a data access error (exit 1), not invalid input."""
+        from prepare.core.exceptions import DataAccessError
+
+        with pytest.raises(DataAccessError, match="Cannot read Branchwater file") as caught:
             BranchWaterFormatPlugin.parse_file("/nonexistent/file.csv", "GCF_123456.1")
+        assert not isinstance(caught.value, ValidationError)
+
+    def test_parse_file_undecodable_content_is_invalid_input(self, tmp_path):
+        """Bytes that are not UTF-8 are bad content, so they stay a ValidationError."""
+        path = tmp_path / "matches.csv"
+        path.write_bytes(b"acc,containment\nSRR1,\xff\xfe0.5\n")
+        with pytest.raises(ValidationError, match="Error parsing Branchwater file"):
+            BranchWaterFormatPlugin.parse_file(path, "GCF_123456.1")
 
 
 class TestBarChartPlugin:
@@ -635,6 +649,42 @@ class TestMapVisualizerPlugin:
         lat, lon = _parse_coordinate_string("invalid")
         assert lat is None
         assert lon is None
+
+    def test_parse_coordinate_string_reads_ncbi_lat_lon(self):
+        """NCBI lat_lon strings, plain pairs and out-of-range or non-string values are handled."""
+        from prepare.plugins.visualizers.map import _parse_coordinate_string
+
+        assert _parse_coordinate_string("38.98 N 77.10 W") == (38.98, -77.10)
+        assert _parse_coordinate_string("52.62 N 1.22 E") == (52.62, 1.22)
+        assert _parse_coordinate_string("12.5,-3.1") == (12.5, -3.1)
+        assert _parse_coordinate_string("-33.9 S 151.2 E") == (-33.9, 151.2)
+        assert _parse_coordinate_string("33.9 S 151.2 E") == (-33.9, 151.2)
+        assert _parse_coordinate_string(3.5) == (None, None)
+        assert _parse_coordinate_string(None) == (None, None)
+        assert _parse_coordinate_string(float("nan")) == (None, None)
+        assert _parse_coordinate_string("999 N 0 E") == (None, None)
+        assert _parse_coordinate_string("10 N 181 E") == (None, None)
+
+    @patch("prepare.plugins.visualizers.map._require_cartopy")
+    @patch("prepare.plugins.visualizers.map._plot_points")
+    @patch("prepare.plugins.visualizers.map._add_map_features")
+    @patch("prepare.plugins.visualizers.map._create_map_figure")
+    def test_country_only_rows_are_counted_in_one_log_line(
+        self, mock_create_figure, _mock_features, _mock_points, _mock_require, caplog
+    ):
+        """Rows with a country but no coordinates are skipped and reported once."""
+        mock_create_figure.return_value = (Mock(), Mock())
+        data = pd.DataFrame(
+            {
+                "lat_lon": ["12.5, -3.1", None, "not available"],
+                "country": ["Mali", "Kenya", "Peru"],
+            }
+        )
+        with caplog.at_level("INFO", logger="prepare.plugins.visualizers.map"):
+            MapVisualizerPlugin.create_plot(data=data, lat_lon_column="lat_lon", country_column="country")
+        messages = [r.getMessage() for r in caplog.records if "country" in r.getMessage()]
+        assert len(messages) == 1
+        assert "2 rows" in messages[0]
 
     @patch("prepare.plugins.visualizers.map._require_cartopy")
     @patch("matplotlib.pyplot.figure")

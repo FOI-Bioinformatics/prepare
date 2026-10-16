@@ -12,11 +12,12 @@ import logging
 import numpy as np
 import pandas as pd
 from types import ModuleType
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 from pathlib import Path
 
-from prepare.core.exceptions import VisualizationError
+from prepare.core.exceptions import ValidationError, VisualizationError
 from prepare.core.optional import require
+from prepare.data.file_io import atomic_path
 
 if TYPE_CHECKING:
     import plotly.graph_objects as go
@@ -29,20 +30,46 @@ def _plotly_express(purpose: str) -> ModuleType:
     return require("plotly.express", "interactive", purpose)
 
 
-def _pca_matrix(data):
-    """Return (X, sample_names) from a DataFrame or ndarray, validating PCA shape."""
+def _prepare_matrix(data, method: str = "PCA") -> Tuple[np.ndarray, List[str]]:
+    """Return (X, sample_names) from a DataFrame or ndarray, validating the shape for ``method``."""
     if isinstance(data, pd.DataFrame):
         X = data.values
-        sample_names = data.index
+        sample_names = list(data.index)
     else:
         X = data
         sample_names = [f"Sample_{i}" for i in range(X.shape[0])]
 
     if X.shape[0] < 2:
-        raise VisualizationError("PCA requires at least 2 samples")
+        raise VisualizationError(f"{method} requires at least 2 samples")
     if X.shape[1] < 1:
-        raise VisualizationError("PCA requires at least 1 feature")
+        raise VisualizationError(f"{method} requires at least 1 feature")
     return X, sample_names
+
+
+def _write_figure(fig, output_file: Union[str, Path]) -> Path:
+    """Write ``fig`` as an HTML file through ``atomic_path`` and return the path.
+
+    A failure while writing leaves neither a partial file nor a temporary file behind.
+    """
+    output_path = Path(output_file)
+    with atomic_path(output_path) as tmp:
+        fig.write_html(str(tmp))
+    return output_path
+
+
+def _metadata_values(metadata: pd.DataFrame, sample_names, column: str) -> np.ndarray:
+    """Values of ``column`` for each sample, matched by sample name rather than by row position.
+
+    The first row is used for a sample listed more than once; metadata rows for other samples are
+    ignored. Raises ValidationError if the column is absent or a sample has no metadata row.
+    """
+    if column not in metadata.columns:
+        raise ValidationError(f"Column '{column}' not found in metadata")
+    missing = sorted(str(name) for name in set(sample_names) - set(metadata.index))
+    if missing:
+        raise ValidationError(f"Samples missing from the metadata: {', '.join(missing)}")
+    unique = metadata[~metadata.index.duplicated(keep="first")]
+    return unique.loc[list(sample_names), column].to_numpy()
 
 
 def _add_color_column(plot_data, metadata, color_by, sample_names):
@@ -50,30 +77,35 @@ def _add_color_column(plot_data, metadata, color_by, sample_names):
     if metadata is None or color_by is None:
         return color_by
     if color_by in metadata.columns:
-        plot_data[color_by] = metadata.loc[sample_names, color_by]
+        plot_data[color_by] = _metadata_values(metadata, sample_names, color_by)
         return color_by
     logger.warning(f"Column '{color_by}' not found in metadata")
     return None
 
 
 def _add_size_column(plot_data, metadata, size_by, sample_names):
-    """Attach the size metadata column to plot_data; drop/skip it on NaN. Return resolved column or None."""
+    """Attach the size metadata column to plot_data; return the column, or None when it is skipped.
+
+    A column that is absent, not numeric, or holds NaN or negative values is skipped with a warning.
+    """
     if metadata is None or size_by is None:
         return size_by
     if size_by not in metadata.columns:
         logger.warning(f"Column '{size_by}' not found in metadata")
         return None
 
-    size_values = metadata.loc[sample_names, size_by]
+    size_values = pd.Series(_metadata_values(metadata, sample_names, size_by), index=plot_data.index)
+    if not pd.api.types.is_numeric_dtype(size_values) or pd.api.types.is_bool_dtype(size_values):
+        logger.warning(f"Column '{size_by}' is not numeric, removing size mapping")
+        return None
     if size_values.isna().any():
         logger.warning(f"Column '{size_by}' contains NaN values, removing size mapping")
         return None
+    if (size_values < 0).any():
+        logger.warning(f"Column '{size_by}' contains negative values, removing size mapping")
+        return None
 
     plot_data[size_by] = size_values
-    if plot_data[size_by].isna().any():
-        logger.warning(f"NaN values detected in plot data for '{size_by}', removing size mapping")
-        plot_data.drop(columns=[size_by], inplace=True)
-        return None
     return size_by
 
 
@@ -147,7 +179,7 @@ def create_interactive_pca(
     _plotly_express("An interactive PCA plot")
     decomposition = require("sklearn.decomposition", "analysis", "An interactive PCA plot")
     try:
-        X, sample_names = _pca_matrix(data)
+        X, sample_names = _prepare_matrix(data, method="PCA")
 
         pca = decomposition.PCA(n_components=min(n_components, X.shape[1], X.shape[0]))
         X_pca = pca.fit_transform(X)
@@ -171,9 +203,7 @@ def create_interactive_pca(
         fig.update_layout(title=f"{title}<br><sub>Total variance explained: {total_variance:.1%}</sub>")
 
         if output_file:
-            output_path = Path(output_file)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            fig.write_html(str(output_path))
+            output_path = _write_figure(fig, output_file)
             logger.info(f"Interactive PCA plot saved to {output_path}")
 
         if show_plot:
@@ -181,6 +211,8 @@ def create_interactive_pca(
 
         return fig
 
+    except ValidationError:
+        raise
     except Exception as e:
         raise VisualizationError(f"Failed to create interactive PCA plot: {e}")
 
@@ -217,13 +249,7 @@ def create_interactive_tsne(
     px = _plotly_express("An interactive t-SNE plot")
     manifold = require("sklearn.manifold", "analysis", "An interactive t-SNE plot")
     try:
-        # Prepare data
-        if isinstance(data, pd.DataFrame):
-            X = data.values
-            sample_names = data.index
-        else:
-            X = data
-            sample_names = [f"Sample_{i}" for i in range(X.shape[0])]
+        X, sample_names = _prepare_matrix(data, method="t-SNE")
 
         # Perform t-SNE (use max_iter parameter for sklearn compatibility)
         tsne = manifold.TSNE(n_components=2, perplexity=perplexity, max_iter=n_iter, random_state=42)
@@ -232,13 +258,7 @@ def create_interactive_tsne(
         # Create DataFrame for plotting
         plot_data = pd.DataFrame({"tSNE1": X_tsne[:, 0], "tSNE2": X_tsne[:, 1], "Sample": sample_names})
 
-        # Add metadata if provided
-        if metadata is not None and color_by is not None:
-            if color_by in metadata.columns:
-                plot_data[color_by] = metadata.loc[sample_names, color_by]
-            else:
-                logger.warning(f"Column '{color_by}' not found in metadata")
-                color_by = None
+        color_by = _add_color_column(plot_data, metadata, color_by, sample_names)
 
         # Create plot
         fig = px.scatter(
@@ -255,9 +275,7 @@ def create_interactive_tsne(
 
         # Save and show plot
         if output_file:
-            output_path = Path(output_file)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            fig.write_html(str(output_path))
+            output_path = _write_figure(fig, output_file)
             logger.info(f"Interactive t-SNE plot saved to {output_path}")
 
         if show_plot:
@@ -265,6 +283,8 @@ def create_interactive_tsne(
 
         return fig
 
+    except ValidationError:
+        raise
     except Exception as e:
         raise VisualizationError(f"Failed to create interactive t-SNE plot: {e}")
 
@@ -359,9 +379,7 @@ def create_interactive_heatmap(
 
         # Save and show plot
         if output_file:
-            output_path = Path(output_file)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            fig.write_html(str(output_path))
+            output_path = _write_figure(fig, output_file)
             logger.info(f"Interactive heatmap saved to {output_path}")
 
         if show_plot:
@@ -375,7 +393,7 @@ def create_interactive_heatmap(
 
 def create_diversity_comparison_plot(
     alpha_diversity: pd.DataFrame,
-    metadata: pd.DataFrame,
+    metadata: Optional[pd.DataFrame],
     group_by: str,
     diversity_metric: str = "shannon",
     plot_type: str = "box",
@@ -388,7 +406,7 @@ def create_diversity_comparison_plot(
 
     Args:
         alpha_diversity: DataFrame with diversity metrics
-        metadata: Sample metadata
+        metadata: Sample metadata, indexed by sample name
         group_by: Column to group samples by
         diversity_metric: Which diversity metric to plot
         plot_type: Type of plot ("box", "violin", "strip")
@@ -401,12 +419,15 @@ def create_diversity_comparison_plot(
 
     Raises:
         ConfigurationError: If plotly is not installed
+        ValidationError: If metadata is missing, lacks ``group_by``, or lacks a sample
     """
     px = _plotly_express("A diversity comparison plot")
+    if metadata is None:
+        raise ValidationError("--metadata-file is required for a diversity comparison plot")
     try:
         # Prepare data
         plot_data = alpha_diversity.copy()
-        plot_data[group_by] = metadata.loc[alpha_diversity.index, group_by]
+        plot_data[group_by] = _metadata_values(metadata, alpha_diversity.index, group_by)
 
         # Set default title
         if title is None:
@@ -434,9 +455,7 @@ def create_diversity_comparison_plot(
 
         # Save and show plot
         if output_file:
-            output_path = Path(output_file)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            fig.write_html(str(output_path))
+            output_path = _write_figure(fig, output_file)
             logger.info(f"Diversity comparison plot saved to {output_path}")
 
         if show_plot:
@@ -444,5 +463,7 @@ def create_diversity_comparison_plot(
 
         return fig
 
+    except ValidationError:
+        raise
     except Exception as e:
         raise VisualizationError(f"Failed to create diversity comparison plot: {e}")

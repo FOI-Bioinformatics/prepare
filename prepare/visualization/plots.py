@@ -9,20 +9,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Type, Union, cast
 
 from prepare.core.exceptions import VisualizationError
 from prepare.plugins.base import visualizer_registry
-from prepare.plugins.visualizers.bar import BarChartPlugin
 from prepare.plugins.visualizers.heatmap import HeatmapPlugin
-from prepare.plugins.visualizers.map import MapVisualizerPlugin
 
 logger = logging.getLogger(__name__)
-
-# Register visualizer plugins
-visualizer_registry.register(BarChartPlugin)
-visualizer_registry.register(HeatmapPlugin)
-visualizer_registry.register(MapVisualizerPlugin)
 
 
 def _load_and_validate_data(
@@ -134,6 +127,12 @@ def _create_plot_by_type(
         raise VisualizationError(f"Unknown plot type: {plot_type}. " "Supported types: rank, histogram, box, violin")
 
 
+def _beside_input(file_path: Union[str, Path], suffix: str, extension: str) -> Path:
+    """``<stem><suffix>.<extension>`` in the folder of ``file_path``; the stem drops the input's own extension."""
+    source = Path(file_path)
+    return source.parent / f"{source.stem}{suffix}.{extension}"
+
+
 def plot_output_path(file_path: Union[str, Path], plot_type: str, column: str, save_format: Optional[str]) -> Path:
     """Where a containment plot for ``file_path`` is saved; unset formats default to png.
 
@@ -145,7 +144,7 @@ def plot_output_path(file_path: Union[str, Path], plot_type: str, column: str, s
     ``plot_containment``, since that keeps returning the ``Figure``).
     """
     fmt = save_format or "png"
-    return Path(file_path).parent / f"{Path(file_path).stem}_{plot_type}_{column}.{fmt}"
+    return _beside_input(file_path, f"_{plot_type}_{column}", fmt)
 
 
 def _save_plot_if_needed(file_path: Union[str, Path], plot_type: str, column: str, save_format: Optional[str]) -> Path:
@@ -193,15 +192,14 @@ def plot_containment(
         if df.empty:
             return None
 
-        # Set title if not specified
+        # A title given explicitly is kept; the default one follows show_title.
         if title is None and show_title:
             title = f"{plot_type.capitalize()} Plot of {column}"
-        elif not show_title:
-            title = None
 
-        # Set default colors if not specified
+        # Set default colors if not specified; a single colour name is accepted as is
         if colors is None:
             colors = "blue"
+        colors = [colors] if isinstance(colors, str) else colors
 
         # Create figure
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -220,7 +218,10 @@ def plot_containment(
         # from; callers passing one already save the returned figure themselves (e.g.
         # embedding it in a PDF page or report image), so saving is skipped for those.
         if not isinstance(file_path, pd.DataFrame):
-            _save_plot_if_needed(file_path, plot_type, column, save_format)
+            try:
+                _save_plot_if_needed(file_path, plot_type, column, save_format)
+            finally:
+                plt.close(fig)
 
         return fig
 
@@ -294,7 +295,7 @@ def _metadata_radar_chart(df: pd.DataFrame, colors, title: Optional[str]) -> plt
     values += [values[0]]
     angles += [angles[0]]
 
-    color = colors if isinstance(colors, str) else "blue"
+    color = colors[0] if colors else "blue"
     ax.plot(angles, values, "o-", linewidth=2, color=color)
     ax.fill(angles, values, alpha=0.25, color=color)
     ax.set_xticks(angles[:-1])
@@ -302,6 +303,11 @@ def _metadata_radar_chart(df: pd.DataFrame, colors, title: Optional[str]) -> plt
     if title:
         ax.set_title(title)
     return fig
+
+
+def _metadata_plot_path(file_path: Union[str, Path], plot_type: str, save_format: str) -> Path:
+    """Where a metadata counts plot is saved: beside its input, named from the input's stem."""
+    return _beside_input(file_path, f"_{plot_type}", save_format)
 
 
 def plot_metadata_counts(
@@ -334,19 +340,19 @@ def plot_metadata_counts(
     try:
         df = _load_counts_df(file_path, limit)
 
-        # Set default title if not specified
+        colors = [colors] if isinstance(colors, str) else colors
+
+        # A title given explicitly is kept; the default one follows show_title.
         if title is None and show_title:
             title = f"Top {len(df)} Categories"
-        elif not show_title:
-            title = None
 
         # Create plot based on plot_type
         if plot_type == "bar":
             plugin = visualizer_registry.get("bar")
             bar_output = None
             if save_format and not isinstance(file_path, pd.DataFrame):
-                bar_output = f"{Path(file_path).stem}_bar.{save_format}"
-            fig = plugin.create_plot(  # type: ignore[attr-defined]
+                bar_output = _metadata_plot_path(file_path, "bar", save_format)
+            fig = plugin.create_plot(
                 data=df,
                 x_column="category",
                 y_column="count",
@@ -362,16 +368,19 @@ def plot_metadata_counts(
             # Radar needs at least 3 categories; otherwise fall back to a bar chart.
             if len(df) < 3:
                 logger.warning("Radar chart requires at least 3 categories, falling back to bar chart")
-                return plot_metadata_counts(file_path, title, "bar", colors, show_title, save_format)
+                return plot_metadata_counts(file_path, title, "bar", colors, show_title, save_format, limit=limit)
             fig = _metadata_radar_chart(df, colors, title)
         else:
             raise VisualizationError(f"Unknown plot type: {plot_type}. Supported types: bar, pie, radar")
 
         # Save plot if format specified (the bar plugin handles its own saving)
-        if save_format and plot_type != "bar":
-            output_file = f"{Path(file_path).stem}_{plot_type}.{save_format}"
-            plt.savefig(output_file, format=save_format, dpi=300, bbox_inches="tight")
-            logger.info(f"Plot saved to {output_file}")
+        if save_format and plot_type != "bar" and not isinstance(file_path, pd.DataFrame):
+            output_file = _metadata_plot_path(file_path, plot_type, save_format)
+            try:
+                fig.savefig(output_file, format=save_format, dpi=300, bbox_inches="tight")
+                logger.info(f"Plot saved to {output_file}")
+            finally:
+                plt.close(fig)
 
         return fig
 
@@ -412,8 +421,8 @@ def plot_correlation_matrix(
             df = data.copy()
 
         # Use heatmap plugin to create correlation matrix
-        plugin = visualizer_registry.get("heatmap")
-        fig = plugin.create_correlation_heatmap(  # type: ignore[attr-defined]
+        heatmap = cast(Type[HeatmapPlugin], visualizer_registry.get("heatmap"))
+        fig = heatmap.create_correlation_heatmap(
             data=df,
             title=title,
             method=method,

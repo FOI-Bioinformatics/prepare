@@ -10,6 +10,8 @@ import pandas as pd
 import importlib.util
 import pytest
 
+from prepare.core.exceptions import ValidationError
+
 from prepare.cli.commands.advanced_analysis import (
     DiversityAnalysisCommand,
     InteractivePlotCommand,
@@ -227,6 +229,29 @@ class TestDiversityAnalysisCommand:
         assert (output_dir / "permanova_results.txt").exists()
         permanova_text = (output_dir / "permanova_results.txt").read_text()
         assert "Variable: treatment" in permanova_text
+
+    @requires_analysis
+    def test_execute_permanova_sample_missing_from_metadata_writes_nothing(self, tmp_path):
+        """A sample absent from the metadata is reported by name before any output file is written."""
+        abundance_file = tmp_path / "abundance.txt"
+        abundance_file.write_text("\tsp1\tsp2\n" "SRR1\t10\t5\n" "SRR2\t12\t4\n" "SRR3\t2\t8\n" "SRR4\t3\t7\n")
+        metadata_file = tmp_path / "metadata.txt"
+        metadata_file.write_text("Run_ID\ttreatment\n" "SRR1\tcontrol\n" "SRR2\tcontrol\n" "SRR3\ttreated\n")
+        output_dir = tmp_path / "diversity_results"
+
+        command = DiversityAnalysisCommand()
+        args = argparse.Namespace(
+            abundance_file=str(abundance_file),
+            metadata_file=str(metadata_file),
+            output_dir=str(output_dir),
+            alpha_metrics=["shannon"],
+            beta_metric="bray_curtis",
+            permanova_formula="treatment",
+        )
+
+        with pytest.raises(ValidationError, match="SRR4"):
+            command.execute(args)
+        assert not output_dir.exists() or not any(output_dir.iterdir())
 
 
 class TestInteractivePlotCommand:
@@ -450,7 +475,7 @@ class TestTaxonomyValidationCommand:
         assert args.species_file == "species.txt"
         assert args.email == "test@example.com"
         assert args.output_file == "taxonomy_validation.csv"
-        assert args.cache_file == "taxonomy_cache.csv"
+        assert args.cache_file == "taxonomy_validation_cache.csv"
 
     @patch("prepare.cli.commands.advanced_analysis.validate_taxonomic_assignments")
     def test_execute_success_text_file(self, mock_validate, capsys):
@@ -652,7 +677,7 @@ class TestTaxonomicSummaryCommand:
 
         assert result == 0
         mock_analyze.assert_called_once_with(
-            mock_abundance_df, mock_taxonomy_df, levels=["phylum", "genus"], output_dir="summaries"
+            mock_abundance_df, mock_taxonomy_df, levels=["phylum", "genus"], output_dir="summaries", min_abundance=0.001
         )
         out = capsys.readouterr().out
         assert "Taxonomic Summary Results:" in out

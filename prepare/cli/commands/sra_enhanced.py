@@ -12,7 +12,14 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from prepare.cli.base import BaseCommand, accessions_from_args, read_accessions_file, resolve_command_store
+from prepare.cli.base import (
+    BaseCommand,
+    accessions_from_args,
+    finite_float,
+    anchored_folder,
+    read_accessions_file,
+    resolve_command_store,
+)
 from prepare.core.exceptions import PrepareError
 from prepare.core.settings import require_email, setting_for
 from prepare.data import registry_blocks as rb
@@ -80,7 +87,7 @@ class SRAInfoCommand(BaseCommand):
         )
         parser.add_argument(
             "--bandwidth-mbps",
-            type=float,
+            type=finite_float,
             default=100.0,
             help="Estimated bandwidth in Mbps for download time estimation",
         )
@@ -413,6 +420,7 @@ class SRAValidateCommand(BaseCommand):
 
     def execute(self, args):
         try:
+            args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
             fastq_folder = Path(args.fastq_folder)
             if not fastq_folder.exists():
                 self.logger.error(f"FASTQ folder {fastq_folder} does not exist")

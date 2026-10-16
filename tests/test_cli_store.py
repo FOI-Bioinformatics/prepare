@@ -62,7 +62,7 @@ def _init_args(root, project_dir, **overrides):
 
 
 def _status_args(**overrides):
-    base = dict(data_root=None, registry=None, json=False, verbose=False)
+    base = dict(data_root=None, registry=None, json=False, details=False, details_alias=False)
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -418,7 +418,7 @@ class TestStoreStatusCommand:
         assert report["stale_projects"] == []
         assert "datasets_list" not in report
 
-    def test_verbose_lists_datasets(self, tmp_path, capsys):
+    def test_details_lists_datasets(self, tmp_path, capsys):
         root = tmp_path / "store"
         paths = init_store(root)
         with catalog_write(paths) as cat:
@@ -426,11 +426,24 @@ class TestStoreStatusCommand:
             cat.upsert_dataset(_sidecar("SRR1"))
             cat.record_usage("SRR1", "proj1", "wMel", "downloaded")
 
-        rc = StoreStatusCommand().execute(_status_args(data_root=str(root), json=True, verbose=True))
+        rc = StoreStatusCommand().execute(_status_args(data_root=str(root), json=True, details=True))
         report = json.loads(capsys.readouterr().out)
 
         assert rc == 0
         assert report["datasets_list"] == [{"accession": "SRR1", "state": "complete", "bytes": 100, "projects": 1}]
+
+    def test_hidden_verbose_alias_lists_datasets_and_warns(self, tmp_path, capsys, caplog):
+        root = tmp_path / "store"
+        paths = init_store(root)
+        with catalog_write(paths) as cat:
+            cat.upsert_dataset(_sidecar("SRR1"))
+
+        rc = StoreStatusCommand().execute(_status_args(data_root=str(root), json=True, details_alias=True))
+        report = json.loads(capsys.readouterr().out)
+
+        assert rc == 0
+        assert len(report["datasets_list"]) == 1
+        assert "--verbose" in caplog.text and "--details" in caplog.text
 
     def test_stale_project_detected_when_registry_missing(self, tmp_path, capsys):
         root = tmp_path / "store"
@@ -992,7 +1005,7 @@ class TestStoreVerifyCommand:
 
         rc = StoreVerifyCommand().execute(
             _verify_args(
-                accessions=["SRR-ghost"],
+                accessions=["SRR9999999"],
                 data_root=str(root),
                 registry=str(project_dir / "prepare_registry.json"),
             )
@@ -2099,6 +2112,60 @@ class TestEnsureProjectIdentity:
         assert registry.project["note"] == "kept"
         assert registry.project["name"] == tmp_path.name
 
+    def test_records_the_registry_folder_not_the_working_directory(self, tmp_path, monkeypatch):
+        from prepare.data.registry import Registry
+        from prepare.store.usage import ensure_project_identity
+
+        (tmp_path / "elsewhere").mkdir()
+        monkeypatch.chdir(tmp_path / "elsewhere")
+        registry = Registry(path=tmp_path / "proj" / "prepare_registry.json")
+
+        project = ensure_project_identity(registry)
+
+        assert project["path"] == str((tmp_path / "proj").resolve())
+        assert project["name"] == "proj"
+
+
+class TestStoreLinkFromASubfolder:
+    """Link and unlink act on the fastq folder of the project that owns the registry (audit H4)."""
+
+    def _project_with_store(self, tmp_path, monkeypatch):
+        root = tmp_path / "store"
+        paths = init_store(root)
+        _write_fastq_gz(sra_dir(paths, "SRR1") / "SRR1.fastq.gz")
+        sidecar = _sidecar("SRR1")
+        write_sidecar(sidecar_path(paths, "SRR1"), sidecar)
+        with catalog_write(paths) as cat:
+            cat.upsert_dataset(sidecar)
+        proj = tmp_path / "proj"
+        (proj / "sub").mkdir(parents=True)
+        save_registry(load_registry(proj / "prepare_registry.json"))
+        monkeypatch.chdir(proj / "sub")
+        return root, proj
+
+    def test_store_link_from_a_subfolder_links_into_the_project_fastq(self, tmp_path, monkeypatch):
+        root, proj = self._project_with_store(tmp_path, monkeypatch)
+
+        assert StoreLinkCommand().execute(_link_args(["SRR1"], data_root=str(root))) == 0
+
+        assert (proj / "fastq" / "SRR1").is_symlink()
+        assert not (proj / "sub" / "fastq").exists()
+        registry = load_registry(proj / "prepare_registry.json")
+        assert registry.datasets["SRR1"]["download"]["state"] == "downloaded"
+        assert registry.project["path"] == str(proj.resolve())
+
+    def test_store_unlink_from_a_subfolder_removes_the_project_link(self, tmp_path, monkeypatch):
+        root, proj = self._project_with_store(tmp_path, monkeypatch)
+        link = _link_args(["SRR1"], data_root=str(root), fastq_folder=str(proj / "fastq"))
+        assert StoreLinkCommand().execute(link) == 0
+
+        assert StoreUnlinkCommand().execute(_unlink_args(["SRR1"])) == 0
+
+        assert not (proj / "fastq" / "SRR1").exists()
+        registry = load_registry(proj / "prepare_registry.json")
+        assert registry.datasets["SRR1"]["download"]["state"] == "missing"
+        assert registry.store["linked"] == []
+
 
 class TestStoreCommandsWithoutAMarker:
     """A store root that is not a store: the error names the rule that produced the root."""
@@ -2412,3 +2479,133 @@ class TestStoreReindexMissingSidecar:
 
         assert StoreLinkCommand().execute(_link_args(["SRR1"], data_root=str(root))) == 0
         assert (project_dir / "fastq" / "SRR1").is_symlink()
+
+
+class TestStoreCommandsRefuseUnsafeAccessions:
+    def test_unlink_outside_fastq_is_refused(self, tmp_path, monkeypatch, caplog):
+        root = tmp_path / "store"
+        init_store(root)
+        outside = tmp_path / "important_link"
+        outside.symlink_to(tmp_path)
+        proj = tmp_path / "proj"
+        (proj / "fastq").mkdir(parents=True)
+        monkeypatch.chdir(proj)
+        rc = StoreUnlinkCommand().execute(_unlink_args(["../important_link"], data_root=str(root)))
+        assert rc == 2 and outside.is_symlink()
+        assert "not an SRA accession" in caplog.text
+
+    def test_link_outside_sra_is_refused(self, tmp_path, monkeypatch):
+        root = tmp_path / "store"
+        init_store(root)
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        monkeypatch.chdir(proj)
+        rc = StoreLinkCommand().execute(_link_args(["../tmp"], data_root=str(root), accept_partial=True))
+        assert rc == 2 and not (proj / "fastq").exists()
+        assert not (proj / "prepare_registry.json").exists()
+
+    def test_verify_refuses_bad_accession(self, tmp_path):
+        root = tmp_path / "store"
+        init_store(root)
+        assert StoreVerifyCommand().execute(_verify_args(["../x"], data_root=str(root))) == 2
+
+    def test_error_line_lists_every_bad_accession(self, tmp_path, caplog):
+        root = tmp_path / "store"
+        init_store(root)
+        rc = StoreVerifyCommand().execute(_verify_args(["SRR1", "../x", "a/b"], data_root=str(root)))
+        assert rc == 2
+        assert "../x, a/b" in caplog.text
+
+
+class TestStoreAdoptFromASubfolder:
+    """store_adopt finds the datasets in the fastq folder of the project that owns the registry."""
+
+    def test_adopt_from_a_subfolder_adopts_the_project_fastq(self, tmp_path, monkeypatch):
+        root = tmp_path / "store"
+        init_store(root)
+        proj = tmp_path / "proj"
+        (proj / "fastq" / "SRR1").mkdir(parents=True)
+        (proj / "fastq" / "SRR1" / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        (proj / "sub").mkdir()
+        save_registry(load_registry(proj / "prepare_registry.json"))
+        monkeypatch.chdir(proj / "sub")
+
+        assert StoreAdoptCommand().execute(_adopt_args(data_root=str(root))) == 0
+
+        assert (proj / "fastq" / "SRR1").is_symlink()
+        assert not (proj / "sub" / "fastq").exists()
+        registry = load_registry(proj / "prepare_registry.json")
+        assert registry.datasets["SRR1"]["download"]["state"] == "downloaded"
+        assert registry.store["linked"] == ["SRR1"]
+
+
+class TestStoreScannersSkipNonAccessionFolders:
+    """A folder that is not named like an SRA accession is skipped with a warning, not fatal."""
+
+    def test_adopt_skips_a_notes_folder_and_adopts_the_rest(self, tmp_path, monkeypatch, capsys, caplog):
+        root = tmp_path / "store"
+        init_store(root)
+        proj = tmp_path / "proj"
+        (proj / "fastq" / "SRR100").mkdir(parents=True)
+        (proj / "fastq" / "SRR100" / "SRR100.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        (proj / "fastq" / "notes").mkdir()
+        (proj / "fastq" / "notes" / "subset.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        monkeypatch.chdir(proj)
+
+        with caplog.at_level(logging.WARNING):
+            rc = StoreAdoptCommand().execute(
+                _adopt_args(data_root=str(root), registry=str(proj / "prepare_registry.json"))
+            )
+
+        assert rc == 0
+        assert (proj / "fastq" / "SRR100").is_symlink()
+        assert (proj / "fastq" / "notes").is_dir()
+        assert (proj / "fastq" / "notes" / "subset.fastq").is_file()
+        assert "Adopted 1," in capsys.readouterr().out
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert [m for m in warnings if "notes" in m and "SRA accession" in m]
+
+    def test_adopt_skips_a_stray_store_folder(self, tmp_path, monkeypatch, capsys, caplog):
+        root = tmp_path / "store"
+        paths = init_store(root)
+        (paths.sra / "junk").mkdir()
+        proj = tmp_path / "proj"
+        (proj / "fastq" / "SRR100").mkdir(parents=True)
+        (proj / "fastq" / "SRR100" / "SRR100.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        monkeypatch.chdir(proj)
+
+        with caplog.at_level(logging.WARNING):
+            rc = StoreAdoptCommand().execute(
+                _adopt_args(data_root=str(root), registry=str(proj / "prepare_registry.json"))
+            )
+
+        assert rc == 0
+        assert (proj / "fastq" / "SRR100").is_symlink()
+        assert (paths.sra / "junk").is_dir()
+        assert "Adopted 1," in capsys.readouterr().out
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert [m for m in warnings if "junk" in m and "SRA accession" in m]
+
+    def test_verify_skips_a_stray_store_folder(self, tmp_path, monkeypatch, capsys, caplog):
+        root = tmp_path / "store"
+        paths = init_store(root)
+        acc_dir = sra_dir(paths, "SRR1")
+        _write_fastq_gz(acc_dir / "SRR1.fastq.gz")
+        sidecar = _sidecar_matching_disk(acc_dir, "SRR1")
+        write_sidecar(sidecar_path(paths, "SRR1"), sidecar)
+        with catalog_write(paths) as cat:
+            cat.upsert_dataset(sidecar)
+        (paths.sra / "junk").mkdir()
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+
+        with caplog.at_level(logging.WARNING):
+            rc = StoreVerifyCommand().execute(
+                _verify_args(data_root=str(root), registry=str(project_dir / "prepare_registry.json"))
+            )
+
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "SRR1" in out and "junk" not in out
+        assert [r for r in caplog.records if r.levelno == logging.WARNING and "junk" in r.getMessage()]

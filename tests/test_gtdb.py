@@ -212,14 +212,43 @@ class TestSearchTaxon:
         mock_response = MagicMock()
         mock_response.json.return_value = TAXON_RESULT_LIST[:1]
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        empty_response = MagicMock()
+        empty_response.json.return_value = []
+        empty_response.raise_for_status.return_value = None
+        mock_get.side_effect = [mock_response, empty_response]
 
         result = search_taxon("Escherichia", limit=1)
 
-        mock_get.assert_called_once()
-        call_kwargs = mock_get.call_args
-        assert call_kwargs[1]["params"]["limit"] == 1
+        assert mock_get.call_args_list[0][1]["params"]["limit"] == 1
         assert len(result) == 1
+
+    @patch("requests.Session.get")
+    def test_stops_when_page_repeats(self, mock_get):
+        response = MagicMock()
+        response.json.return_value = [{"name": f"g{i}"} for i in range(100)]
+        response.raise_for_status.return_value = None
+        mock_get.return_value = response
+
+        result = search_taxon("Escherichia")
+
+        assert mock_get.call_count == 2
+        assert len(result) == 100
+
+    @patch("requests.Session.get")
+    def test_pages_until_short_page(self, mock_get):
+        pages = [[{"name": f"g{i}"} for i in range(100)], [{"name": f"h{i}"} for i in range(3)]]
+        responses = []
+        for rows in pages:
+            response = MagicMock()
+            response.json.return_value = rows
+            response.raise_for_status.return_value = None
+            responses.append(response)
+        mock_get.side_effect = responses
+
+        result = search_taxon("Escherichia")
+
+        assert len(result) == 103
+        assert [c[1]["params"]["page"] for c in mock_get.call_args_list] == [1, 2]
 
     @patch("requests.Session.get")
     def test_returns_dict_with_results_key(self, mock_get):
@@ -607,7 +636,8 @@ class TestRetriesReturnTheFinalResponse:
         from tests.fake_http import serve
 
         body = (
-            b'{"rows": [{"gtdbTaxonomy": "d__Bacteria;p__Bacillota;c__Bacilli;o__Lactobacillales;'
+            b'{"rows": [{"accession": "GCF_000001.1", '
+            b'"gtdbTaxonomy": "d__Bacteria;p__Bacillota;c__Bacilli;o__Lactobacillales;'
             b'f__Lactobacillaceae;g__Lactobacillus;s__Lactobacillus crispatus"}]}'
         )
 

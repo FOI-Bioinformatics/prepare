@@ -9,6 +9,7 @@ from typing import Optional, Union
 from prepare.core.exceptions import SecurityError
 from prepare.utils.progress import active_item_level
 from prepare.utils.security import SecureSubprocess
+from prepare.utils.sizes import tree_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +49,7 @@ def transient_bytes(folder: Union[str, Path]) -> int:
     for entry in path.iterdir():
         if not entry.is_dir() or not is_transient_folder(entry.name):
             continue
-        for sub in entry.rglob("*"):
-            if not sub.is_file():
-                continue
-            try:
-                total += sub.stat().st_size
-            except OSError:
-                continue
+        total += tree_bytes(entry)
     return total
 
 

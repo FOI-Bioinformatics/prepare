@@ -107,33 +107,33 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
     <style>{{ report_css|safe }}</style>
     <style>
         /* Static tables: no sort control, and space between the blocks of a section. */
-        table.mq-table th { cursor: default; }
-        table.mq-table th::after { content: none; }
-        .mq-section .mq-table-wrap, .mq-section .mq-panel { margin: 0 0 14px; }
+        table.pre-table th { cursor: default; }
+        table.pre-table th::after { content: none; }
+        .pre-section .pre-table-wrap, .pre-section .pre-panel { margin: 0 0 14px; }
     </style>
 </head>
 <body>
-    <a class="mq-skip" href="#project">Skip to the report</a>
-    <header class="mq-header"><div class="mq-wrap">
-        <p class="mq-eyebrow">PREPARE &middot; project report</p>
-        <h1 class="mq-title">{{ project.name or title }}</h1>
-        <p class="mq-readout"><span>{{ subtitle }}</span></p>
+    <a class="pre-skip" href="#project">Skip to the report</a>
+    <header class="pre-header"><div class="pre-wrap">
+        <p class="pre-eyebrow">PREPARE &middot; project report</p>
+        <h1 class="pre-title">{{ project.name or title }}</h1>
+        <p class="pre-readout"><span>{{ subtitle }}</span></p>
     </div></header>
-    <main class="mq-wrap">
-        <section class="mq-stats" aria-label="Funnel summary">
-        {% for stage in ["screened", "selected", "downloaded", "extracted", "assembled"] %}
+    <main class="pre-wrap">
+        <section class="pre-stats" aria-label="Funnel summary">
+        {% for stage in ["screened", "selected", "downloaded", "analysed", "extracted", "assembled"] %}
             {% if stage in funnel %}
-            <div class="mq-stat"><p class="k">{{ stage }}</p><div class="v">{{ funnel[stage].accessions }}</div></div>
+            <div class="pre-stat"><p class="k">{{ stage }}</p><div class="v">{{ funnel[stage].accessions }}</div></div>
             {% endif %}
         {% endfor %}
         </section>
         {% for section in sections %}
-        <section class="mq-section" id="{{ section.id }}">
+        <section class="pre-section" id="{{ section.id }}">
             <h2>{{ section.title }}</h2>
-            {% if section.figure %}<div class="mq-panel">{{ section.figure|safe }}</div>{% endif %}
+            {% if section.figure %}<div class="pre-panel">{{ section.figure|safe }}</div>{% endif %}
             {% for block in section.blocks %}
                 {% if block.header %}
-                <div class="mq-table-wrap"><table class="mq-table">
+                <div class="pre-table-wrap"><table class="pre-table">
                     <thead><tr>{% for cell in block.header %}<th scope="col">{{ cell }}</th>{% endfor %}</tr></thead>
                     <tbody>
                     {% for row in block.rows %}
@@ -147,7 +147,7 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
             {% endfor %}
         </section>
         {% endfor %}
-        <footer class="mq-footer">Written by prepare project_report; the same content is in
+        <footer class="pre-footer">Written by prepare project_report; the same content is in
             project_report.md and project_report.json.</footer>
     </main>
 </body>

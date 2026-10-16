@@ -154,10 +154,10 @@ def _split_not_found(failed_accessions: List[str], download_results: Dict[str, A
     retry_batch: List[str] = []
     not_found: List[str] = []
     for accession in failed_accessions:
-        message = download_results.get(accession, "")
+        message = accession_mod.result_body(str(download_results.get(accession, "")))
         if (
             INSUFFICIENT_SPACE_PREFIX in message
-            or str(message).startswith(SETTLED_PREFIXES)
+            or message.startswith(SETTLED_PREFIXES)
             or accession_mod.classify_download_error(message) == "not-found"
         ):
             not_found.append(accession)
@@ -182,6 +182,7 @@ def _retry_failed_downloads(
     compress: bool = True,
     downloader: Optional[Callable[..., Tuple[bool, str]]] = None,
     stop: Optional[threading.Event] = None,
+    force: bool = False,
 ):
     """
     Retry failed downloads.
@@ -207,6 +208,8 @@ def _retry_failed_downloads(
             ``STOP``) is set no further round starts and the pause between rounds is skipped;
             a retry already queued in the current round returns "interrupted" from the worker
             without starting a tool
+        force: The caller's ``--force``, forwarded to every retry so a forced run does not
+            report an existing copy as "already exists" on the second attempt
 
     Returns:
         Tuple of (retried_successful, failed_accessions, abort_reason). ``abort_reason`` is
@@ -240,13 +243,17 @@ def _retry_failed_downloads(
         logger.info(f"Retry attempt {retry + 1}/{max_retries}")
 
         for index, accession in enumerate(retry_batch):
+            if accession_mod.stop_requested(stop):
+                # Not attempted and not recorded: the caller reports these as not completed.
+                failed_accessions.extend(retry_batch[index:])
+                break
             retry_count += 1
             try:
                 success, message = (downloader or accession_mod.download_accession)(
                     accession,
                     fastq_path,
                     num_threads,
-                    force=False,
+                    force=force,
                     temp_folder=temp_folder,
                     expected_spots=expected_spots.get(accession),
                     redownload_truncated=redownload_truncated,
@@ -596,6 +603,7 @@ def _download_with_retries(
             compress,
             worker,
             stop=stop,
+            force=force,
         )
         successful_count += retried_successful
         failed_count -= retried_successful

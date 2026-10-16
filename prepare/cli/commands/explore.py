@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from prepare.cli.base import BaseCommand
-from prepare.core.exceptions import PrepareError
+from prepare.cli.base import finite_float, BaseCommand
+from prepare.core.exceptions import ExitCode, PrepareError
 from prepare.core.utils import get_genome_columns
 from prepare.data.file_io import write_csv
 from prepare.data.genome_taxonomy import (
@@ -116,7 +116,7 @@ class ExploreContainmentCommand(BaseCommand):
         )
         parser.add_argument(
             "--min-containment",
-            type=float,
+            type=finite_float,
             default=0.0,
             help="Minimum containment threshold for inclusion",
         )
@@ -232,7 +232,7 @@ class FindByTaxonomyCommand(BaseCommand):
         )
         parser.add_argument(
             "--min-containment",
-            type=float,
+            type=finite_float,
             default=0.0,
             help="Minimum containment threshold",
         )
@@ -253,7 +253,7 @@ class FindByTaxonomyCommand(BaseCommand):
         try:
             if not any([args.family, args.genus, args.species]):
                 self.logger.error("At least one of --family, --genus, or --species is required")
-                return 1
+                return int(ExitCode.USAGE)
 
             containment_path = Path(args.parsed_containment)
             if not containment_path.exists():
@@ -289,14 +289,16 @@ class FindByTaxonomyCommand(BaseCommand):
                 elif args.genus:
                     level = "genus"
                 result = summarize_by_taxonomy(filtered, level=level)
+                keep_index = True  # the sample names are the index of the summary table
             else:
                 result = filtered
+                keep_index = False  # the table has a sample column; its index is a row label
 
             if args.output:
-                write_csv(result, args.output, sep="\t")
+                write_csv(result, args.output, sep="\t", index=keep_index)
                 self.logger.info("Wrote %d results to %s", len(result), args.output)
             else:
-                self.emit_raw(result.to_csv(sep="\t"))
+                self.emit_raw(result.to_csv(sep="\t", index=keep_index))
 
             return 0
         except PrepareError as e:

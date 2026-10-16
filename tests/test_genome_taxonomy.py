@@ -382,7 +382,7 @@ class TestLookupGenomeTaxonomyGtdb:
         # Genome endpoint misses (404), search endpoint returns a result dict.
         mock_get.side_effect = [
             _resp(404, {}),
-            _resp(200, {"results": [{"gtdb_taxonomy": _GTDB_STRING, "ncbi_taxid": 1423}]}),
+            _resp(200, {"results": [{"accession": "GCF_002", "gtdb_taxonomy": _GTDB_STRING, "ncbi_taxid": 1423}]}),
         ]
         info = _lookup_genome_taxonomy_gtdb("GCF_002")
         assert info is not None
@@ -394,7 +394,7 @@ class TestLookupGenomeTaxonomyGtdb:
     def test_search_results_key_fallback(self, mock_get):
         mock_get.side_effect = [
             _resp(404, {}),
-            _resp(200, {"results": [{"taxonomy": _GTDB_STRING}]}),
+            _resp(200, {"results": [{"accession": "GCF_003", "taxonomy": _GTDB_STRING}]}),
         ]
         info = _lookup_genome_taxonomy_gtdb("GCF_003")
         assert info is not None
@@ -419,7 +419,7 @@ class TestLookupGenomeTaxonomyGtdb:
         # GTDB search may return a bare JSON list of records.
         mock_get.side_effect = [
             _resp(404, {}),
-            _resp(200, [{"gtdb_taxonomy": _GTDB_STRING, "ncbi_taxid": 1423}]),
+            _resp(200, [{"accession": "GCF_006", "gtdb_taxonomy": _GTDB_STRING, "ncbi_taxid": 1423}]),
         ]
         info = _lookup_genome_taxonomy_gtdb("GCF_006")
         assert info is not None
@@ -431,11 +431,27 @@ class TestLookupGenomeTaxonomyGtdb:
         # GTDB search may wrap records under a "rows" key.
         mock_get.side_effect = [
             _resp(404, {}),
-            _resp(200, {"rows": [{"gtdb_taxonomy": _GTDB_STRING}]}),
+            _resp(200, {"rows": [{"accession": "GCF_007", "gtdb_taxonomy": _GTDB_STRING}]}),
         ]
         info = _lookup_genome_taxonomy_gtdb("GCF_007")
         assert info is not None
         assert info.species == "Bacillus subtilis"
+
+    @patch("requests.Session.get")
+    def test_search_row_for_other_accession_is_ignored(self, mock_get):
+        mock_get.side_effect = [
+            _resp(404, {}),
+            _resp(200, {"rows": [{"accession": "GCF_999", "gtdb_taxonomy": _GTDB_STRING}]}),
+        ]
+        assert _lookup_genome_taxonomy_gtdb("GCF_008") is None
+
+    @patch("requests.Session.get")
+    def test_search_row_for_sibling_accession_is_accepted(self, mock_get):
+        mock_get.side_effect = [
+            _resp(404, {}),
+            _resp(200, {"rows": [{"accession": "GCA_000009045.1", "gtdb_taxonomy": _GTDB_STRING}]}),
+        ]
+        assert _lookup_genome_taxonomy_gtdb("GCF_000009045.1") is not None
 
 
 class TestSearchResponseHelpers:
@@ -532,3 +548,18 @@ class TestIncrementalCacheWrites:
         enrich_genomes_with_taxonomy(["GCF_1", "GCF_2", "GCF_3"], cache_file=cache_file)
 
         assert rows_seen_before_each_call == [0, 1, 2]
+
+
+def test_full_save_and_single_append_write_the_same_rows(tmp_path):
+    """Both cache writers go through one row mapping, so their files are identical."""
+    from prepare.data.genome_taxonomy import _append_taxonomy_cache_row
+
+    first = TaxonomyInfo(genome_id="GCF_1", species="Sp one", genus="Gen", tax_id="7")
+    second = TaxonomyInfo(genome_id="GCF_2", organism="Org two")
+    saved = tmp_path / "saved.tsv"
+    appended = tmp_path / "appended.tsv"
+    save_taxonomy_cache({"GCF_1": first, "GCF_2": second}, saved)
+    _append_taxonomy_cache_row(appended, first)
+    _append_taxonomy_cache_row(appended, second)
+    assert saved.read_text() == appended.read_text()
+    assert saved.read_text().count("genome_id") == 1

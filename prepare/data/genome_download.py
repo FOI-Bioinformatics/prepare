@@ -6,11 +6,12 @@ manifests suitable for downstream analysis tools such as sourmash.
 """
 
 import logging
+import os
 import re
 import shutil
 import zipfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from prepare.core.constants import GENOME_ACCESSION_PATTERN, GENOME_ACCESSION_PREFIXES
 from prepare.core.exceptions import DataAccessError
@@ -108,9 +109,29 @@ def download_genomes(
     return zip_path
 
 
+class MissingGenomesError(DataAccessError):
+    """Requested genomes were absent from the download; ``genome_paths`` holds those that were extracted."""
+
+    def __init__(self, message: str, genome_paths: Dict[str, Path]):
+        super().__init__(message)
+        self.genome_paths = genome_paths
+
+
+def _require_expected(genome_paths: Dict[str, Path], expected: Optional[Sequence[str]]) -> None:
+    """Raise DataAccessError naming requested accessions that the zip did not contain."""
+    if expected is None:
+        return
+    missing = [acc for acc in expected if acc not in genome_paths]
+    if missing:
+        raise MissingGenomesError(
+            f"{len(missing)} requested genome(s) missing from the NCBI download: {', '.join(missing)}", genome_paths
+        )
+
+
 def extract_and_organize(
     zip_path: Path,
     output_dir: Path,
+    expected: Optional[Sequence[str]] = None,
 ) -> Dict[str, Path]:
     """Extract downloaded zip and organize FASTA files by accession.
 
@@ -122,12 +143,15 @@ def extract_and_organize(
     Args:
         zip_path: Path to the downloaded NCBI datasets zip file.
         output_dir: Directory to place organized FASTA files.
+        expected: Accessions that were requested. When given, accessions absent from the
+            zip are reported in a DataAccessError after the others are extracted.
 
     Returns:
         Dict mapping accession to the organized FASTA file path.
 
     Raises:
-        DataAccessError: If the zip is invalid or extraction fails.
+        DataAccessError: If the zip is invalid, extraction fails, or an expected
+            accession is missing from the zip.
     """
     zip_path = Path(zip_path)
     output_dir = Path(output_dir)
@@ -141,7 +165,7 @@ def extract_and_organize(
     output_dir.mkdir(parents=True, exist_ok=True)
     genome_paths: Dict[str, Path] = {}
 
-    extract_dir = zip_path.parent / "ncbi_extract_tmp"
+    extract_dir = zip_path.parent / f"ncbi_extract_{os.getpid()}"
 
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:
@@ -152,7 +176,7 @@ def extract_and_organize(
         if not data_dir.exists():
             raise DataAccessError("Unexpected zip structure: ncbi_dataset/data/ not found.")
 
-        for accession_dir in data_dir.iterdir():
+        for accession_dir in sorted(data_dir.iterdir()):
             if not accession_dir.is_dir():
                 continue
             accession = accession_dir.name
@@ -161,7 +185,7 @@ def extract_and_organize(
                 continue
 
             # Find FASTA files (.fna or .fasta)
-            fasta_files = list(accession_dir.glob("*.fna")) + list(accession_dir.glob("*.fasta"))
+            fasta_files = sorted(accession_dir.glob("*.fna")) + sorted(accession_dir.glob("*.fasta"))
             if not fasta_files:
                 logger.warning(f"No FASTA files found for {accession}")
                 continue
@@ -185,4 +209,5 @@ def extract_and_organize(
             shutil.rmtree(extract_dir, ignore_errors=True)
 
     logger.info(f"Extracted and organized {len(genome_paths)} genome(s)")
+    _require_expected(genome_paths, expected)
     return genome_paths

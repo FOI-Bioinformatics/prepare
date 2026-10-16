@@ -181,7 +181,11 @@ def record_screening_table(
     dropped_cells, dropped_earlier = _apply_cap(registry, accessions, genomes, cells, max_screened)
 
     date = reg._now()
-    csv_paths = {genome: str(Path(matches_folder) / f"{genome}.csv") for genome in genomes}
+    # Recorded relative to the project root when inside it, as other registry paths are; a
+    # relative folder is taken against that root, not the working directory.
+    root = reg.project_root(registry)
+    folder = Path(reg._project_relative(root / matches_folder, root))
+    csv_paths = {genome: (folder / f"{genome}.csv").as_posix() for genome in genomes}
     row_list, col_list = rows.tolist(), cols.tolist()
     bounds = np.searchsorted(rows, np.arange(len(accessions) + 1)).tolist()
     for row in dict.fromkeys(row_list):

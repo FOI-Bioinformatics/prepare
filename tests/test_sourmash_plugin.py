@@ -34,6 +34,17 @@ def tmp_output(tmp_path):
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def restore_root_logging():
+    """Put the root logger back as found: the plugins call setup_logging, which changes it."""
+    import logging
+
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    yield
+    root.handlers[:], root.level = handlers, level
+
+
 # --- PrepareParsePlugin ---
 
 
@@ -88,9 +99,13 @@ class TestPrepareParsePlugin:
         )
         # Call main directly, bypassing super().main() since sourmash
         # may not be installed
-        with patch.object(type(cmd).__bases__[0], "main"):
+        with patch.object(type(cmd).__bases__[0], "main"), patch("prepare.data.registry.registry_transaction"):
             cmd.main(args)
-        mock_parse.assert_called_once_with("test_matches", "parsed.txt", "summary.txt", 0.2)
+        folder, *rest = mock_parse.call_args.args
+        assert folder.endswith("test_matches")
+        assert tuple(rest) == ("parsed.txt", "summary.txt", 0.2)
+        assert mock_parse.call_args.kwargs["details_file"] is None
+        assert mock_parse.call_args.kwargs["errors"] == []
 
     @patch("prepare.data.branchwater.parse_containment_data", side_effect=RuntimeError("bad"))
     def test_main_handles_error(self, mock_parse, parser):
@@ -99,6 +114,80 @@ class TestPrepareParsePlugin:
         with patch.object(type(cmd).__bases__[0], "main"):
             with pytest.raises(SystemExit):
                 cmd.main(args)
+
+
+class TestParsePluginErrorsAndRegistry:
+    def _run(self, parser, argv):
+        cmd = PrepareParsePlugin(parser)
+        args = parser.parse_args(argv)
+        with patch.object(type(cmd).__bases__[0], "main"):
+            cmd.main(args)
+
+    def test_new_flags(self, parser):
+        PrepareParsePlugin(parser)
+        args = parser.parse_args([])
+        assert args.details_file is None
+        assert args.registry is None
+        assert args.registry_max_screened > 0
+
+    def test_failed_parse_reaches_stderr(self, parser, tmp_path, capsys):
+        folder = tmp_path / "matches"
+        folder.mkdir()
+        argv = ["--matches-folder", str(folder), "--parsed-containment-file", str(tmp_path / "p.txt")]
+        with patch("prepare.data.branchwater.parse_containment_data", side_effect=RuntimeError("cannot read it")):
+            with pytest.raises(SystemExit) as exc:
+                self._run(parser, argv)
+        assert exc.value.code == 1
+        assert "cannot read it" in capsys.readouterr().err
+
+    def test_unreadable_match_file_exits_1_and_records_screening(self, parser, tmp_path, capsys):
+        folder = tmp_path / "matches"
+        folder.mkdir()
+        (folder / "G1.csv").write_text("acc,containment,cANI\n" "SRR1,0.9,0.99\n")
+        (folder / "BAD.csv").write_bytes(b"\x00\xff\xfe not a csv \x00")
+        registry = tmp_path / "prepare_registry.json"
+        argv = [
+            "--matches-folder",
+            str(folder),
+            "--parsed-containment-file",
+            str(tmp_path / "p.txt"),
+            "--summary-containment-file",
+            str(tmp_path / "s.txt"),
+            "--registry",
+            str(registry),
+        ]
+        with pytest.raises(SystemExit) as exc:
+            self._run(parser, argv)
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "could not be read" in err
+        assert "BAD.csv" in err
+        import json
+
+        data = json.loads(registry.read_text())
+        dumped = json.dumps(data)
+        assert "SRR1" in dumped
+        assert "screening" in dumped
+        assert "G1" in dumped
+
+    def test_screening_recorded_in_registry(self, parser, tmp_path):
+        folder = tmp_path / "matches"
+        folder.mkdir()
+        (folder / "G1.csv").write_text("acc,containment,cANI\n" "SRR1,0.9,0.99\n")
+        registry = tmp_path / "prepare_registry.json"
+        argv = [
+            "--matches-folder",
+            str(folder),
+            "--parsed-containment-file",
+            str(tmp_path / "p.txt"),
+            "--summary-containment-file",
+            str(tmp_path / "s.txt"),
+            "--registry",
+            str(registry),
+        ]
+        self._run(parser, argv)
+        assert registry.exists()
+        assert "SRR1" in registry.read_text()
 
 
 # --- PreparePlotPlugin ---
@@ -166,6 +255,17 @@ class TestPreparePlotPlugin:
         with patch.object(type(cmd).__bases__[0], "main"):
             with pytest.raises(SystemExit):
                 cmd.main(args)
+
+
+class TestPlotPluginStderr:
+    def test_missing_file_reports_on_stderr(self, parser, tmp_path, capsys):
+        cmd = PreparePlotPlugin(parser)
+        args = parser.parse_args(["--file-path", str(tmp_path / "missing.txt")])
+        with patch.object(type(cmd).__bases__[0], "main"):
+            with pytest.raises(SystemExit) as exc:
+                cmd.main(args)
+        assert exc.value.code == 1
+        assert "Error plotting containment" in capsys.readouterr().err
 
 
 # --- PrepareDiversityPlugin ---
@@ -276,7 +376,7 @@ class TestPrepareTaxonomyPlugin:
             ]
         )
         assert args.output_file == "taxonomy_validation.csv"
-        assert args.cache_file == "taxonomy_cache.csv"
+        assert args.cache_file == "taxonomy_validation_cache.csv"
         assert args.species_column is None
 
     @patch("prepare.data.taxonomy.validate_taxonomic_assignments")

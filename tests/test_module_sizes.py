@@ -19,14 +19,24 @@ PACKAGE_ROOT = Path(__file__).resolve().parent.parent / "prepare"
 MAX_LINES = 800
 MIN_MAINTAINABILITY = 20.0
 
-# path relative to the repository -> (line ceiling, maintainability floor), measured 2026-09-25.
-# Follow-up after 0.5.0: split each of these three into a package, as prepare/data/sra.py was
-# split in 0.5.0, and drop its entry here once every resulting module meets the ceilings.
-# read_extraction.py was re-measured on 2026-09-30, after its assembly code moved to data/assembly.py.
-KNOWN_EXCEPTIONS: Dict[str, Tuple[int, float]] = {
-    "prepare/data/read_extraction.py": (964, 29.6),
-    "prepare/data/registry.py": (1001, MIN_MAINTAINABILITY),
-}
+# path relative to the repository -> (line ceiling, maintainability floor). Empty: every module meets the ceilings.
+KNOWN_EXCEPTIONS: Dict[str, Tuple[int, float]] = {}
+
+# Modules split by responsibility in 0.10.1 (Task 6.6); held at this size so they do not regrow.
+SPLIT_MODULE_CEILING = 700
+SPLIT_MODULES = frozenset(
+    {
+        "prepare/data/registry.py",
+        "prepare/data/registry_io.py",
+        "prepare/data/registry_scan.py",
+        "prepare/data/read_extraction.py",
+        "prepare/data/read_extraction_export.py",
+        "prepare/cli/commands/sra.py",
+        "prepare/cli/commands/sra_record.py",
+        "prepare/data/metadata.py",
+        "prepare/data/metadata_fetch.py",
+    }
+)
 
 
 def _modules() -> List[Path]:
@@ -46,6 +56,8 @@ def _maintainability(path: Path) -> float:
 
 
 def _line_ceiling(relative: str) -> int:
+    if relative in SPLIT_MODULES:
+        return SPLIT_MODULE_CEILING
     return KNOWN_EXCEPTIONS.get(relative, (MAX_LINES, MIN_MAINTAINABILITY))[0]
 
 

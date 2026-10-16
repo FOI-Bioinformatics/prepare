@@ -5,7 +5,10 @@ only copy: sidecars know nothing about projects. ``store_reindex`` rebuilds the 
 sidecars and would otherwise come back with no projects and no usage, after which ``store_gc``
 sees every dataset as unused. Every ``upsert_project`` and ``record_usage`` therefore also
 appends one JSON line here, and ``replay`` feeds those lines back into a rebuilt catalogue.
-Appends happen inside ``catalog_write``, which holds the store-wide write lock.
+Appends happen inside ``catalog_write``, which holds the store-wide write lock, and so do the
+two rewrites that keep the files from growing without bound: ``prune_usage`` (``store_gc``
+drops the lines of the accessions it removed) and ``compact_projects`` (``store_reindex``
+keeps only the latest line per project).
 """
 
 import json
@@ -14,12 +17,16 @@ import socket
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 from prepare.core.exceptions import DataAccessError
+from prepare.data.file_io import write_text_atomic
 from prepare.store.layout import StorePaths
 
 logger = logging.getLogger(__name__)
+
+# One journal line as read back for a rewrite: its text and its record, or None when unparsable.
+_Entry = Tuple[str, Optional[Dict[str, Any]]]
 
 PROJECTS_FILE = "projects.jsonl"
 USAGE_FILE = "usage.jsonl"
@@ -247,3 +254,95 @@ def backfill_from_catalog(paths: StorePaths, catalog: Any) -> Tuple[int, int]:
         )
 
     return len(project_rows), len(usage_rows)
+
+
+def _parsed_lines(path: Path) -> List[_Entry]:
+    """Every non-blank line of ``path`` with its parsed record, or None when it is not a JSON object.
+
+    The file is split on ``"\n"`` only, read without newline translation, and each line is
+    kept exactly as read (whitespace is stripped only for the parse check), so a rewrite puts
+    back the same bytes for every line it keeps. ``str.splitlines`` would also split on
+    separators such as U+2028 inside a foreign or corrupt line. Blank lines carry no record
+    and are not kept.
+    """
+    entries: List[_Entry] = []
+    with open(path, encoding="utf-8", newline="") as handle:
+        text = handle.read()
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            record = None
+        entries.append((line, record if isinstance(record, dict) else None))
+    return entries
+
+
+def _rewrite(path: Path, choose: Callable[[List[_Entry]], List[bool]]) -> int:
+    """Rewrite ``path`` atomically with the lines ``choose`` keeps; return how many were dropped.
+
+    ``choose`` receives every line with its parsed record and returns one keep flag per line.
+    A line that could not be parsed is kept as it is whatever ``choose`` says (a rewrite must
+    never lose a record that a later fix might still recover) and is reported in one warning.
+    The file is left untouched when nothing is dropped, is flushed to disk when rewritten,
+    and a read or write failure is logged rather than raised: pruning is housekeeping, never
+    a reason for the command that asked for it to fail.
+    """
+    if not path.is_file():
+        return 0
+    try:
+        entries = _parsed_lines(path)
+        keep = [flag or record is None for flag, (_, record) in zip(choose(entries), entries)]
+        unparsed = sum(1 for _, record in entries if record is None)
+        if unparsed:
+            logger.warning("%d line(s) of %s could not be parsed and were kept as they are", unparsed, path)
+        dropped = len(entries) - sum(keep)
+        if dropped:
+            kept_text = "".join(line + "\n" for (line, _), kept in zip(entries, keep) if kept)
+            # fsync: the journal is the only durable copy of the project and usage history.
+            write_text_atomic(path, kept_text, fsync=True)
+        return dropped
+    except (OSError, UnicodeDecodeError) as e:
+        logger.warning("Could not rewrite %s: %s", path, e)
+        return 0
+
+
+def prune_usage(paths: StorePaths, accessions: Iterable[str]) -> int:
+    """Drop every ``usage.jsonl`` line for one of ``accessions``; return the number dropped.
+
+    Called by ``store_gc`` under the store-wide write lock once the catalogue rows of the
+    datasets it removed are committed, so a later ``replay`` does not bring back usage
+    history (and placeholder rows) for data that is gone. Lines that cannot be parsed are kept.
+    """
+    removed = set(accessions)
+    if not removed:
+        return 0
+    return _rewrite(
+        paths.journal / USAGE_FILE,
+        lambda entries: [record is None or record.get("accession") not in removed for _, record in entries],
+    )
+
+
+def _latest_per_project(entries: List[_Entry]) -> List[bool]:
+    """Keep flags: the last line of each ``project_id``, plus every line without one."""
+    last: Dict[str, int] = {}
+    for index, (_, record) in enumerate(entries):
+        if record is not None and "project_id" in record:
+            last[str(record["project_id"])] = index
+    keep_indexes = set(last.values())
+    return [
+        record is None or "project_id" not in record or index in keep_indexes
+        for index, (_, record) in enumerate(entries)
+    ]
+
+
+def compact_projects(paths: StorePaths) -> int:
+    """Reduce ``projects.jsonl`` to the latest line per project; return the number dropped.
+
+    ``upsert_project`` appends a line every time a project touches the store, and ``replay``
+    applies them in order, so only the last line of each project decides what is restored.
+    Called by ``store_reindex`` under the store-wide write lock. Kept lines stay in their
+    original order; lines that cannot be parsed, or carry no ``project_id``, are kept.
+    """
+    return _rewrite(paths.journal / PROJECTS_FILE, _latest_per_project)

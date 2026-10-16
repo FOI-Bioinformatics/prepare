@@ -60,7 +60,7 @@ class TestGenerateContainmentExplorer:
         assert "resultsTable" in html
         assert "Taxonomy overview" in html
         assert "plotly-graph-div" in html  # charts rendered
-        assert "mq-heatbar" in html  # containment heat-bar cells
+        assert "pre-heatbar" in html  # containment heat-bar cells
         assert "SRR001" in html
         assert "filterTable" in html
 
@@ -143,3 +143,99 @@ class TestBuildTableHtml:
         html = _build_table_html(long_df)
         assert "<tr>" in html
         assert "SRR001" in html
+
+
+class TestExplorerEscapingAndMetadata:
+
+    def test_family_name_is_escaped(self, containment_df, tmp_path):
+        evil = "<img src=x onerror=alert(2)>"
+        taxonomy = {
+            "genA": TaxonomyInfo(genome_id="genA", family=evil, genus="Gen1", species="Sp1"),
+            "genB": TaxonomyInfo(genome_id="genB", family="Fam2", genus="Gen2", species="Sp2"),
+        }
+        out = tmp_path / "x.html"
+        generate_containment_explorer(containment_df, taxonomy, output_file=out)
+        html = out.read_text()
+        assert "&lt;img" in html
+        assert "<img" not in html
+
+    def test_title_is_escaped_once(self, containment_df, taxonomy, tmp_path):
+        out = tmp_path / "t.html"
+        generate_containment_explorer(containment_df, taxonomy, output_file=out, title="A & <b>")
+        html = out.read_text()
+        assert "A &amp; &lt;b&gt;" in html
+        assert "&amp;amp;" not in html
+
+    def test_prepare_metadata_columns_fill_location_and_date(self, containment_df, taxonomy):
+        meta = pd.DataFrame(
+            {"geo_loc_name_country_calc": ["Peru", "Kenya", "Fiji"], "collection_date_sam": ["2020", "2021", "2022"]},
+            index=["SRR001", "SRR002", "SRR003"],
+        )
+        long_df = _build_long_dataframe(containment_df, taxonomy, meta, 0.0)
+        row = long_df[long_df["sample"] == "SRR001"].iloc[0]
+        assert row["location"] == "Peru"
+        assert row["date"] == "2020"
+
+    def test_nan_metadata_is_an_empty_cell(self, containment_df, taxonomy):
+        meta = pd.DataFrame(
+            {"location": [float("nan"), "Sweden", "Japan"], "collection_date": ["2024-01", None, "2024-03"]},
+            index=["SRR001", "SRR002", "SRR003"],
+        )
+        long_df = _build_long_dataframe(containment_df, taxonomy, meta, 0.0)
+        assert "nan" not in set(long_df["location"]) | set(long_df["date"])
+        assert long_df[long_df["sample"] == "SRR001"].iloc[0]["location"] == ""
+
+    def test_duplicated_metadata_index_does_not_raise(self, containment_df, taxonomy):
+        meta = pd.DataFrame(
+            {"location": ["USA", "Peru", "Japan"], "collection_date": ["2024-01", "2024-02", "2024-03"]},
+            index=["SRR001", "SRR001", "SRR003"],
+        )
+        long_df = _build_long_dataframe(containment_df, taxonomy, meta, 0.0)
+        assert long_df[long_df["sample"] == "SRR001"].iloc[0]["location"] == "USA"
+
+
+class TestExplorerScaling:
+
+    def test_large_table_builds_quickly_and_is_capped(self, tmp_path):
+        import time
+
+        import numpy as np
+
+        rng = np.random.default_rng(0)
+        genomes = [f"g{i}" for i in range(50)]
+        wide = pd.DataFrame(rng.random((300, 50)) + 0.01, index=[f"S{i}" for i in range(300)], columns=genomes)
+        tax = {
+            g: TaxonomyInfo(genome_id=g, family=f"F{i % 5}", genus=f"G{i % 10}", species=f"s{i}")
+            for i, g in enumerate(genomes)
+        }
+        start = time.perf_counter()
+        long_df = _build_long_dataframe(wide, tax, None, 0.0)
+        assert time.perf_counter() - start < 2.0
+        assert len(long_df) == 300 * 50
+        assert _build_table_html(long_df).count("<tr>") == 5000
+
+    def test_header_note_only_when_truncated(self, containment_df, taxonomy, tmp_path):
+        out = tmp_path / "n.html"
+        generate_containment_explorer(containment_df, taxonomy, output_file=out)
+        assert "showing top" not in out.read_text()
+
+    def test_truncated_table_has_note(self, tmp_path, monkeypatch):
+        import prepare.visualization.explorer as ex
+
+        monkeypatch.setattr(ex, "EXPLORER_TABLE_ROWS", 3)
+        wide = pd.DataFrame({"gA": [0.5, 0.4, 0.3, 0.2]}, index=["a", "b", "c", "d"])
+        tax = {"gA": TaxonomyInfo(genome_id="gA", family="F", genus="G", species="S")}
+        out = tmp_path / "t.html"
+        ex.generate_containment_explorer(wide, tax, output_file=out)
+        html = out.read_text()
+        assert "showing top 3 of 4 rows" in html
+        assert html.count("<tr>") == 3 + 1  # header row plus the capped body rows
+
+    def test_heatmap_height_is_capped(self):
+        from prepare.visualization.explorer import _build_heatmap
+
+        samples = [f"S{i}" for i in range(400)]
+        long_df = pd.DataFrame(
+            {"sample": samples, "family": "F", "containment": 0.5, "genus": "G", "species": "s", "genome": "g"}
+        )
+        assert '"height":2000' in _build_heatmap(long_df).replace(" ", "")

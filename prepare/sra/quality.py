@@ -178,7 +178,7 @@ class SequenceQualityAnalyzer:
                 read_lengths.append(len(sequence))
                 gc_contents.append(self._calculate_gc_content(sequence))
                 qualities.append(quality.encode("ascii"))
-                n_contents.append(sequence.count("N") / len(sequence))
+                n_contents.append(sequence.count("N") / len(sequence) if sequence else 0.0)
                 sequences.append(sequence)
 
         return read_lengths, gc_contents, quality_histogram(qualities), n_contents, sequences
@@ -284,6 +284,8 @@ class SequenceQualityAnalyzer:
                     if current_run >= 4:  # Runs of 4+ same base
                         homopolymer_count += 1
                     current_run = 1
+            if current_run >= 4:  # a run that reaches the end of the read
+                homopolymer_count += 1
             homopolymer_rates.append(homopolymer_count / len(seq) if len(seq) > 0 else 0)
 
         return {

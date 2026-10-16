@@ -16,10 +16,10 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import AbstractSet, Any, Dict, Iterable, List, Optional, Tuple
 
 from prepare.core.exceptions import DataAccessError
-from prepare.data.registry import Registry, load_registry
+from prepare.data.registry import Registry, load_registry, project_root
 from prepare.data.registry_blocks import project_block, set_project_block
 from prepare.store.catalog import Catalog, catalog_write
 from prepare.store.layout import StorePaths
@@ -29,7 +29,9 @@ logger = logging.getLogger(__name__)
 
 def _upsert_project_row(catalog, registry: Registry, project_id: str) -> None:
     project = project_block(registry)
-    catalog.upsert_project(project_id, project.name or "", project.path or "", str(registry.path))
+    # Absolute, so the row still names the same registry when read from another working directory.
+    registry_file = str(Path(registry.path).resolve()) if registry.path else ""
+    catalog.upsert_project(project_id, project.name or "", project.path or "", registry_file)
 
 
 def ensure_project_identity(registry: Registry) -> Dict[str, Any]:
@@ -50,11 +52,12 @@ def ensure_project_identity(registry: Registry) -> Dict[str, Any]:
     if project.id:
         return project.to_dict()
 
-    cwd = Path.cwd()
+    # The folder holding the registry, so a run from a subfolder names the project, not the subfolder.
+    base = project_root(registry)
     # Keys this function does not own (e.g. "exports" from results_table) are kept.
     project.id = str(uuid.uuid4())
-    project.name = project.name or cwd.name
-    project.path = project.path or str(cwd.resolve())
+    project.name = project.name or base.name
+    project.path = project.path or str(base)
     project.created = project.created or datetime.now(timezone.utc).isoformat()
     set_project_block(registry, project)
     logger.info("Recorded this project's identity for the shared store: %s (%s)", project.id, project.name)
@@ -168,34 +171,43 @@ def stale_projects(catalog: Catalog) -> List[Dict[str, Any]]:
     return stale
 
 
-def linked_by(paths: StorePaths, catalog: Catalog, accession: str) -> List[str]:
-    """Names of every non-stale project that still symlinks ``accession`` to this store.
+def linked_by(
+    paths: StorePaths, catalog: Catalog, accession: str, stale_ids: Optional[AbstractSet[str]] = None
+) -> List[str]:
+    """Names of every project that still symlinks ``accession`` to this store.
 
     Usage rows are the normal record of "a project uses this dataset", but a project can end
     up linking an accession without one: usage tracking predates that project's ``store_link``
     call, or a hook that would have recorded it failed silently. Before ``store_gc`` removes a
     dataset with no (live) usage rows, it must also check the filesystem directly: for every
-    project ``stale_projects`` does not consider gone, does its default ``fastq/<accession>``
-    folder (relative to the project's recorded ``path``) exist as a symlink resolving to this
-    store's copy of the dataset? A project whose path or link cannot be checked (missing,
+    project in the catalogue, does its default ``fastq/<accession>`` folder (relative to the
+    project's recorded ``path``) exist as a symlink resolving to this store's copy of the
+    dataset? A symlink found on this host protects the dataset whatever the registry state:
+    a project that ``stale_projects`` reports (e.g. its registry was recorded under a path
+    that no longer resolves) is still counted, with its name suffixed ``" (stale)"`` so the
+    caller's reason line says so. A project whose path or link cannot be checked (missing,
     unreadable, broken symlink) is silently treated as not linking it, never as an error.
     Returns the matching project names, sorted, or an empty list when none link it.
+
+    ``stale_ids`` is the set of stale project ids when the caller has already computed it
+    (``store_gc`` checks many accessions and reads every registry once per run); when None it
+    is computed here with ``stale_projects``.
     """
-    stale_ids = {row["project_id"] for row in stale_projects(catalog)}
+    if stale_ids is None:
+        stale_ids = {row["project_id"] for row in stale_projects(catalog)}
     target = (paths.sra / accession).resolve()
 
     rows = catalog.conn.execute("SELECT project_id, name, path FROM projects ORDER BY project_id").fetchall()
     linked: List[str] = []
     for row in rows:
-        if row["project_id"] in stale_ids:
-            continue
         project_path = row["path"]
         if not project_path:
             continue
         link_path = Path(project_path) / "fastq" / accession
         try:
             if link_path.is_symlink() and link_path.resolve() == target:
-                linked.append(row["name"] or row["project_id"])
+                name = row["name"] or row["project_id"]
+                linked.append(f"{name} (stale)" if row["project_id"] in stale_ids else name)
         except OSError:
             continue
     return sorted(linked)

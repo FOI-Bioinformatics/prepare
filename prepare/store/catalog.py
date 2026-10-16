@@ -211,9 +211,39 @@ class Catalog:
         if "hostname" not in existing:
             self.conn.execute("ALTER TABLE projects ADD COLUMN hostname TEXT")
 
+    def _refuse_newer_schema(self) -> None:
+        """Raise ``DataAccessError`` when the catalogue records a schema version above ``SCHEMA_VERSION``.
+
+        A catalogue written by a later release may hold tables or columns this release does not
+        know, and migrating or writing it here could damage them. An unreadable version value is
+        refused the same way, since it cannot be shown to be one this release understands.
+        """
+        has_meta = self.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'store_meta'"
+        ).fetchone()
+        if has_meta is None:
+            return
+        row = self.conn.execute("SELECT value FROM store_meta WHERE key = 'schema_version'").fetchone()
+        if row is None:
+            return
+        try:
+            version = int(row["value"])
+        except (TypeError, ValueError):
+            version = None
+        if version is None or version > SCHEMA_VERSION:
+            raise DataAccessError(
+                f"The store catalogue at {self.paths.catalog} has schema version {row['value']}, but this "
+                f"prepare supports schema version {SCHEMA_VERSION} at most; upgrade prepare to use this store"
+            )
+
     @_wrap_sqlite_errors
     def migrate(self) -> None:
-        """Create the catalogue schema if it does not already exist. Safe to call repeatedly."""
+        """Create the catalogue schema if it does not already exist. Safe to call repeatedly.
+
+        Refuses, before any migration step, a catalogue whose recorded schema version is newer
+        than this release's (``_refuse_newer_schema``).
+        """
+        self._refuse_newer_schema()
         for statement in _SCHEMA_STATEMENTS:
             self.conn.execute(statement)
         self._add_missing_columns()

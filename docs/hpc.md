@@ -124,8 +124,8 @@ give it more time with a larger value than 300.
 | Code | Meaning | In a pipeline |
 |---|---|---|
 | 0 | Success | continue |
-| 1 | Failure: bad input, a missing file, a dataset not found, a tool error | stop and read the log; a rerun alone will not help |
-| 2 | Usage error: an unknown flag or command, or a renamed command | fix the script |
+| 1 | Failure: a missing file, a dataset not found, a tool error | stop and read the log; a rerun alone will not help |
+| 2 | Usage error: invalid input such as a malformed accession, an unknown flag or command, or a renamed command | fix the script or its input |
 | 3 | Configuration: a missing or too old tool, a malformed config file, no NCBI email | fix the environment |
 | 4 | Retryable: a network failure, or a wait for a registry, catalogue or store lock that gave up | resubmit later |
 | 130 | Interrupted by `SIGINT`, `SIGTERM` or `SIGHUP`, including the walltime signal | resubmit to resume; finished work is kept |

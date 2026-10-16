@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Union
 
-from prepare.core.exceptions import ValidationError
+from prepare.core.exceptions import DataAccessError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,8 @@ def validate_folder(folder_path: Union[str, Path], create: bool = False) -> Path
         The validated folder path as a Path object
 
     Raises:
-        ValidationError: If the folder doesn't exist and create is False, or if it can't be created
+        ValidationError: If the path is not a directory, or does not exist and create is False
+        DataAccessError: If the folder cannot be created (an operating-system failure, not invalid input)
     """
     path = Path(folder_path)
 
@@ -90,7 +91,7 @@ def validate_folder(folder_path: Union[str, Path], create: bool = False) -> Path
             path.mkdir(parents=True)
             logger.info(f"Created directory: {path}")
         except Exception as e:
-            raise ValidationError(f"Failed to create directory {path}: {e}")
+            raise DataAccessError(f"Failed to create directory {path}: {e}") from e
     else:
         raise ValidationError(f"Directory does not exist: {path}")
 

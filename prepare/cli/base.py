@@ -6,14 +6,18 @@ This module provides the foundation for a modular command architecture.
 
 import argparse
 import json
+import math
 import logging
+import re
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
 
-from prepare.core.constants import DEFAULT_LOG_LEVEL, LOG_LEVELS
-from prepare.core.exceptions import DataAccessError, exit_code_for
+from prepare.core.constants import DEFAULT_LOG_LEVEL, LOG_LEVELS, SRA_ACCESSION_PATTERN
+from prepare.core.exceptions import exit_code_for
+from prepare.data.accessions import read_accessions_file as _read_accessions
+from prepare.data.accessions import require_accession
 from prepare.utils.logging import log_traceback_hint
 from prepare.utils.security import SecureSubprocess
 from prepare.utils.termination import EXIT_INTERRUPTED, graceful_termination
@@ -29,23 +33,46 @@ def read_accessions_file(path: Union[str, Path]) -> List[str]:
     Surrounding whitespace is stripped; blank lines and lines starting with ``#`` are skipped.
     A file that does not exist or cannot be read raises ``DataAccessError`` naming it.
     """
-    try:
-        with open(path, "r") as handle:
-            lines = handle.read().splitlines()
-    except OSError as e:
-        raise DataAccessError(f"Cannot read accessions file {path}: {e}") from e
-    return [line.strip() for line in lines if line.strip() and not line.strip().startswith("#")]
+    return _read_accessions(path)
+
+
+def refuse_bad_accessions(logger: logging.Logger, accessions: Sequence[str]) -> Optional[int]:
+    """Exit code 2 after one error line when any accession is malformed; ``None`` otherwise.
+
+    Commands call this before any filesystem or registry work, so a value such as ``../x`` never becomes a path.
+    """
+    bad = [acc for acc in accessions if not re.fullmatch(SRA_ACCESSION_PATTERN, acc)]
+    if bad:
+        logger.error("not an SRA accession: %s", ", ".join(bad))
+        return 2
+    return None
 
 
 def accessions_from_args(accessions_file: Optional[str], accessions: Optional[Sequence[str]]) -> List[str]:
     """The accessions named by ``--accessions-file`` and repeated ``--accession`` flags together.
 
     File entries come first, then the flag values, each accession once in first-seen order.
-    Empty when neither was given.
+    Empty when neither was given. A flag value that is not a well-formed SRA accession raises
+    ``ValidationError`` (exit code 2), as a bad line in the file does, before it is used as a path.
     """
     named = read_accessions_file(accessions_file) if accessions_file else []
-    named += list(accessions or [])
+    named += [require_accession(accession) for accession in accessions or []]
     return list(dict.fromkeys(named))
+
+
+def anchored_folder(folder: Union[str, Path], registry: Optional[str]) -> Path:
+    """A project folder (``--fastq-folder`` and similar) resolved against the project root.
+
+    An absolute ``folder`` is returned as is. A relative one is joined onto the folder of the
+    registry the command uses (``registry``, or the nearest ``prepare_registry.json`` walking up
+    from the working directory), so a command run from a subfolder reads and writes the same
+    folders that the registry records. With no registry found above, the root is the working
+    directory, as before.
+    """
+    from prepare.data.registry import project_root, registry_path
+
+    path = Path(folder)
+    return path if path.is_absolute() else project_root(registry_path(registry)) / path
 
 
 def resolve_command_store(args: argparse.Namespace, registry: "Registry") -> Optional["StorePaths"]:
@@ -62,10 +89,17 @@ def resolve_command_store(args: argparse.Namespace, registry: "Registry") -> Opt
 
 
 class DefaultsHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
-    """Append '(default: ...)' only when the option has a real default."""
+    """Append '(default: ...)' only when the option has a real default.
+
+    A flag (``store_true``, ``store_false``) gets no note: "(default: False)" says nothing a
+    reader does not already know, and a flag whose default matters (``--verify-downloads``)
+    says so in its own help text.
+    """
 
     def _get_help_string(self, action: argparse.Action) -> str:
         if action.default is None or action.default is argparse.SUPPRESS:
+            return action.help or ""
+        if isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
             return action.help or ""
         return super()._get_help_string(action) or ""
 
@@ -87,6 +121,17 @@ def _non_negative_count(text: str) -> int:
     return value
 
 
+def finite_float(text: str) -> float:
+    """An argparse type: a finite number (``nan`` and ``inf`` are refused)."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number, got {text!r}") from None
+    if not math.isfinite(value):
+        raise argparse.ArgumentTypeError(f"expected a finite number, got {text!r}")
+    return value
+
+
 def add_global_options(parser: argparse.ArgumentParser, suppress_defaults: bool) -> None:
     """Add the logging and progress options to ``parser``.
 
@@ -95,8 +140,9 @@ def add_global_options(parser: argparse.ArgumentParser, suppress_defaults: bool)
     after the command name overrides the main parser's value and one left out does not reset
     it. ``-q/--quiet`` and ``-v/--verbose`` are stored as ``log_quiet`` and ``log_verbose``;
     ``main`` turns them into a log level. A command that already has one of these option
-    strings (``store_status --verbose``) keeps its own, and the clashing flag is left out of
-    its parser (``prepare -v store_status`` still sets the log level).
+    strings keeps its own, and only the clashing flag is left out of its parser, so ``-v``
+    always sets the log level (``store_status`` keeps a hidden ``--verbose`` alias for
+    ``--details``).
     """
 
     def default(value: Any) -> Any:
@@ -107,6 +153,7 @@ def add_global_options(parser: argparse.ArgumentParser, suppress_defaults: bool)
     if "--log-level" not in taken:
         group.add_argument(
             "--log-level",
+            type=str.upper,
             choices=LOG_LEVEL_NAMES,
             metavar="LEVEL",
             default=default(None),
@@ -135,10 +182,10 @@ def add_global_options(parser: argparse.ArgumentParser, suppress_defaults: bool)
             default=default(False),
             help="Show only warnings and errors on the console (same as --log-level WARNING)",
         )
-    if not taken & {"-v", "--verbose"}:
+    verbose_flags = [flag for flag in ("-v", "--verbose") if flag not in taken]
+    if verbose_flags:
         levels.add_argument(
-            "-v",
-            "--verbose",
+            *verbose_flags,
             dest="log_verbose",
             action="store_true",
             default=default(False),
@@ -157,13 +204,13 @@ def add_global_options(parser: argparse.ArgumentParser, suppress_defaults: bool)
         )
 
 
-def emit_error_json(message: str) -> None:
+def emit_error_json(message: str, indent: Optional[int] = 2) -> None:
     """Write ``{"error": message}`` to stdout as one JSON document.
 
     For module-level helpers that have no command instance at hand. The message should also
     be logged by the caller when a human reader needs it; the log goes to stderr.
     """
-    print(json.dumps({"error": message}, indent=2), file=sys.stdout)
+    print(json.dumps({"error": message}, indent=indent), file=sys.stdout)
 
 
 class BaseCommand(ABC):

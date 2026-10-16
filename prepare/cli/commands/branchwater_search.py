@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import finite_float, BaseCommand, anchored_folder
 from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
 from prepare.core.exceptions import PrepareError
 from prepare.data.branchwater_search import (
@@ -36,7 +36,9 @@ class BranchwaterSearchCommand(BaseCommand):
         source = parser.add_mutually_exclusive_group(required=True)
         source.add_argument("--genome-fasta", help="Genome FASTA to sketch (needs the sourmash extra)")
         source.add_argument("--signature", help="Existing sourmash signature file (k=21, scaled=1000)")
-        parser.add_argument("--threshold", type=float, default=0.1, help="Minimum containment to keep (inclusive)")
+        parser.add_argument(
+            "--threshold", type=finite_float, default=0.1, help="Minimum containment to keep (inclusive)"
+        )
         parser.add_argument("--branchwater-folder", default="branchwater", help="Folder for the Branchwater CSV")
         parser.add_argument(
             "--output", default=None, help="Output CSV (default: <branchwater-folder>/<input stem>.csv)"
@@ -69,7 +71,8 @@ class BranchwaterSearchCommand(BaseCommand):
                 signature = load_signature(args.signature)
                 source = Path(args.signature)
 
-            output = Path(args.output) if args.output else Path(args.branchwater_folder) / f"{source.stem}.csv"
+            folder = anchored_folder(args.branchwater_folder, getattr(args, "registry", None))
+            output = Path(args.output) if args.output else folder / f"{source.stem}.csv"
             cache_dir = None if args.no_cache else output.parent / ".branchwater-cache"
             matches = search_index(
                 signature,

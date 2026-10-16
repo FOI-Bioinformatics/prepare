@@ -55,7 +55,7 @@ check:
 	bash scripts/check_no_print.sh
 	@echo "Guarding against the frozen plotly-latest CDN alias..."
 	@if grep -rn "cdn.plot.ly/plotly-latest" prepare --include='*.py'; then \
-		echo "ERROR: use prepare.utils.html.plotly_cdn_script() instead of the plotly-latest alias"; \
+		echo "ERROR: use prepare.utils.html.plotly_js_script() instead of the plotly-latest alias"; \
 		exit 1; \
 	fi
 	@echo "Checking cyclomatic complexity ceiling (fail on rank D or worse)..."
@@ -73,6 +73,8 @@ check:
 	bash scripts/check_atomic_writes.sh
 	@echo "Checking every command is documented and README names no unknown command..."
 	python scripts/check_docs_commands.py
+	@echo "Checking that the package version is consistent..."
+	python scripts/check_version.py
 	@echo "All quality checks passed!"
 
 doctor:

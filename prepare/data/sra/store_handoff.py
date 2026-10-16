@@ -259,11 +259,34 @@ def _drop_store_link(project_fastq: Path, accession: str, store) -> None:
 
 
 def _link_result(accession: str, project_fastq: Path, store, link_mode: str, note: str) -> Tuple[bool, str]:
-    """Link the store's copy into the project and report how many files it holds."""
+    """Link the store's copy into the project and report how many files it holds.
+
+    The caller holds ``accession``'s dataset lock.
+    """
     from prepare.store.link import link_dataset
 
-    link = link_dataset(project_fastq, accession, store, mode=link_mode)
+    link = link_dataset(project_fastq, accession, store, mode=link_mode, locked=True)
     return True, f"{STORE_LINKED_PREFIX}{note}, {len(fastq_mod.fastq_files(link))} files"
+
+
+def _try_link(
+    accession: str, project_fastq: Path, store, link_mode: str, note: str, locked: bool
+) -> Optional[Tuple[bool, str]]:
+    """``_link_result``, taking the dataset lock without waiting unless ``locked`` says it is held.
+
+    Returns None when another run holds the lock, so that ``_store_download`` waits for it and
+    decides again under it instead of reporting a ready copy as an error.
+    """
+    from prepare.store.locks import LockHeld, dataset_lock
+
+    if locked:
+        return _link_result(accession, project_fastq, store, link_mode, note)
+    try:
+        with dataset_lock(store, accession, blocking=False):
+            return _link_result(accession, project_fastq, store, link_mode, note)
+    except LockHeld:
+        logger.debug("%s: dataset lock held by another run; deciding again under the lock", accession)
+        return None
 
 
 def _store_precheck(
@@ -282,7 +305,9 @@ def _store_precheck(
     and the caller asked not to resume it; returns None when it must be downloaded. A ready
     copy that is ``unverified`` but short against ``expected_spots`` is incomplete: with
     ``locked`` (the caller holds the dataset lock) its sidecar is rewritten as ``partial``
-    first; without the lock this returns None so the decision is taken again under it.
+    first; without the lock this returns None so the decision is taken again under it. A link
+    made without ``locked`` takes the lock without waiting and also returns None when another
+    run holds it (``_try_link``).
     """
     if expected_spots is not None and _short_unverified(_read_store_sidecar(store, accession), expected_spots):
         if not locked:
@@ -290,19 +315,25 @@ def _store_precheck(
         _reverify_sidecar(store, accession, expected_spots)
     state = _store_state(store, accession, expected_spots)
     if state == "ready":
-        return _link_result(accession, project_fastq, store, link_mode, "")
+        return _try_link(accession, project_fastq, store, link_mode, "", locked)
     if state == "incomplete" and not resume_partial:
         if accept_partial:
-            return _link_result(accession, project_fastq, store, link_mode, " (partial)")
+            return _try_link(accession, project_fastq, store, link_mode, " (partial)", locked)
         _drop_store_link(project_fastq, accession, store)
         return False, f"{STORE_PARTIAL_PREFIX} rerun with --resume-partial to finish {accession}"
     if state == "incomplete":
-        return _exhausted_result(accession, project_fastq, store, link_mode, accept_partial, expected_spots)
+        return _exhausted_result(accession, project_fastq, store, link_mode, accept_partial, expected_spots, locked)
     return None
 
 
 def _exhausted_result(
-    accession: str, project_fastq: Path, store, link_mode: str, accept_partial: bool, expected_spots: Optional[int]
+    accession: str,
+    project_fastq: Path,
+    store,
+    link_mode: str,
+    accept_partial: bool,
+    expected_spots: Optional[int],
+    locked: bool = False,
 ) -> Optional[Tuple[bool, str]]:
     """The result for an incomplete copy whose refetches stopped gaining reads, or None to fetch it again.
 
@@ -314,7 +345,7 @@ def _exhausted_result(
     if not _refetch_exhausted(sidecar):
         return None
     if accept_partial:
-        return _link_result(accession, project_fastq, store, link_mode, " (partial)")
+        return _try_link(accession, project_fastq, store, link_mode, " (partial)", locked)
     _drop_store_link(project_fastq, accession, store)
     return False, _exhausted_message(accession, sidecar, expected_spots)
 
@@ -518,7 +549,7 @@ def _store_fetch(
         _drop_store_link(project_fastq, accession, store)
         return False, _incomplete_message(accession, sidecar)
 
-    link_dataset(project_fastq, accession, store, mode=link_mode)
+    link_dataset(project_fastq, accession, store, mode=link_mode, locked=True)
     suffix = "; stored" if catalogued else "; catalogue pending; stored"
     return True, f"{message}{suffix}"
 

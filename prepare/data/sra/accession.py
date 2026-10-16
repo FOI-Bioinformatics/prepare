@@ -14,6 +14,7 @@ from prepare.core.constants import DATASET_LOCK_STALE_SECONDS, LOCK_HEARTBEAT_SE
 from prepare.core import settings
 from prepare.core.settings import settings_or
 from prepare.core.exceptions import DataAccessError, SecurityError
+from prepare.data.accessions import require_accession
 from prepare.data.sra import cleanup as cleanup_mod
 from prepare.data.sra import fastq as fastq_mod
 from prepare.utils.lockfile import LockHeld, LockLost, LockPolicy, LockWaitStopped, held_lock, verify_held
@@ -45,6 +46,15 @@ _LOCK_MESSAGE_RE = re.compile(r"(?:^|: )(?:locked|lock lost): | is locked by pid
 
 # The result message for an accession whose FASTQ files were already in place, so nothing ran.
 ALREADY_EXISTS = "already exists"
+
+# The retry pass prefixes a result message with "Retry <n>: " (or "Retry <n> error: " for a
+# worker that raised); classification reads the message underneath.
+_RETRY_PREFIX_RE = re.compile(r"^Retry \d+(?: error)?: ")
+
+
+def result_body(message: str) -> str:
+    """``message`` without the retry pass's ``Retry <n>: `` prefix."""
+    return _RETRY_PREFIX_RE.sub("", message or "", count=1)
 
 
 # Process-wide emergency stop. Each download run has its own stop token (``download_sra``'s
@@ -401,6 +411,7 @@ def download_accession(
     Returns:
         Tuple of (success, message)
     """
+    require_accession(accession)
     output_path = Path(output_folder) / accession
     SecureSubprocess.add_allowed_root(Path(output_folder))
     staging_path = _staging_root(output_folder, staging_folder)

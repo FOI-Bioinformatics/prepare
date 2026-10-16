@@ -8,9 +8,12 @@ available as `sourmash scripts prepare_*` subcommands.
 
 import logging
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
+from prepare.cli.base import finite_float
+from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
 from prepare.core.optional import require
+from prepare.utils.logging import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -48,23 +51,56 @@ class PrepareParsePlugin(CommandLinePlugin):
         parser.add_argument(
             "--step-size",
             default=0.1,
-            type=float,
+            type=finite_float,
             help="Size of steps for the containment thresholds",
+        )
+        parser.add_argument(
+            "--details-file",
+            default=None,
+            help="File for the cANI and sample metadata details table "
+            "(default: <parsed-containment-file stem>_details.tsv)",
+        )
+        parser.add_argument("--registry", default=None, help="Registry file (default: found upwards from here)")
+        parser.add_argument(
+            "--registry-max-screened",
+            type=int,
+            default=DEFAULT_REGISTRY_MAX_SCREENED,
+            help="Most screening entries to keep in the registry per genome (the match CSVs keep them all)",
         )
 
     def main(self, args):
         super().main(args)
+        setup_logging(level=logging.INFO)
+        from prepare.cli.base import anchored_folder
         from prepare.data.branchwater import parse_containment_data
+        from prepare.data.registry import record_screening_from_table, registry_transaction
+        from prepare.data.screening_table import read_screening_table
 
         try:
-            parse_containment_data(
-                args.matches_folder,
+            matches_folder = str(anchored_folder(args.matches_folder, args.registry))
+            errors: List[str] = []
+            summary = parse_containment_data(
+                matches_folder,
                 args.parsed_containment_file,
                 args.summary_containment_file,
                 args.step_size,
+                details_file=args.details_file,
+                errors=errors,
             )
+            # The table just built is used directly; a summary without one falls back to the file.
+            table = getattr(summary, "table", None)
+            if table is None:
+                table = read_screening_table(args.parsed_containment_file)
+            with registry_transaction(args.registry) as registry:
+                if table is not None:
+                    record_screening_from_table(
+                        registry, table, matches_folder, max_screened=args.registry_max_screened
+                    )
         except Exception as e:
             logger.error(f"Error parsing containment: {e}")
+            sys.exit(1)
+        if errors:
+            logger.error("%d match file(s) could not be read: %s", len(errors), ", ".join(errors))
             sys.exit(1)
 
 
@@ -101,7 +137,7 @@ class PreparePlotPlugin(CommandLinePlugin):
         )
         parser.add_argument(
             "--threshold",
-            type=float,
+            type=finite_float,
             default=None,
             help="Minimum value to include in the plot",
         )
@@ -114,6 +150,7 @@ class PreparePlotPlugin(CommandLinePlugin):
 
     def main(self, args):
         super().main(args)
+        setup_logging(level=logging.INFO)
         from prepare.visualization.plots import plot_containment
 
         try:
@@ -173,6 +210,7 @@ class PrepareDiversityPlugin(CommandLinePlugin):
 
     def main(self, args):
         super().main(args)
+        setup_logging(level=logging.INFO)
         import pandas as pd
         from pathlib import Path
 
@@ -180,6 +218,7 @@ class PrepareDiversityPlugin(CommandLinePlugin):
         from prepare.processing.diversity import (
             calculate_alpha_diversity,
             calculate_beta_diversity,
+            check_metadata_covers_samples,
             perform_permanova,
         )
 
@@ -189,6 +228,9 @@ class PrepareDiversityPlugin(CommandLinePlugin):
             metadata_df = None
             if args.metadata_file:
                 metadata_df = pd.read_csv(args.metadata_file, index_col=0)
+                if args.permanova_formula:
+                    # Every sample needs a metadata row; check before any output is written.
+                    check_metadata_covers_samples(abundance_df.index, metadata_df)
 
             output_dir = Path(args.output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -257,12 +299,13 @@ class PrepareTaxonomyPlugin(CommandLinePlugin):
         )
         parser.add_argument(
             "--cache-file",
-            default="taxonomy_cache.csv",
-            help="Cache file for storing results",
+            default="taxonomy_validation_cache.csv",
+            help="Cache file for the NCBI taxonomy lookups (not the GTDB cache of enrich_taxonomy)",
         )
 
     def main(self, args):
         super().main(args)
+        setup_logging(level=logging.INFO)
         import pandas as pd
 
         from prepare.core.settings import require_email, setting_for

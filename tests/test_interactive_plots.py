@@ -12,8 +12,10 @@ import tempfile
 for _module in ("plotly", "sklearn", "scipy"):
     pytest.importorskip(_module)
 
+from prepare.core.exceptions import ValidationError  # noqa: E402
 from prepare.visualization.interactive import (  # noqa: E402
     create_interactive_pca,
+    create_interactive_tsne,
     create_interactive_heatmap,
     create_diversity_comparison_plot,
 )
@@ -88,7 +90,8 @@ class TestInteractivePlots:
             with patch("plotly.graph_objects.Figure.write_html") as mock_write:
                 create_interactive_pca(self.data_matrix, output_file=output_file, show_plot=False)
 
-                mock_write.assert_called_once_with(str(output_file))
+                mock_write.assert_called_once()
+                assert output_file.exists()  # replaced from a temporary file, not written in place
 
     @patch("plotly.graph_objects.Figure.show")
     def test_create_interactive_heatmap_basic(self, mock_show):
@@ -160,6 +163,79 @@ class TestInteractivePlots:
 
         assert fig is not None
         mock_show.assert_not_called()
+
+
+class TestMetadataAlignment:
+    """Metadata values are matched to samples by name, not by row position (audit H5)."""
+
+    def setup_method(self):
+        self.data = pd.DataFrame(
+            [[1.0, 2.0, 0.5], [3.0, 1.0, 2.5], [0.0, 4.0, 1.0]],
+            index=["s1", "s2", "s3"],
+            columns=["f1", "f2", "f3"],
+        )
+        # Metadata rows deliberately in a different order than the data frame.
+        self.metadata = pd.DataFrame({"grp": ["b", "a", "a"], "depth": [30.0, 10.0, 20.0]}, index=["s2", "s1", "s3"])
+
+    @staticmethod
+    def _samples_by_trace(fig):
+        return {trace.name: sorted(trace.hovertext) for trace in fig.data}
+
+    def test_pca_colours_by_sample_name(self):
+        fig = create_interactive_pca(self.data, metadata=self.metadata, color_by="grp", n_components=2, show_plot=False)
+        assert {trace.name for trace in fig.data} == {"a", "b"}
+        assert self._samples_by_trace(fig) == {"a": ["s1", "s3"], "b": ["s2"]}
+
+    def test_pca_sizes_by_sample_name(self):
+        fig = create_interactive_pca(
+            self.data, metadata=self.metadata, size_by="depth", n_components=2, show_plot=False
+        )
+        sizes = dict(zip(fig.data[0].hovertext, fig.data[0].marker.size))
+        assert sizes == {"s1": 10.0, "s2": 30.0, "s3": 20.0}
+
+    def test_pca_drops_size_mapping_with_negative_values(self):
+        metadata = self.metadata.assign(depth=[30.0, -1.0, 20.0])
+        fig = create_interactive_pca(self.data, metadata=metadata, size_by="depth", n_components=2, show_plot=False)
+        assert fig.data[0].marker.size is None
+
+    def test_pca_tolerates_extra_and_duplicated_metadata_rows(self):
+        extra = pd.DataFrame({"grp": ["c", "z"], "depth": [99.0, 1.0]}, index=["s2", "s9"])
+        metadata = pd.concat([self.metadata, extra])
+        fig = create_interactive_pca(self.data, metadata=metadata, color_by="grp", n_components=2, show_plot=False)
+        assert self._samples_by_trace(fig) == {"a": ["s1", "s3"], "b": ["s2"]}
+
+    def test_tsne_colours_by_sample_name(self):
+        fig = create_interactive_tsne(
+            self.data, metadata=self.metadata, color_by="grp", perplexity=1.0, n_iter=250, show_plot=False
+        )
+        assert {trace.name for trace in fig.data} == {"a", "b"}
+        assert self._samples_by_trace(fig) == {"a": ["s1", "s3"], "b": ["s2"]}
+
+    def test_pca_names_a_sample_missing_from_metadata(self):
+        metadata = self.metadata.drop(index="s3")
+        with pytest.raises(ValidationError, match="s3"):
+            create_interactive_pca(self.data, metadata=metadata, color_by="grp", n_components=2, show_plot=False)
+
+    def test_tsne_names_a_sample_missing_from_metadata(self):
+        metadata = self.metadata.drop(index="s1")
+        with pytest.raises(ValidationError, match="s1"):
+            create_interactive_tsne(self.data, metadata=metadata, color_by="grp", perplexity=1.0, show_plot=False)
+
+    def test_diversity_plot_requires_metadata(self):
+        alpha = pd.DataFrame({"shannon": [1.0, 2.0, 1.5]}, index=["s1", "s2", "s3"])
+        with pytest.raises(ValidationError, match="--metadata-file is required"):
+            create_diversity_comparison_plot(alpha, None, "grp", show_plot=False)
+
+    def test_diversity_plot_groups_by_sample_name(self):
+        alpha = pd.DataFrame({"shannon": [1.0, 2.0, 1.5]}, index=["s1", "s2", "s3"])
+        fig = create_diversity_comparison_plot(alpha, self.metadata, "grp", show_plot=False)
+        assert sorted(fig.data[0].x) == ["a", "a", "b"]
+        assert dict(zip(fig.data[0].y, fig.data[0].x)) == {1.0: "a", 2.0: "b", 1.5: "a"}
+
+    def test_diversity_plot_names_a_sample_missing_from_metadata(self):
+        alpha = pd.DataFrame({"shannon": [1.0, 2.0, 1.5]}, index=["s1", "s2", "s3"])
+        with pytest.raises(ValidationError, match="s2"):
+            create_diversity_comparison_plot(alpha, self.metadata.drop(index="s2"), "grp", show_plot=False)
 
 
 class TestInteractivePlotsEdgeCases:

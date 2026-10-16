@@ -238,7 +238,7 @@ def test_a_folder_without_accession_folders_is_an_error(tmp_path, caplog):
     (tmp_path / "fastq").mkdir()
     (tmp_path / "fastq" / "not_a_dir.txt").write_text("x")
     with caplog.at_level("ERROR"):
-        assert SRAProfileCommand().execute(_args(tmp_path)) == 1
+        assert SRAProfileCommand().execute(_args(tmp_path)) == 2
     assert "No accession folders" in caplog.text
     assert not any("Traceback" in ConsoleFormatter().format(r) for r in caplog.records)
 
@@ -594,3 +594,20 @@ def test_load_dataset_stats_cache_write_failure_is_logged_and_a_bug_propagates(t
         with patch.object(dataset_stats, "store_stats", side_effect=TypeError("bug")):
             with pytest.raises(TypeError):
                 dataset_stats.load_dataset_stats([fastq])
+
+
+def test_an_accession_flag_that_is_not_an_accession_is_refused_before_any_work(tmp_path):
+    from prepare.core.exceptions import ValidationError
+
+    _paired_dataset(tmp_path, "SRR1")
+    outside = tmp_path.parent / "evil"
+    args = _args(tmp_path, accession=["../../evil"])
+
+    with pytest.raises(ValidationError, match="evil"):
+        SRAProfileCommand()._resolve_accessions(args)
+    assert SRAProfileCommand().execute(args) == 2
+
+    assert not outside.exists()
+    assert not (tmp_path / "sra_statistics.csv").exists()
+    registry = tmp_path / "prepare_registry.json"
+    assert not registry.exists() or "evil" not in registry.read_text()

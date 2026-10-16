@@ -1,7 +1,9 @@
 """The containment summary and the screening registry, pinned on a 200 x 4 table.
 
 The expected outputs in ``tests/fixtures/containment_pin`` were written by the row-by-row
-implementation before the numpy one replaced it (2026-09-26). The table has ties in
+implementation before the numpy one replaced it (2026-09-26). The summary was regenerated for
+the exact decimal threshold grid (audit M6): three counts at thresholds that equal a maximum
+changed, and the labels are the half-up two-decimal rendering of k * step. The table has ties in
 ``max_containment``, zeros, and one genome that is 0 everywhere; the registry it is recorded
 into already holds screening entries, an inferred block, an exclusion-only record and an empty
 record, so the merge with earlier records and the per-genome cap are both covered.
@@ -93,7 +95,7 @@ def test_summary_counts_at_a_coarse_step(tmp_path):
     result = _generate_containment_summary(data, tmp_path / "p.txt", tmp_path / "s.txt", 0.1)
     maxima = [max(row.values()) for row in data.values()]
     assert result.thresholds == [round(i * 0.1, 2) for i in range(10, -1, -1)]
-    assert result.counts == [sum(m >= i * 0.1 for m in maxima) for i in range(10, -1, -1)]
+    assert result.counts == [sum(round(m, 10) >= round(i * 0.1, 10) for m in maxima) for i in range(10, -1, -1)]
 
 
 @pytest.mark.parametrize("cap", ["5000", "40"])

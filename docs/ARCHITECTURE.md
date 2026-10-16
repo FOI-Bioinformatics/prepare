@@ -51,9 +51,10 @@ commands keep part of their logic in a helper module beside them: `extract_targe
 (`read_extraction.py`) assembles through `extraction_assembly.py` (`assemble_samples`, one sample at a
 time under its sample lock, with the per-sample outcome in `AssemblyOutcome`), and `download_sra`
 (`sra.py`) takes its registry inputs and download verdicts from `sra_verdicts.py` (`registry_inputs`,
-`present_verdicts`, `store_verdict`, which `store_link` and `store_adopt` record too). The two
-reporting commands of the Environment group are one module each: `runs.py` (`RunsCommand`, which reads
-the run log and compares runs through `processing/run_diff.py`) and `project_report.py`
+`present_verdicts`, `store_verdict`, which `store_link` and `store_adopt` record too) and records
+each download outcome in the registry through `sra_record.py` (`result_recorder`, `record_present`).
+The two reporting commands of the Environment group are one module each: `runs.py` (`RunsCommand`,
+which reads the run log and compares runs through `processing/run_diff.py`) and `project_report.py`
 (`ProjectReportCommand`, which builds the report in `processing/project_report.py` and renders it
 through `processing/project_report_markdown.py` and `visualization/project_report.py`). Every
 command writes to stdout through exactly one channel, `BaseCommand.emit`/`emit_raw`/`emit_json`
@@ -180,11 +181,16 @@ each other and each is small enough to test alone:
   is gone, whose `project.id` no longer matches what the catalogue recorded, or that were last seen
   from a different host than the one running the check). On a store shared between machines, a project
   active elsewhere still looks stale from here; `store_gc` leaves a stale project's datasets alone
-  unless `--include-stale` is given.
+  unless `--include-stale` is given, and even then a dataset that a stale project still links to is
+  kept (the project is listed with " (stale)"). The registry path is stored resolved, so the
+  catalogue does not depend on the folder a command was run from.
 - **locks**: a per-accession lock file with a heartbeat, so two projects downloading the same accession
   at once cooperate rather than corrupt each other's work; a lock with no heartbeat for 10 minutes
   (`DATASET_LOCK_STALE_SECONDS`) is treated as abandoned and taken over. `--lock-wait` on `download_sra`
   and `store_adopt` bounds how long each waits for another project's lock before giving up.
+- **journal**: append-only JSON-lines copies of the catalogue's project and usage records, which
+  `store_reindex` replays into a rebuilt catalogue; `store_gc` prunes the lines of the accessions it
+  removed and `store_reindex` keeps the latest line per project.
 - **stats**: computes and caches the per-dataset statistics block (streaming exact read and base
   counts, plus a sample for per-read metrics such as GC content), invalidated when the FASTQ file's size
   or modification time changes; used by `sra_profile`, `sra_report` and `sra_validate` (through
@@ -266,7 +272,7 @@ skipped instead of mapping it twice.
 
 Compatibility shims keep every existing caller unchanged: `prepare/store/locks.py` re-exports the
 dataset-lock API (`dataset_lock`, `lock_is_held`, `read_holder`, `LockHeld`, `LockWaitStopped`) built on
-`held_lock` with the dataset policy, and `prepare/data/registry.py`'s `_acquire_lock` is a thin
+`held_lock` with the dataset policy, and `prepare/data/registry_io.py`'s `_acquire_lock` is a thin
 context manager over `held_lock` with the registry policy.
 
 #### Registry write model
@@ -418,8 +424,16 @@ itself if it wants that further run's own tools to start.
   profile and the store statistics record, and the Phred histogram helpers), and `download` (the CLI-facing entry point); the package's `__init__.py` re-exports
   the public functions other layers import, so `from prepare.data.sra import download_accession` still
   works
+- **accessions** (`prepare/data/accessions.py`): `require_accession` and `read_accessions_file`, the
+  one check of an SRA run accession before it becomes a folder name, and the one reader of an
+  accessions file (blank lines and `#` comments skipped, repeats dropped, each line checked)
 - **registry**: The project journal (`prepare_registry.json`); records dataset state and
   re-checks presence against the filesystem
+- **registry_io**: loading, the lock, atomic saves and `registry_transaction`; split out of
+  `registry.py` and re-exported from it
+- **registry_scan**: the disk scanners (`scan_downloads`, `scan_metadata`, `scan_extractions`,
+  `scan_assemblies`) and `bootstrap_from_disk`; split out of `registry.py` and re-exported from it.
+  Both modules look `registry` up at call time, since `registry.py` imports them
 - **registry_blocks**: Typed dataclasses for every block the registry file holds, described in
   "Project registry" above
 - **registry_timing**: `started`/`seconds` for the download, extraction and assembly blocks
@@ -434,6 +448,15 @@ itself if it wants that further run's own tools to start.
   (`insufficient-space: ...`). Only a tool's own out-of-space error aborts a download pass
 - **assembly**: the megahit step of `extract_target_reads` (`assemble_extracted_reads`,
   `_megahit_args`, `summarise_contigs`), split out of `read_extraction.py` and re-exported from it
+- **read_extraction_export**: the minimap2 and samtools argument builders, the export of mapped
+  reads to FASTQ and the per-sample reference coverage table; split out of `read_extraction.py` and
+  re-exported from it
+- **metadata_fetch**: the Entrez efetch calls of `download_metadata` (single and batched, pacing and
+  credentials, the split of an efetch response into one package per run); split out of `metadata.py`
+  and re-exported from it
+- **ncbi_pacing**: `RequestPacer`, the thread-safe request pacing shared by the NCBI taxonomy client,
+  `SRAMetadataClient` and the Entrez metadata download: 3 requests per second without an API key and
+  10 with one
 - **assembly_identity**: the assembly marker, staging and publish (`AssemblyInputs`, `assembly_state`,
   `publish_assembly`, `sweep_staging`), described in "Assembly identity and staging" below
 - **registry_assembly**: the `inputs` entry of the registry's assembly record (`set_assembly_inputs`)
@@ -530,7 +553,8 @@ Other modules, one line each:
   `genome_taxonomy`, `sra_metadata` (NCBI metadata client), `extraction_locks`, `extraction_staging`
 - `processing/`: `diversity`, `results` (the `results_table` rows), `doctor_report`, `selection`
 - `visualization/`: `explorer` (`explore_containment`), `interactive`
-- `utils/`: `browser`, `html` (including `plotly_cdn_script`)
+- `utils/`: `browser`, `html` (including `plotly_js_script`), `sizes` (`tree_bytes`, the size of a
+  folder's regular files without following symlinks, used by `store_gc`, `store_link` and cleanup)
 - `cli/commands/`: `branchwater_search`, `explore`, `results`, `samples`, `sra_enhanced`,
   `advanced_analysis`, `test_data`
 - `plugins/sourmash_plugin.py`: see "Plugin System"
@@ -569,14 +593,17 @@ Other modules, one line each:
 
 Format handlers and visualizers are plugins, using a registry pattern (`prepare/plugins/base.py`):
 
-1. `Plugin` defines only class attributes `name`, `description` and `version`, with
-   `get_name`/`get_description`/`get_version`; it has no other required methods
+1. `Plugin` is an abstract base with the class attributes `name`, `description` and `version`;
+   `FormatPlugin` (abstract `validate_header` and `parse_file`) and `VisualizerPlugin` (abstract
+   `create_plot`) define the two plugin interfaces
 2. `PluginRegistry` has two instances: `format_registry` for file formats and `visualizer_registry` for
-   visualization types
-3. Each plugin defines its own interface: `validate_header` and the parsing methods on the Branchwater
-   format plugin, `create_plot` on the visualizers
-4. Plugins are registered explicitly by the module that uses them (`data/branchwater.py`,
-   `visualization/plots.py`); there is no runtime discovery
+   visualization types. `register` refuses an abstract class and a different class under a name already
+   taken; registering the same class again does nothing
+3. The built-in plugins are registered by `prepare.plugins.load_builtin_plugins()`, which the registries
+   call on their first lookup, so importing `prepare.plugins` (as the sourmash entry point does) does
+   not import pandas or matplotlib
+4. Third-party plugins are found through the `prepare_plugins` entry-point group
+   (`discover_entry_points`); one that fails to load is logged at WARNING and skipped
 
 The one format plugin, `BranchWaterFormatPlugin`, lives in `prepare/plugins/formats/`, and the
 visualizers (`bar`, `heatmap`, `map`) in `prepare/plugins/visualizers/`. `prepare/plugins/sourmash_plugin.py`
@@ -602,7 +629,7 @@ Each exception class carries the process exit code it gives (`PrepareError.exit_
 |---|---|---|
 | 0 | `OK` | |
 | 1 | `FAILURE` | `PrepareError` and every subclass not below; any other exception |
-| 2 | `USAGE` | argparse usage errors; a renamed command (`cli/commands/renamed.py`) |
+| 2 | `USAGE` | `ValidationError` (invalid input, such as a malformed accession); argparse usage errors; a renamed command (`cli/commands/renamed.py`) |
 | 3 | `CONFIGURATION` | `ConfigurationError` (see below) |
 | 4 | `TRANSIENT` | `TransientError`: `LockTimeoutError`, `NetworkError` (see below) |
 | 130 | `INTERRUPTED` | `KeyboardInterrupt`, which the first `SIGINT`, `SIGTERM` or `SIGHUP` becomes |
@@ -639,7 +666,7 @@ network one and nothing was fetched (`NetworkError`, 4); a rerun fetches only th
   `data/metadata.py`, `data/sra/accession.py`, `data/sra/cleanup.py` and `store/link.py` follow this
   (`progress.active_item_level()` reads the setting). `extract_target_reads` reports from its
   `on_result` callback, and a `progress.DemoteInfo` filter moves the per-sample INFO lines of
-  `data/read_extraction.py`, held at its line ceiling, to the item level for the length of the run.
+  `data/read_extraction.py` to the item level for the length of the run.
 - At DEBUG `main()` logs the version, the command line (with the `--api-key` value hidden), host,
   process ID, the SLURM job and array task IDs when set, and every runtime setting with its source.
 

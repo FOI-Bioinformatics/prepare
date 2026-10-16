@@ -18,7 +18,15 @@ class TestReportCss:
     """Tests for the shared design-system stylesheet."""
 
     def test_defines_the_shared_component_vocabulary(self):
-        for token in ("--paper-bg", "--seq-fill", ".mq-header", ".mq-stat", ".mq-panel", ".mq-table", ".mq-heatbar"):
+        for token in (
+            "--paper-bg",
+            "--seq-fill",
+            ".pre-header",
+            ".pre-stat",
+            ".pre-panel",
+            ".pre-table",
+            ".pre-heatbar",
+        ):
             assert token in html.REPORT_CSS
 
     def test_supports_light_and_dark_and_a11y(self):
@@ -77,6 +85,15 @@ class TestTableScript:
     def test_defines_the_three_table_helpers(self):
         for fn in ("function filterTable", "function sortTable", "function exportCSV"):
             assert fn in html.TABLE_SCRIPT
+
+    def test_csv_export_guards_formula_cells(self):
+        assert "/^[=+\\-@]/.test(val)" in html.TABLE_SCRIPT
+        assert 'val = "\'" + val' in html.TABLE_SCRIPT
+
+    def test_sort_parses_only_whole_numeric_cells_and_starts_ascending(self):
+        assert "/^-?\\d+(\\.\\d+)?$/" in html.TABLE_SCRIPT
+        assert "parseFloat" not in html.TABLE_SCRIPT
+        assert 'getAttribute("data-sort-dir") == "asc"' in html.TABLE_SCRIPT
 
     def test_is_wrapped_in_a_script_tag_with_single_braces(self):
         assert html.TABLE_SCRIPT.startswith("<script>")

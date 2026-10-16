@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 from prepare.core.exceptions import VisualizationError
-from prepare.plugins.base import Plugin
+from prepare.plugins.base import VisualizerPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ def _create_vertical_bar(plot_df, y_column, ax, colors, **kwargs):
     return ax
 
 
-class BarChartPlugin(Plugin):
+class BarChartPlugin(VisualizerPlugin):
     """Plugin for creating bar chart visualizations."""
 
     name = "bar"
@@ -172,8 +172,11 @@ class BarChartPlugin(Plugin):
 
             # Save plot if output_file specified
             if output_file:
-                fig.savefig(output_file, format=output_format, dpi=300, bbox_inches="tight")
-                logger.info(f"Saved bar chart to {output_file}")
+                try:
+                    fig.savefig(output_file, format=output_format, dpi=300, bbox_inches="tight")
+                    logger.info(f"Saved bar chart to {output_file}")
+                finally:
+                    plt.close(fig)
 
             return fig
 

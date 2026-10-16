@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from prepare.core.constants import STORE_ENV
-from prepare.core.exceptions import DataAccessError
+from prepare.core.exceptions import ConfigurationError, DataAccessError
 from prepare.core.settings import config_path, read_config
 from prepare.data.file_io import write_text_atomic
 from prepare.store.layout import StorePaths, read_marker, store_paths
@@ -76,6 +76,20 @@ def write_config_data_root(root: Path) -> Path:
     return path
 
 
+class _ConfigRoot:
+    """Stands for the config file's ``store.data_root`` until the earlier rules have missed."""
+
+    @staticmethod
+    def value() -> Optional[str]:
+        store = read_config().get("store", {})
+        if not isinstance(store, dict):
+            raise ConfigurationError(f"Config file {config_path()}: [store] must be a table")
+        root = store.get("data_root")
+        if root is not None and not isinstance(root, str):
+            raise ConfigurationError(f"Config file {config_path()}: store.data_root must be a string")
+        return root
+
+
 def resolve_store_root(
     explicit: Optional[str],
     registry_root: Optional[str],
@@ -88,21 +102,20 @@ def resolve_store_root(
     DataAccessError naming the rule that produced the root. On success, the
     resolved root is registered with SecureSubprocess.add_allowed_root.
     """
-    env_value = os.environ.get(STORE_ENV)
-    config_value = read_config().get("store", {}).get("data_root")
-
     candidates = [
         ("--data-root", explicit),
-        (STORE_ENV, env_value),
+        (STORE_ENV, os.environ.get(STORE_ENV)),
         ("registry store.root", registry_root),
-        ("config data_root", config_value),
+        ("config data_root", _ConfigRoot()),
     ]
 
     for rule, candidate in candidates:
+        if isinstance(candidate, _ConfigRoot):
+            candidate = candidate.value()  # the config file is read only when nothing earlier matched
         if not candidate:
             continue
 
-        root = Path(candidate).resolve()
+        root = Path(candidate).expanduser().resolve()
 
         if require_marker and read_marker(root) is None:
             raise DataAccessError(

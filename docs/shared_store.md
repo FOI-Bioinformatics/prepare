@@ -23,7 +23,7 @@ prepare store_adopt --fastq-folder fastq --dry-run                   # preview f
 prepare store_adopt --fastq-folder fastq --move                      # move reads into the store, link back
 prepare store_adopt --fastq-folder fastq --copy                      # copy into the store, keep the project folder
 prepare store_status --json                                          # dataset and byte counts
-prepare store_status --verbose                                       # also list every dataset in the store
+prepare store_status --details                                       # also list every dataset in the store
 prepare store_usage --accession SRR11011981                          # which projects used this run
 prepare store_usage --project my_project                             # every dataset that project has used
 prepare store_usage --organism GCF_000008025.1                       # every dataset used for that target genome
@@ -35,7 +35,7 @@ prepare store_gc --dry-run                                           # candidate
 | --- | --- |
 | `store_init` | Create a store at `--data-root` and record the project's use of it. `--set-default` also records the root as the user's default. |
 | `store_adopt` | Fold an existing project `fastq/` folder into the store. |
-| `store_status` | Dataset and byte counts. `--verbose` lists every dataset. |
+| `store_status` | Dataset and byte counts. `--details` lists every dataset (the former `--verbose` is a deprecated alias). |
 | `store_link`, `store_unlink` | Add or remove the project link of one accession. |
 | `store_verify` | Check a dataset's files against the recorded size, md5 or spot count. |
 | `store_reindex` | Rebuild the catalogue from the sidecar files on disk. |

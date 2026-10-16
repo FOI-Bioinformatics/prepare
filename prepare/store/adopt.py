@@ -40,12 +40,14 @@ and is reported rather than blessed with a sidecar and linked here.
 
 import fnmatch
 import logging
+import re
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
+from prepare.core.constants import SRA_ACCESSION_PATTERN
 from prepare.core.exceptions import DataAccessError
 from prepare.data.file_io import is_hidden_name, visible_files
 from prepare.data.sra import (
@@ -59,7 +61,7 @@ from prepare.data.sra import (
 from prepare.store.catalog import catalog_write
 from prepare.store.layout import StorePaths, lock_path, sidecar_path, sra_dir
 from prepare.store.link import link_dataset, room_shortfall
-from prepare.store.locks import dataset_lock, lock_holder, lock_is_held
+from prepare.store.locks import LockHeld, dataset_lock, lock_holder, lock_is_held
 from prepare.store.sidecar import (
     Sidecar,
     build_sidecar,
@@ -412,7 +414,8 @@ def _scan_project_dir(project_dir: Path, report: AdoptReport) -> Dict[str, Path]
     """Real (non-symlink, non-transient) accession directories directly in ``project_dir``.
 
     A symlink is recorded in ``report.skipped`` (already a store link, nothing to adopt) rather
-    than returned.
+    than returned. A folder not named like an SRA accession (notes kept beside the datasets, for
+    example) is not a dataset: it is logged as skipped and left in place, as ``store_reindex`` does.
     """
     real_dirs: Dict[str, Path] = {}
     if not project_dir.is_dir():
@@ -426,8 +429,12 @@ def _scan_project_dir(project_dir: Path, report: AdoptReport) -> Dict[str, Path]
         if candidate.is_symlink():
             report.skipped.append(name)
             continue
-        if candidate.is_dir():
-            real_dirs[name] = candidate
+        if not candidate.is_dir():
+            continue
+        if not re.fullmatch(SRA_ACCESSION_PATTERN, name):
+            logger.warning("%s in %s is not named like an SRA accession; skipped", name, project_dir)
+            continue
+        real_dirs[name] = candidate
     return real_dirs
 
 
@@ -437,11 +444,16 @@ def _scan_foreign_incomplete(paths: StorePaths, real_dirs: Dict[str, Path]) -> L
     Such a folder is another project's work: an interrupted run of theirs, or one still in
     flight. Adoption reports it so the store's owner can see it, and never blesses it with a
     sidecar or links it here. Only the project's own folders (``real_dirs``) are ever adopted,
-    so a dataset another project is mid-download on cannot be claimed by this run.
+    so a dataset another project is mid-download on cannot be claimed by this run. A folder
+    not named like an SRA accession is not a dataset: it is logged as skipped, as
+    ``store_reindex`` does, before any path is built from its name.
     """
     foreign: List[str] = []
     for store_dir in visible_files(paths.sra, dirs=True):
         accession = store_dir.name
+        if not re.fullmatch(SRA_ACCESSION_PATTERN, accession):
+            logger.warning("%s in %s is not named like an SRA accession; skipped", accession, paths.sra)
+            continue
         if accession in real_dirs or sidecar_path(paths, accession).is_file():
             continue
         foreign.append(accession)
@@ -500,10 +512,9 @@ def _dedup_or_conflict(
             logger.info("%s: identical copy already in the store; project copy kept (--copy)", accession)
             _notify(on_progress, accession, "deduplicated")
             return
-        shutil.rmtree(entry)
-        link_dataset(project_dir, accession, paths)
-        report.deduplicated.append(accession)
-        _notify(on_progress, accession, "deduplicated")
+        if _replace_with_link(accession, entry, paths, project_dir, on_progress, report):
+            report.deduplicated.append(accession)
+            _notify(on_progress, accession, "deduplicated")
         return
     report.conflicts.append(accession)
     logger.warning(
@@ -533,11 +544,42 @@ def _apply_move_or_copy(
         _notify(on_progress, accession, "copied")
         return
 
-    if entry.exists():
-        shutil.rmtree(entry)
-    link_dataset(project_dir, accession, paths)
-    report.adopted.append(accession)
-    _notify(on_progress, accession, "adopted")
+    if _replace_with_link(accession, entry, paths, project_dir, on_progress, report):
+        report.adopted.append(accession)
+        _notify(on_progress, accession, "adopted")
+
+
+def _replace_with_link(
+    accession: str,
+    entry: Path,
+    paths: StorePaths,
+    project_dir: Path,
+    on_progress: Optional[Callable[[str, str], None]],
+    report: AdoptReport,
+) -> bool:
+    """Replace the project's folder ``entry`` with a link to the store's copy; return whether it was.
+
+    The removal and the link run under one hold of the dataset lock, taken without waiting, so
+    no other run (``store_gc`` in particular) can act on the store's copy in between. When the
+    lock is held elsewhere the accession is reported in ``failed`` and the project's folder is
+    left in place.
+    """
+    try:
+        with dataset_lock(paths, accession, blocking=False):
+            if entry.exists():
+                shutil.rmtree(entry)
+            link_dataset(project_dir, accession, paths, locked=True)
+            return True
+    except LockHeld:
+        logger.error(
+            "%s: %s is being written by %s; retry later (project copy kept)",
+            accession,
+            accession,
+            lock_holder(paths, accession),
+        )
+        report.failed.append(accession)
+        _notify(on_progress, accession, "failed")
+        return False
 
 
 def _adopt_one(

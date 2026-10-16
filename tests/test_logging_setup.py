@@ -159,11 +159,11 @@ def test_a_subcommand_flag_left_out_keeps_the_main_parser_value():
     assert args.log_level == "ERROR" and args.log_quiet is False and args.log_file is None
 
 
-def test_store_status_keeps_its_own_verbose_flag_and_takes_quiet():
+def test_store_status_keeps_the_hidden_verbose_alias_and_takes_quiet():
     args = create_parser().parse_args(["-v", "store_status", "--verbose"])
-    assert args.verbose is True and args.log_verbose is True
+    assert args.details_alias is True and args.log_verbose is True
     args = create_parser().parse_args(["store_status", "--quiet"])
-    assert args.verbose is False and args.log_verbose is False and args.log_quiet is True
+    assert args.details_alias is False and args.log_verbose is False and args.log_quiet is True
 
 
 @pytest.mark.parametrize(
@@ -183,7 +183,7 @@ def test_a_negative_progress_interval_is_a_usage_error():
 
 @pytest.mark.parametrize(
     "flags, level",
-    [(["-q"], logging.WARNING), (["-v"], logging.DEBUG), (["--log-level", "ERROR", "-v"], logging.DEBUG), ([], None)],
+    [(["-q"], logging.WARNING), (["-v"], logging.DEBUG), ([], None)],
 )
 def test_quiet_and_verbose_override_the_log_level(tmp_path, flags, level):
     with patch("prepare.cli.main.setup_logging") as setup:
@@ -257,3 +257,50 @@ def test_masking_without_a_namespace_covers_abbreviations():
         "--email",
         "a@b.c",
     ]
+
+
+def test_store_status_accepts_the_global_v_flag(tmp_path):
+    root = tmp_path / "store"
+    with patch("prepare.cli.main.setup_logging") as setup:
+        code = main(["store_status", "-v", "--data-root", str(root), "--registry", str(tmp_path / "r.json")])
+    assert code in (0, 1)
+    assert setup.call_args.kwargs["level"] == logging.DEBUG
+
+
+def test_store_status_details_flag_and_hidden_verbose_alias_parse():
+    parser = create_parser()
+    assert parser.parse_args(["store_status", "--details"]).details is True
+    alias = parser.parse_args(["store_status", "--verbose"])
+    assert alias.details_alias is True
+    assert alias.log_verbose is not True
+
+
+@pytest.mark.parametrize("command", ["download_sra", "store_status", "find_by_taxonomy"])
+def test_command_help_does_not_print_default_false(command, capsys):
+    with pytest.raises(SystemExit):
+        main([command, "--help"])
+    assert "(default: False)" not in capsys.readouterr().out
+
+
+def test_verify_downloads_help_keeps_one_default_note(capsys):
+    with pytest.raises(SystemExit):
+        main(["download_sra", "--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    note = text.split("recorded total spots", 1)[1].split(" --", 1)[0]
+    assert note.count("(default") == 1 and "(default: on)" in note
+    assert "(default: True)" not in text
+
+
+def test_log_level_is_case_insensitive():
+    assert create_parser().parse_args(["--log-level", "debug", "store_status"]).log_level == "DEBUG"
+
+
+@pytest.mark.parametrize("flag", ["-v", "-q"])
+@pytest.mark.parametrize("placement", ["before", "after"])
+def test_log_level_with_quiet_or_verbose_is_a_usage_error(flag, placement):
+    argv = ["--log-level", "ERROR", flag, "store_status"]
+    if placement == "after":
+        argv = ["store_status", "--log-level", "ERROR", flag]
+    with pytest.raises(SystemExit) as raised:
+        main(argv)
+    assert raised.value.code == 2

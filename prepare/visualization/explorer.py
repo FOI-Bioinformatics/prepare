@@ -19,6 +19,7 @@ from typing import Dict, Optional, Tuple, Union
 
 import pandas as pd
 
+from prepare.core.constants import EXPLORER_TABLE_ROWS, EXPLORER_HEATMAP_MAX_HEIGHT
 from prepare.core.models import TaxonomyInfo
 from prepare.core.optional import require
 from prepare.core.utils import get_genome_columns
@@ -84,13 +85,35 @@ def generate_containment_explorer(
         heatmap_html = _build_heatmap(long_df)
         box_html, bar_html = _build_distributions(long_df)
 
-    table_html = _build_table_html(long_df)
-    html_content = _assemble_html(title, summary, sunburst_html, heatmap_html, table_html, box_html, bar_html)
+    table_html = _build_table_html(long_df, EXPLORER_TABLE_ROWS)
+    shown = min(len(long_df), EXPLORER_TABLE_ROWS)
+    table_note = f"showing top {shown} of {len(long_df)} rows" if len(long_df) > shown else ""
+    html_content = _assemble_html(
+        title, summary, sunburst_html, heatmap_html, table_html, box_html, bar_html, table_note=table_note
+    )
 
     write_text_atomic(output_path, html_content)
 
     logger.info(f"Containment explorer saved to {output_path}")
     return output_path
+
+
+_LOCATION_COLUMNS = ("geo_loc_name_country_calc", "geo_loc_name_sam", "location")
+_DATE_COLUMNS = ("collection_date_sam", "collection_date")
+_LONG_COLUMNS = ["sample", "genome", "containment", "family", "genus", "species", "location", "date"]
+
+
+def _metadata_text(metadata: pd.DataFrame, columns: Tuple[str, ...]) -> pd.Series:
+    """Return the first present metadata column as text indexed by sample, a missing value as an empty string."""
+    present = [metadata[c] for c in columns if c in metadata.columns]
+    if not present:
+        return pd.Series(dtype=str)
+    merged = present[0]
+    for other in present[1:]:
+        merged = merged.combine_first(other)
+    merged = merged.astype(object).where(merged.notna(), "").astype(str)
+    merged.index = merged.index.astype(str)
+    return merged
 
 
 def _build_long_dataframe(
@@ -99,31 +122,31 @@ def _build_long_dataframe(
     metadata: Optional[pd.DataFrame],
     min_containment: float,
 ) -> pd.DataFrame:
-    """Convert wide containment DataFrame to long format with taxonomy."""
+    """Convert wide containment DataFrame to long format with taxonomy.
+
+    The wide table is stacked and the taxonomy and metadata are attached with
+    mappings, so the cost grows with the number of non-zero cells rather than
+    with a Python loop over every sample and genome.
+    """
     genome_cols = get_genome_columns(containment_df)
-    rows = []
-    for sample_id, row in containment_df.iterrows():
-        for genome in genome_cols:
-            val = row[genome]
-            if val > 0 and val >= min_containment:
-                tax = taxonomy.get(genome)
-                entry = {
-                    "sample": str(sample_id),
-                    "genome": genome,
-                    "containment": val,
-                    "family": tax.family if tax and tax.family else "Unknown",
-                    "genus": tax.genus if tax and tax.genus else "Unknown",
-                    "species": tax.species if tax and tax.species else "Unknown",
-                }
-                if metadata is not None and sample_id in metadata.index:
-                    meta_row = metadata.loc[sample_id]
-                    entry["location"] = str(meta_row.get("location", ""))
-                    entry["date"] = str(meta_row.get("collection_date", ""))
-                else:
-                    entry["location"] = ""
-                    entry["date"] = ""
-                rows.append(entry)
-    return pd.DataFrame(rows)
+    stacked = containment_df[genome_cols].stack()
+    stacked = stacked[(stacked > 0) & (stacked >= min_containment)]
+    if stacked.empty:
+        return pd.DataFrame(columns=_LONG_COLUMNS)
+    long_df = stacked.rename("containment").rename_axis(["sample", "genome"]).reset_index()
+    long_df["sample"] = long_df["sample"].astype(str)
+
+    for rank in ("family", "genus", "species"):
+        names = {g: (getattr(t, rank, None) or "Unknown") for g, t in taxonomy.items()}
+        long_df[rank] = long_df["genome"].map(names).fillna("Unknown")
+
+    for column, candidates in (("location", _LOCATION_COLUMNS), ("date", _DATE_COLUMNS)):
+        long_df[column] = ""
+        if metadata is not None:
+            unique = metadata[~metadata.index.duplicated(keep="first")]
+            values = _metadata_text(unique, candidates)
+            long_df[column] = long_df["sample"].map(values).fillna("")
+    return long_df[_LONG_COLUMNS]
 
 
 def _build_summary_data(
@@ -195,7 +218,7 @@ def _build_heatmap(long_df: pd.DataFrame) -> str:
         title="Sample-by-family containment",
         aspect="auto",
     )
-    fig.update_layout(**plotly_layout(height=max(320, 22 * len(pivot.index) + 110)))
+    fig.update_layout(**plotly_layout(height=min(EXPLORER_HEATMAP_MAX_HEIGHT, max(320, 22 * len(pivot.index) + 110))))
     return fig.to_html(full_html=False, include_plotlyjs=False)
 
 
@@ -229,8 +252,10 @@ def _build_distributions(long_df: pd.DataFrame) -> tuple:
     return box_html, bar_html
 
 
-def _build_table_html(long_df: pd.DataFrame) -> str:
+def _build_table_html(long_df: pd.DataFrame, max_rows: int = EXPLORER_TABLE_ROWS) -> str:
     """Build HTML table rows from long-format data.
+
+    At most ``max_rows`` rows are written, the highest containment first.
 
     The containment cell renders an inline heat-bar (width proportional to the
     value) beside the number, so magnitude is scannable down the column while
@@ -239,13 +264,13 @@ def _build_table_html(long_df: pd.DataFrame) -> str:
     if long_df.empty:
         return ""
     rows = []
-    for _, r in long_df.iterrows():
+    for _, r in long_df.sort_values("containment", ascending=False).head(max_rows).iterrows():
         raw = r.get("containment", 0)
         val = 0.0 if pd.isna(raw) else max(0.0, min(1.0, float(raw)))
         before = "".join(f"<td>{html_escape(str(r.get(c, '')))}</td>" for c in ["sample", "genome"])
         containment = (
-            f'<td class="mq-num"><span class="mq-cell">'
-            f'<span class="mq-heatbar" style="--v:{val:.3f}"></span>'
+            f'<td class="pre-num"><span class="pre-cell">'
+            f'<span class="pre-heatbar" style="--v:{val:.3f}"></span>'
             f"<span>{val:.3f}</span></span></td>"
         )
         after = "".join(
@@ -268,12 +293,12 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     <style>{{ report_css|safe }}</style>
 </head>
 <body>
-    <a class="mq-skip" href="#results">Skip to results</a>
-    <header class="mq-header">
-        <div class="mq-wrap">
-            <p class="mq-eyebrow">PREPARE &middot; containment report</p>
-            <h1 class="mq-title">{{ title }}</h1>
-            <p class="mq-readout">
+    <a class="pre-skip" href="#results">Skip to results</a>
+    <header class="pre-header">
+        <div class="pre-wrap">
+            <p class="pre-eyebrow">PREPARE &middot; containment report</p>
+            <h1 class="pre-title">{{ title }}</h1>
+            <p class="pre-readout">
                 <span><b>{{ summary.total_samples }}</b> samples</span>
                 <span><b>{{ summary.total_genomes }}</b> genomes</span>
                 <span><b>{{ summary.num_families }}</b> families</span>
@@ -284,14 +309,14 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
             </p>
         </div>
     </header>
-    <main class="mq-wrap">
-        <section class="mq-stats" aria-label="Run summary">
-            <div class="mq-stat"><p class="k">Samples</p><div class="v">{{ summary.total_samples }}</div></div>
-            <div class="mq-stat"><p class="k">Genomes</p><div class="v">{{ summary.total_genomes }}</div></div>
-            <div class="mq-stat"><p class="k">Families</p><div class="v">{{ summary.num_families }}</div></div>
-            <div class="mq-stat"><p class="k">Genera</p><div class="v">{{ summary.num_genera }}</div></div>
+    <main class="pre-wrap">
+        <section class="pre-stats" aria-label="Run summary">
+            <div class="pre-stat"><p class="k">Samples</p><div class="v">{{ summary.total_samples }}</div></div>
+            <div class="pre-stat"><p class="k">Genomes</p><div class="v">{{ summary.total_genomes }}</div></div>
+            <div class="pre-stat"><p class="k">Families</p><div class="v">{{ summary.num_families }}</div></div>
+            <div class="pre-stat"><p class="k">Genera</p><div class="v">{{ summary.num_genera }}</div></div>
             {% if summary.top_families %}
-            <div class="mq-stat wide">
+            <div class="pre-stat wide">
                 <p class="k">Top families by sample count</p>
                 <div class="sub">
                 {%- for fam in summary.top_families -%}
@@ -303,24 +328,25 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         </section>
 
         {% if sunburst_html or heatmap_html %}
-        <section class="mq-section">
+        <section class="pre-section">
             <h2>Taxonomy overview</h2>
-            <div class="mq-grid">
-                {% if sunburst_html %}<div class="mq-panel">{{ sunburst_html|safe }}</div>{% endif %}
-                {% if heatmap_html %}<div class="mq-panel">{{ heatmap_html|safe }}</div>{% endif %}
+            <div class="pre-grid">
+                {% if sunburst_html %}<div class="pre-panel">{{ sunburst_html|safe }}</div>{% endif %}
+                {% if heatmap_html %}<div class="pre-panel">{{ heatmap_html|safe }}</div>{% endif %}
             </div>
         </section>
         {% endif %}
 
-        <section class="mq-section" id="results">
+        <section class="pre-section" id="results">
             <h2>Results</h2>
-            <div class="mq-toolbar">
+            {% if table_note %}<p class="pre-note">{{ table_note }}</p>{% endif %}
+            <div class="pre-toolbar">
                 <input type="text" id="searchInput" onkeyup="filterTable()"
                        aria-label="Filter results" placeholder="Filter across all columns&hellip;">
-                <button class="mq-btn" onclick="exportCSV()">Export CSV</button>
+                <button class="pre-btn" onclick="exportCSV()">Export CSV</button>
             </div>
-            <div class="mq-table-wrap">
-                <table class="mq-table" id="resultsTable">
+            <div class="pre-table-wrap">
+                <table class="pre-table" id="resultsTable">
                     <thead>
                         <tr>
                         {%- for h in headers %}
@@ -338,16 +364,16 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         </section>
 
         {% if box_html or bar_html %}
-        <section class="mq-section">
+        <section class="pre-section">
             <h2>Distributions</h2>
-            <div class="mq-grid">
-                {% if box_html %}<div class="mq-panel">{{ box_html|safe }}</div>{% endif %}
-                {% if bar_html %}<div class="mq-panel">{{ bar_html|safe }}</div>{% endif %}
+            <div class="pre-grid">
+                {% if box_html %}<div class="pre-panel">{{ box_html|safe }}</div>{% endif %}
+                {% if bar_html %}<div class="pre-panel">{{ bar_html|safe }}</div>{% endif %}
             </div>
         </section>
         {% endif %}
 
-        <footer class="mq-footer">Generated by PREPARE</footer>
+        <footer class="pre-footer">Generated by PREPARE</footer>
     </main>
 
     {{ table_script|safe }}
@@ -355,16 +381,21 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 </html>"""
 
 
-def _assemble_html(title, summary, sunburst_html, heatmap_html, table_rows, box_html, bar_html):
-    """Assemble the final HTML from components."""
+def _assemble_html(title, summary, sunburst_html, heatmap_html, table_rows, box_html, bar_html, table_note=""):
+    """Assemble the final HTML from components.
+
+    Autoescape is on: the title, family names and other raw values are escaped, and the
+    fragments built by this module (table rows, charts, script, CSS) are marked safe in the template.
+    """
     jinja2 = require("jinja2", "interactive", _PURPOSE)
-    template = jinja2.Environment(loader=jinja2.BaseLoader(), autoescape=False).from_string(_HTML_TEMPLATE)
+    template = jinja2.Environment(loader=jinja2.BaseLoader(), autoescape=True).from_string(_HTML_TEMPLATE)
     return template.render(
-        title=html_escape(title),
+        title=title,
         summary=summary,
         sunburst_html=sunburst_html,
         heatmap_html=heatmap_html,
         table_rows=table_rows,
+        table_note=table_note,
         box_html=box_html,
         bar_html=bar_html,
         plotly_js=plotly_js_script(),

@@ -262,7 +262,7 @@ def test_download_metadata_request_lines_follow_the_progress_setting(tmp_path, c
 
     with (
         patch("prepare.data.metadata.Entrez.efetch", return_value=Handle()),
-        patch("prepare.data.metadata._pace_requests"),
+        patch("prepare.data.metadata_fetch._pace_requests"),
         caplog.at_level(logging.DEBUG, logger="prepare.data.metadata"),
     ):
         metadata_mod._download_batch_metadata(["SRR1", "SRR2"], tmp_path, "a@b.c", None)

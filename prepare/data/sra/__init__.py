@@ -46,6 +46,7 @@ from prepare.data.sra.accession import (
     classify_download_error,
     download_accession,
     fasterq_dump_version,
+    result_body,
 )
 from prepare.data.sra.store_handoff import SETTLED_PREFIXES, STORE_LINKED_PREFIX, STORE_READY_STATES
 from prepare.data.sra.download import default_max_workers, download_sra
@@ -78,6 +79,7 @@ __all__ = [
     "orphan_fastq",
     "parse_verdict_message",
     "primary_fastq",
+    "result_body",
     "sample_records",
     "spots_from_xml",
     "transient_bytes",

@@ -42,13 +42,13 @@ class TestSRAMetadataClient:
         """Test client initialization."""
         assert self.client.email == "test@example.com"
         assert self.client.api_key is None
-        assert self.client.request_delay > 0
+        assert self.client.pacer.delay == pytest.approx(1 / 3)
 
     def test_client_with_api_key(self):
         """Test client with API key."""
         client = SRAMetadataClient("test@example.com", "api_key_123")
         assert client.api_key == "api_key_123"
-        assert client.request_delay < 0.5  # Should be faster with API key
+        assert client.pacer.delay == pytest.approx(1 / 10)  # NCBI: 10 requests/s with a key
 
     def test_make_request_success(self):
         """Test successful API request."""
@@ -251,7 +251,6 @@ class TestSRAMetadataClientRetries:
 
         requested = serve(monkeypatch, lambda path: (503, b"unavailable"))
         client = SRAMetadataClient("test@example.com")
-        client.request_delay = 0
 
         with pytest.raises(NetworkError, match="Failed to query NCBI"):
             client._make_request(client.base_url + "esearch.fcgi", {"db": "sra"})
@@ -272,7 +271,6 @@ class TestSRAMetadataClientRetries:
 
         serve(monkeypatch, handler)
         client = SRAMetadataClient("test@example.com")
-        client.request_delay = 0
 
         result = client._make_request(client.base_url + "esearch.fcgi", {"db": "sra"})
 

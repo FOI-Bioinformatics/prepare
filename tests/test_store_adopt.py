@@ -322,8 +322,8 @@ class TestAdoptRestart:
         and touches neither the folder nor the project."""
         store_root = tmp_path / "store"
         paths = init_store(store_root)
-        acc_dir = sra_dir(paths, "SRR-FOREIGN")
-        _write_fastq_gz(acc_dir / "SRR-FOREIGN.fastq.gz")
+        acc_dir = sra_dir(paths, "SRR9000001")
+        _write_fastq_gz(acc_dir / "SRR9000001.fastq.gz")
 
         project_fastq = tmp_path / "project" / "fastq"
         _write_fastq(project_fastq / "SRR1" / "SRR1.fastq")
@@ -331,10 +331,10 @@ class TestAdoptRestart:
         report = adopt(project_fastq, paths, move=True, dry_run=False)
 
         assert report.adopted == ["SRR1"]
-        assert report.foreign == ["SRR-FOREIGN"]
-        assert not (project_fastq / "SRR-FOREIGN").exists()
-        assert not sidecar_path(paths, "SRR-FOREIGN").exists()
-        assert (acc_dir / "SRR-FOREIGN.fastq.gz").is_file()
+        assert report.foreign == ["SRR9000001"]
+        assert not (project_fastq / "SRR9000001").exists()
+        assert not sidecar_path(paths, "SRR9000001").exists()
+        assert (acc_dir / "SRR9000001.fastq.gz").is_file()
 
     def test_an_accession_locked_by_another_run_is_skipped_as_in_progress(self, tmp_path):
         """The store holds our accession without a sidecar and its lock is held: another run
@@ -519,6 +519,57 @@ class TestAdoptPerAccessionLocking:
         # Nothing was staged or moved, since the lock was never acquired.
         assert not sra_dir(paths, "SRR1").exists()
         assert (project_fastq / "SRR1" / "SRR1.fastq").is_file()
+
+
+class TestAdoptMoveUnderTheLock:
+    """``--move`` removes the project's folder and links it under one hold of the dataset lock."""
+
+    @staticmethod
+    def _hold_elsewhere(paths, accession="SRR1"):
+        import json
+
+        lock = lock_path(paths, accession)
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text(json.dumps({"pid": 4242, "host": "otherhost", "started": "2026-01-01T00:00:00+00:00"}))
+        return lock
+
+    def test_a_dedup_whose_lock_is_held_keeps_the_project_folder(self, tmp_path, caplog):
+        paths = init_store(tmp_path / "store")
+        TestAdoptDedupAndConflict()._seed_store_dataset(paths, "SRR1")
+        project_fastq = tmp_path / "project" / "fastq"
+        _write_fastq_gz(project_fastq / "SRR1" / "SRR1.fastq.gz")
+        self._hold_elsewhere(paths)
+
+        report = adopt(project_fastq, paths, move=True, dry_run=False)
+
+        assert report.failed == ["SRR1"]
+        assert report.deduplicated == []
+        assert not (project_fastq / "SRR1").is_symlink()
+        assert (project_fastq / "SRR1" / "SRR1.fastq.gz").is_file()
+        assert "SRR1 is being written by" in caplog.text and "retry later" in caplog.text
+
+    def test_a_fresh_adoption_whose_lock_is_taken_before_the_link_keeps_the_project_folder(self, tmp_path):
+        import importlib
+
+        adopt_mod = importlib.import_module("prepare.store.adopt")
+
+        paths = init_store(tmp_path / "store")
+        project_fastq = tmp_path / "project" / "fastq"
+        _write_fastq(project_fastq / "SRR1" / "SRR1.fastq")
+        original = adopt_mod._apply_move_or_copy
+
+        def _taken_then_apply(*args, **kwargs):
+            # Another run takes the lock between the staging and the move.
+            self._hold_elsewhere(paths)
+            return original(*args, **kwargs)
+
+        with patch.object(adopt_mod, "_apply_move_or_copy", side_effect=_taken_then_apply):
+            report = adopt(project_fastq, paths, move=True, dry_run=False)
+
+        assert report.failed == ["SRR1"]
+        assert report.adopted == []
+        assert (project_fastq / "SRR1" / "SRR1.fastq").is_file()
+        assert (sra_dir(paths, "SRR1") / "SRR1.fastq.gz").is_file()
 
 
 class TestAdoptIgnoresAppleDouble:

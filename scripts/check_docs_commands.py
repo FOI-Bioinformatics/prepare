@@ -31,7 +31,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 RENAME_HEADING = re.compile(r"^#{2,6}\s*Renamed\b.*\bcommands\b", re.IGNORECASE | re.MULTILINE)
 ANY_HEADING = re.compile(r"^#{1,6}\s", re.MULTILINE)
-INVOCATION = re.compile(r"^prepare\s+([A-Za-z][A-Za-z0-9_-]*)", re.MULTILINE)
+INVOCATION = re.compile(r"^[ \t]*(?:\$ )?prepare\s+([A-Za-z][A-Za-z0-9_-]*)", re.MULTILINE)
+# A command table row; the name sits in the first or second cell (the README table has a group column).
+TABLE_ROW = re.compile(r"^\|(?:[^|`\n]*\|)?\s*`([A-Za-z][A-Za-z0-9_-]*)`\s*\|", re.MULTILINE)
+DOCS_DIR = REPO_ROOT / "docs"
 
 
 def _registry_commands():
@@ -57,7 +60,10 @@ def _rename_note_span(text: str) -> Optional[Tuple[int, int]]:
 
 def check(text: str, visible: set, hidden: set) -> Tuple[list, list]:
     """Return (missing command names, unknown (line, word) invocations) for README ``text``."""
-    missing = sorted(name for name in visible if re.search(r"\b%s\b" % re.escape(name), text) is None)
+    # A command counts as documented only by a table row or an invocation; a passing mention in
+    # prose does not.
+    documented = {m.group(1) for m in TABLE_ROW.finditer(text)} | {m.group(1) for m in INVOCATION.finditer(text)}
+    missing = sorted(name for name in visible if name not in documented)
 
     rename_span = _rename_note_span(text)
     unknown = []
@@ -85,18 +91,28 @@ def main() -> int:
     text = README_PATH.read_text(encoding="utf-8")
     missing, unknown = check(text, visible, hidden)
 
-    if not missing and not unknown:
-        print(f"README.md documents all {len(visible)} commands, no unknown command named")
+    doc_unknown = []
+    for page in sorted(DOCS_DIR.glob("*.md")):
+        page_text = page.read_text(encoding="utf-8")
+        for line_no, word in check(page_text, visible, hidden)[1]:
+            doc_unknown.append((page.relative_to(REPO_ROOT).as_posix(), line_no, word))
+
+    if not missing and not unknown and not doc_unknown:
+        print(f"README.md documents all {len(visible)} commands, no unknown command named in README.md or docs/")
         return 0
 
     if missing:
-        print(f"README.md is missing {len(missing)} command(s):")
+        print(f"README.md is missing {len(missing)} command(s) (a table row or an invocation is required):")
         for name in missing:
             print(f"  - {name}")
     if unknown:
         print(f"README.md names {len(unknown)} command(s) the registry does not know about:")
         for line_no, word in unknown:
             print(f"  README.md:{line_no}: prepare {word}")
+    if doc_unknown:
+        print(f"docs/ names {len(doc_unknown)} command(s) the registry does not know about:")
+        for name, line_no, word in doc_unknown:
+            print(f"  {name}:{line_no}: prepare {word}")
     return 1
 
 

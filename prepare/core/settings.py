@@ -39,6 +39,7 @@ from prepare.core.constants import (
     SHORT_LOCK_HEARTBEAT_SECONDS,
 )
 from prepare.core.exceptions import ConfigurationError
+from prepare.utils import resources
 
 logger = logging.getLogger(__name__)
 
@@ -197,14 +198,16 @@ def _path(text: str) -> str:
     return str(Path(_text(text)).expanduser())
 
 
-_MEMORY_PATTERN = re.compile(r"^(auto|0?\.\d+|1(\.0*)?|[1-9]\d*|\d+(\.\d+)?[KMGT])$", re.IGNORECASE)
-
-
 def _memory(text: str) -> str:
-    """``auto``, a fraction of the node's memory (0 to 1), or a size such as ``32G`` or whole bytes."""
+    """``auto``, a fraction of the node's memory (0 to 1), or a size such as ``32G`` or whole bytes.
+
+    The value is checked with the parser the assembly step uses, so startup and assembly agree.
+    """
     value = _text(text)
-    if not _MEMORY_PATTERN.match(value):
-        raise ValueError("expected 'auto', a fraction such as 0.5, or a size such as 32G, 32000M or bytes")
+    try:
+        resources.parse_memory(value, limit=None)
+    except ValueError as e:
+        raise ValueError(str(e)) from e
     return value
 
 

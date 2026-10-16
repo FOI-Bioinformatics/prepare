@@ -1826,3 +1826,23 @@ def test_a_malformed_sidecar_of_an_unselected_sample_does_not_stop_the_run(tmp_p
     rc, ran = _run_extraction(root, table, genome, root / "registry.json", None)
     assert rc == 0
     assert ran
+
+
+@patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+def test_extraction_from_a_subfolder_writes_under_the_project_targeted(mock_run, tmp_path, monkeypatch):
+    """Relative --fastq-folder and --output-folder resolve beside the registry (audit H4 follow-up)."""
+    mock_run.side_effect = _fake_tools({})
+    (tmp_path / "proj").mkdir()
+    root, table, genome = _tree(tmp_path / "proj")
+    save_registry(load_registry(root / "prepare_registry.json"))
+    (root / "sub").mkdir()
+    monkeypatch.chdir(root / "sub")
+    args = _args(root, parsed_containment=str(table), genome_fasta=str(genome), threshold=0.5, registry=None)
+
+    assert ExtractTargetReadsCommand().execute(args) == 0
+
+    assert (root / "targeted" / "SRR1").is_dir()
+    assert not (root / "sub" / "targeted").exists()
+    registry = load_registry(root / "prepare_registry.json")
+    files = registry.datasets["SRR1"]["extractions"]["GCF_1"]["files"]
+    assert files and all(f.startswith("targeted/SRR1/") for f in files)

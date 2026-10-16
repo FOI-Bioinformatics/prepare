@@ -10,6 +10,7 @@ from prepare.core.exceptions import ProcessingError
 from prepare.data.taxonomy import (
     NCBITaxonomyClient,
     validate_taxonomic_assignments,
+    _VALIDATION_CACHE_COLUMNS,
     create_taxonomic_summary,
     analyze_taxonomic_composition,
 )
@@ -26,13 +27,13 @@ class TestNCBITaxonomyClient:
         """Test client initialization."""
         assert self.client.email == "test@example.com"
         assert self.client.api_key is None
-        assert self.client.request_delay > 0
+        assert self.client.pacer.delay == pytest.approx(1 / 3)
 
     def test_client_with_api_key(self):
         """Test client with API key."""
         client = NCBITaxonomyClient("test@example.com", "api_key_123")
         assert client.api_key == "api_key_123"
-        assert client.request_delay < 0.5  # Should be faster with API key
+        assert client.pacer.delay == pytest.approx(1 / 10)  # NCBI: 10 requests/s with a key
 
     def test_clean_species_name(self):
         """Test species name cleaning."""
@@ -251,6 +252,24 @@ class TestTaxonomyValidation:
         assert isinstance(result["phylum"], pd.DataFrame)
         assert isinstance(result["genus"], pd.DataFrame)
 
+    def test_analyze_taxonomic_composition_honours_min_abundance(self):
+        """A taxon below the threshold is absent from the summary; the default keeps it."""
+        abundance_data = pd.DataFrame({"Species A": [0.9], "Species B": [0.1]}, index=["Sample1"])
+        taxonomy_data = pd.DataFrame(
+            {
+                "original_name": ["Species A", "Species B"],
+                "validated_name": ["Species A", "Species B"],
+                "is_valid": [True, True],
+                "lineage": ["genus:Genus1", "genus:Genus2"],
+            }
+        )
+
+        default = analyze_taxonomic_composition(abundance_data, taxonomy_data, levels=["genus"])
+        strict = analyze_taxonomic_composition(abundance_data, taxonomy_data, levels=["genus"], min_abundance=0.5)
+
+        assert "Genus2" in default["genus"].columns
+        assert "Genus2" not in strict["genus"].columns
+
 
 class TestTaxonomyEdgeCases:
     """Test edge cases and error handling."""
@@ -338,7 +357,6 @@ class TestNCBIRetriesReturnTheFinalResponse:
 
         requested = serve(monkeypatch, lambda path: (500, b"<error/>"))
         client = NCBITaxonomyClient("test@example.com")
-        client.request_delay = 0
         with pytest.raises(ProcessingError, match="500 Server Error") as caught:
             client._make_request(client.base_url + "esearch.fcgi", {"db": "taxonomy"})
         assert "Max retries" not in str(caught.value)
@@ -381,3 +399,44 @@ class TestNCBIClientSessionIsClosed:
         with pytest.raises(ProcessingError):
             validate_taxonomic_assignments(["E. coli"], "test@example.com")
         assert client.close.call_count == 1
+
+
+@patch("prepare.data.taxonomy.NCBITaxonomyClient")
+def test_cached_taxonomy_ids_stay_strings(mock_client_class, tmp_path):
+    """A cache with an empty tax_id row must not turn the ids into floats or the empty names into NaN."""
+    cache = tmp_path / "cache.csv"
+    pd.DataFrame(
+        [
+            {
+                "original_name": "Unknown sp",
+                "cleaned_name": "Unknown sp",
+                "validated_name": "",
+                "tax_id": "",
+                "rank": "",
+                "lineage": "",
+                "is_valid": False,
+                "confidence": "none",
+            },
+            {
+                "original_name": "Escherichia coli",
+                "cleaned_name": "Escherichia coli",
+                "validated_name": "Escherichia coli",
+                "tax_id": "562",
+                "rank": "species",
+                "lineage": "Bacteria",
+                "is_valid": True,
+                "confidence": "high",
+            },
+        ],
+        columns=_VALIDATION_CACHE_COLUMNS,
+    ).to_csv(cache, index=False)
+
+    result = validate_taxonomic_assignments(["Escherichia coli", "Unknown sp"], "a@b", cache_file=cache)
+
+    by_name = result.set_index("original_name")
+    assert by_name.loc["Escherichia coli", "tax_id"] == "562"
+    assert by_name.loc["Unknown sp", "tax_id"] == ""
+    assert result["is_valid"].sum() == 1
+    assert result["is_valid"].dtype == bool
+    assert not result[["validated_name", "rank", "lineage"]].isna().any().any()
+    mock_client_class.return_value.validate_species_name.assert_not_called()

@@ -5,6 +5,7 @@ This module provides the main CLI entry point with modular command architecture.
 """
 
 import argparse
+import dataclasses
 import logging
 import os
 import socket
@@ -14,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from prepare import __version__
-from prepare.cli.base import BaseCommand, DefaultsHelpFormatter, add_global_options, command_registry
+from prepare.cli.base import BaseCommand, DefaultsHelpFormatter, add_global_options, command_registry, emit_error_json
 from prepare.core import settings
 from prepare.core.exceptions import ConfigurationError, DataAccessError, PrepareError, exit_code_for
 from prepare.data import run_log
@@ -31,6 +32,7 @@ from prepare.cli.commands import (
     CheckMetadataAttributesCommand,
     CountMetadataCommand,
     PlotMetadataCountsCommand,
+    PlotMapCommand,
     SingleSampleCommand,
     DownloadSraCommand,
     StatusCommand,
@@ -92,6 +94,7 @@ def register_all_commands() -> None:
         CountMetadataCommand(),
         SingleSampleCommand(),
         PlotMetadataCountsCommand(),
+        PlotMapCommand(),
         # Genome commands
         GenomeSearchCommand(),
         GenomeDownloadCommand(),
@@ -197,10 +200,21 @@ def _apply_quiet_and_verbose(parser: argparse.ArgumentParser, args: argparse.Nam
     quiet, verbose = _flag(args, "log_quiet"), _flag(args, "log_verbose")
     if quiet and verbose:
         parser.error("argument -q/--quiet: not allowed with argument -v/--verbose")
+    if (quiet or verbose) and getattr(args, "log_level", None) is not None:
+        parser.error("argument --log-level: not allowed with argument -q/--quiet or -v/--verbose")
     if quiet:
         args.log_level = "WARNING"
     elif verbose:
         args.log_level = "DEBUG"
+
+
+def _flag_level(args: argparse.Namespace) -> Optional[str]:
+    """The log level the command line asked for (``--log-level``, ``-q`` or ``-v``), or None."""
+    try:
+        level = vars(args).get("log_level")
+    except TypeError:
+        return None
+    return level if isinstance(level, str) else None
 
 
 # Flags whose value must not reach a log file shared with other users (shared with the run log).
@@ -249,6 +263,13 @@ def _run_command(parsed_args: argparse.Namespace) -> int:
     except PrepareError as e:
         _log_failure(f"Error: {e}", e)
         return exit_code_for(e)
+    except BrokenPipeError:
+        # The reader of stdout (head, less) closed early: not a failure. Point stdout at the null
+        # device so the interpreter's flush at exit does not raise again.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        os.close(devnull)
+        return 0
     except Exception as e:
         _log_failure(f"{type(e).__name__}: {e}", e)
         return exit_code_for(e)
@@ -300,10 +321,18 @@ def main(args: Optional[List[str]] = None) -> int:
         if getattr(parsed_args, "command", None) != "doctor":
             setup_logging(level=logging.INFO)
             logging.error(f"Error: {e}")
+            if getattr(parsed_args, "json", False) is True:
+                emit_error_json(str(e), indent=None)
             return exit_code_for(e)
         # doctor exists to diagnose exactly this: it runs on the built-in defaults and its
         # config check reports the error (exit code 3 through its own failed check).
         runtime = settings.activate_defaults()
+        # The flags still apply: a log file or -v given on the command line is not a setting to diagnose.
+        runtime = dataclasses.replace(
+            runtime,
+            log_file=getattr(parsed_args, "log_file", None) or runtime.log_file,
+            log_level=_flag_level(parsed_args) or runtime.log_level,
+        )
         setattr(parsed_args, STARTUP_ERROR_ATTR, str(e))
     failed = _configure_logging(runtime)
     if failed is not None:

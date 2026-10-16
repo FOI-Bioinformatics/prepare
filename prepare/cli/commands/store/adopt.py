@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any, List
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import finite_float, BaseCommand, anchored_folder
 from prepare.cli.commands.sra_verdicts import store_sidecar_verdict, store_spot_count, store_verdict
 from prepare.cli.commands.store._shared import _no_store_hint, _gitignore_guard
 from prepare.core.exceptions import DataAccessError
@@ -96,7 +96,7 @@ class StoreAdoptCommand(BaseCommand):
         parser.add_argument(
             "--lock-wait",
             dest="lock_wait",
-            type=float,
+            type=finite_float,
             default=None,
             help=(
                 "Seconds to wait for another project's work on the same accession before giving "
@@ -108,6 +108,8 @@ class StoreAdoptCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         """Run the command; return the exit code."""
         try:
+            args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
+            args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
             registry = load_registry(args.registry)
             root = resolve_store_root(args.data_root, rb.store_block(registry).root)
         except DataAccessError as e:

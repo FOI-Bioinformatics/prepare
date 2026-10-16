@@ -243,6 +243,18 @@ class TestSearchIndexCache:
         assert mock_session_factory.call_count == 1
 
     @patch("prepare.data.branchwater_search._session")
+    def test_zero_row_response_is_not_cached(self, mock_session_factory, tmp_path, caplog):
+        mock_session_factory.return_value = _mock_session(text="SRA accession,containment\n")
+        cache_dir = tmp_path / "cache"
+
+        with caplog.at_level("INFO", logger="prepare.data.branchwater_search"):
+            assert search_index(SIG_OBJECT, 0.1, cache_dir=cache_dir) == []
+            assert search_index(SIG_OBJECT, 0.1, cache_dir=cache_dir) == []
+
+        assert mock_session_factory.call_count == 2
+        assert "empty result not cached" in caplog.text
+
+    @patch("prepare.data.branchwater_search._session")
     def test_cache_hit_logs_message(self, mock_session_factory, tmp_path, caplog):
         mock_session_factory.return_value = _mock_session(text="SRA accession,containment\nSRR1,0.5\n")
         cache_dir = tmp_path / "cache"

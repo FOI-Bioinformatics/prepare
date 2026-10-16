@@ -9,6 +9,7 @@ import pytest
 
 from prepare.core import settings
 from prepare.core.constants import STORE_ENV
+from _sra_fixtures import fast_project_lock_poll  # noqa: F401 - a fixture for tests/test_data_sra_download.py
 
 # Read once when the perf module is imported, not a runtime setting; left for CI to set.
 _KEPT_PREPARE_VARIABLES = {"PREPARE_PERF_SCALE"}

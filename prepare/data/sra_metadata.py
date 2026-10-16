@@ -7,7 +7,7 @@ detecting sequencing technologies, and writing the dataset statistics table of s
 
 import json
 import logging
-import time
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,9 +18,12 @@ import requests
 
 from prepare.core.exceptions import DataAccessError, NetworkError
 from prepare.data.file_io import write_csv
+from prepare.data.ncbi_pacing import RequestPacer
 from prepare.utils.http import retrying_session
 
 logger = logging.getLogger(__name__)
+
+_RUN_ACCESSION_RE = re.compile(r"^[SED]RR\d+$", re.IGNORECASE)
 
 
 @dataclass
@@ -67,8 +70,7 @@ class SRAMetadataClient:
         self.email = email
         self.api_key = api_key
         self.base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
-        self.last_request_time: float = 0
-        self.request_delay = 0.34 if api_key else 0.5  # Conservative rate limiting
+        self.pacer = RequestPacer(api_key)
         # One retrying session per client, reused across every esearch/efetch call it makes: a
         # connection failure, a 429 or a 5xx from NCBI is retried with backoff before
         # _make_request ever sees it; a NetworkError below is raised only once retries (and the
@@ -89,11 +91,7 @@ class SRAMetadataClient:
 
     def _make_request(self, url: str, params: Dict[str, str]) -> str:
         """Make rate-limited request to NCBI API."""
-        # Rate limiting
-        current_time = time.time()
-        time_since_last = current_time - self.last_request_time
-        if time_since_last < self.request_delay:
-            time.sleep(self.request_delay - time_since_last)
+        self.pacer.wait()
 
         # Add required parameters
         params["email"] = self.email
@@ -103,7 +101,6 @@ class SRAMetadataClient:
         try:
             response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
-            self.last_request_time = time.time()
             return response.text
         except requests.RequestException as e:
             logger.error(f"NCBI API request failed: {e}")
@@ -162,11 +159,11 @@ class SRAMetadataClient:
         """Fetch metadata for a batch of accessions."""
         # Search for accessions
         search_url = f"{self.base_url}esearch.fcgi"
-        search_query = " OR ".join(accessions)
+        search_query = " OR ".join(f"{acc}[ACCN]" for acc in accessions)
         params = {
             "db": "sra",
             "term": search_query,
-            "retmax": str(len(accessions)),
+            "retmax": str(len(accessions) * 2),
             "retmode": "json",
         }
 
@@ -191,7 +188,14 @@ class SRAMetadataClient:
         # accession at any level (run, experiment, study, sample), and the matching efetch
         # package for one requested run can bundle other runs (e.g. other lanes/replicates of
         # the same experiment) alongside it, which are kept too, not dropped.
-        return self._parse_sra_xml(fetch_response, requested=set(accessions))
+        results = self._parse_sra_xml(fetch_response, requested=set(accessions))
+        present = {acc.upper() for acc in results}
+        missing = [acc for acc in accessions if _RUN_ACCESSION_RE.match(acc) and acc.upper() not in present]
+        if missing:
+            logger.warning(
+                "No metadata returned for %d requested run accession(s): %s", len(missing), ", ".join(missing)
+            )
+        return results
 
     def _parse_sra_xml(self, xml_content: str, requested: Optional[Set[str]] = None) -> Dict[str, SRADatasetInfo]:
         """Parse SRA XML response to extract metadata, one entry per RUN accession.

@@ -17,6 +17,7 @@ import requests
 from unittest.mock import patch, MagicMock
 
 from prepare.data.taxonomy import (
+    _VALIDATION_CACHE_COLUMNS,
     NCBITaxonomyClient,
     validate_taxonomic_assignments,
     create_taxonomic_summary,
@@ -154,9 +155,9 @@ class TestRateLimiting:
         client_no_key = NCBITaxonomyClient("test@example.com")
         client_with_key = NCBITaxonomyClient("test@example.com", "api_key_123")
 
-        # With API key: 1/3 = 0.333, without: 1/10 = 0.1
-        # API key should allow MORE requests per second (shorter delay)
-        assert client_with_key.request_delay > client_no_key.request_delay
+        # NCBI allows 3 requests per second without a key and 10 with one.
+        assert client_no_key.pacer.delay == pytest.approx(1 / 3)
+        assert client_with_key.pacer.delay == pytest.approx(1 / 10)
 
     @patch("requests.Session.get")
     def test_request_exception_handling(self, mock_get):
@@ -591,3 +592,12 @@ class TestAdditionalEdgeCases:
 #   pytest --cov=prepare.data.taxonomy --cov-report=term-missing \
 #          tests/test_taxonomy.py tests/test_taxonomy_extended.py -q
 # ============================================================================
+
+
+def test_validate_taxonomic_assignments_empty_list_returns_empty_frame(caplog):
+    with caplog.at_level("INFO", logger="prepare.data.taxonomy"):
+        result = validate_taxonomic_assignments([], "a@b")
+
+    assert result.empty
+    assert list(result.columns) == _VALIDATION_CACHE_COLUMNS
+    assert "0/0 species validated" in caplog.text

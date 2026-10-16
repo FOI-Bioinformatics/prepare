@@ -940,6 +940,36 @@ def test_fetch_batch_metadata_filters_to_the_requested_batch():
     assert set(result) == {"SRR100"}
 
 
+def test_fetch_batch_metadata_uses_accn_terms_and_warns_about_missing_runs(caplog):
+    """The esearch term restricts each accession to the accession field, retmax leaves
+    headroom for several records per accession, and runs absent from the result are logged."""
+    client = SRAMetadataClient(email="a@b.c")
+    mock_search_response = json.dumps({"esearchresult": {"idlist": ["100"]}})
+
+    with patch.object(client, "_make_request") as mock_request:
+        mock_request.side_effect = [mock_search_response, XML_TWO_PACKAGES]
+        with caplog.at_level("WARNING", logger="prepare.data.sra_metadata"):
+            result = client._fetch_batch_metadata(["SRR100", "SRR555"])
+
+    params = mock_request.call_args_list[0][0][1]
+    assert params["term"] == "SRR100[ACCN] OR SRR555[ACCN]"
+    assert params["retmax"] == "4"
+    assert set(result) == {"SRR100"}
+    assert "SRR555" in caplog.text
+
+
+def test_fetch_batch_metadata_missing_run_check_ignores_case(caplog):
+    client = SRAMetadataClient(email="a@b.c")
+    mock_search_response = json.dumps({"esearchresult": {"idlist": ["100"]}})
+
+    with patch.object(client, "_make_request") as mock_request:
+        mock_request.side_effect = [mock_search_response, XML_TWO_PACKAGES]
+        with caplog.at_level("WARNING", logger="prepare.data.sra_metadata"):
+            client._fetch_batch_metadata(["srr100"])
+
+    assert "No metadata returned" not in caplog.text
+
+
 XML_RUN_MISSING_ATTRS_BUT_STATISTICS_CHILD = """<?xml version="1.0" encoding="UTF-8"?>
 <EXPERIMENT_PACKAGE_SET><EXPERIMENT_PACKAGE>
 <EXPERIMENT accession="SRX200" alias="e"><TITLE>soil sample</TITLE>

@@ -6,6 +6,7 @@ shared store's catalogue without ever letting a catalogue failure reach the call
 
 import json
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -13,7 +14,7 @@ import pytest
 from prepare.data.registry import Registry
 from prepare.store.catalog import Catalog, catalog_write
 from prepare.store.layout import init_store
-from prepare.store.usage import linked_by, record_usage_many, record_usage_safe, stale_projects
+from prepare.store.usage import _upsert_project_row, linked_by, record_usage_many, record_usage_safe, stale_projects
 
 
 @pytest.fixture
@@ -206,6 +207,16 @@ class TestStaleProjects:
         assert any(str(registry_file) in message for message in caplog.messages)
 
 
+def test_relative_registry_is_stored_absolute(tmp_path, paths, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    registry = _registry(tmp_path, "p1", "proj", str(tmp_path))
+    registry.path = Path("prepare_registry.json")
+    with catalog_write(paths) as cat:
+        _upsert_project_row(cat, registry, "p1")
+        row = cat.conn.execute("SELECT registry FROM projects").fetchone()
+    assert row["registry"] == str((tmp_path / "prepare_registry.json").resolve())
+
+
 class TestLinkedBy:
     def test_no_projects_returns_empty(self, paths):
         with Catalog(paths, create=True) as cat:
@@ -230,7 +241,7 @@ class TestLinkedBy:
             cat.migrate()
             assert linked_by(paths, cat, "SRR1") == ["Live"]
 
-    def test_stale_project_symlink_is_ignored(self, paths, tmp_path):
+    def test_a_stale_projects_live_symlink_still_counts(self, paths, tmp_path):
         acc_dir = paths.sra / "SRR1"
         acc_dir.mkdir(parents=True)
 
@@ -239,11 +250,11 @@ class TestLinkedBy:
         (project_dir / "fastq" / "SRR1").symlink_to(acc_dir, target_is_directory=True)
         # No registry file is ever written at this path, so the project is stale.
         with catalog_write(paths) as cat:
-            cat.upsert_project("proj1", "Gone", str(project_dir), str(project_dir / "prepare_registry.json"))
+            cat.upsert_project("proj1", "proj", str(project_dir), str(project_dir / "prepare_registry.json"))
 
         with Catalog(paths, create=True) as cat:
             cat.migrate()
-            assert linked_by(paths, cat, "SRR1") == []
+            assert linked_by(paths, cat, "SRR1") == ["proj (stale)"]
 
     def test_symlink_to_a_different_accession_is_ignored(self, paths, tmp_path):
         acc_dir = paths.sra / "SRR1"

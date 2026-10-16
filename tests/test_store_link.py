@@ -451,3 +451,52 @@ def test_room_shortfall_assumes_room_when_the_filesystem_cannot_be_measured(tmp_
     monkeypatch.setattr("prepare.store.link.shutil.disk_usage", _unreadable)
     assert room_shortfall(tmp_path, 10**12) is None
     assert "Could not check free space" in caplog.text
+
+
+# ------------------------------------------------------------------ dataset lock
+
+
+def _hold_lock_elsewhere(paths, accession="SRR1"):
+    """Write a live lock file for ``accession`` held by a process on another host."""
+    import json
+
+    from prepare.store.layout import lock_path
+
+    lock = lock_path(paths, accession)
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(json.dumps({"pid": 4242, "host": "otherhost", "started": "2026-01-01T00:00:00+00:00"}))
+    return lock
+
+
+@pytest.mark.parametrize("mode", ["auto", "copy"])
+def test_link_dataset_refuses_while_another_run_holds_the_dataset_lock(tmp_path, paths, mode):
+    _store_dataset(paths)
+    _hold_lock_elsewhere(paths)
+    project_fastq = tmp_path / "project" / "fastq"
+
+    with pytest.raises(DataAccessError, match="SRR1 is being written by .*otherhost.*; retry later"):
+        link_dataset(project_fastq, "SRR1", paths, mode=mode)
+
+    assert not os.path.lexists(project_fastq / "SRR1")
+
+
+def test_link_dataset_with_locked_links_while_the_caller_holds_the_lock(tmp_path, paths):
+    from prepare.store.locks import dataset_lock
+
+    _store_dataset(paths)
+    project_fastq = tmp_path / "project" / "fastq"
+
+    with dataset_lock(paths, "SRR1"):
+        link = link_dataset(project_fastq, "SRR1", paths, locked=True)
+
+    assert link.is_symlink()
+    assert link.resolve() == (paths.sra / "SRR1").resolve()
+
+
+def test_link_dataset_releases_the_dataset_lock_it_took(tmp_path, paths):
+    from prepare.store.layout import lock_path
+
+    _store_dataset(paths)
+    link_dataset(tmp_path / "project" / "fastq", "SRR1", paths)
+
+    assert not lock_path(paths, "SRR1").exists()

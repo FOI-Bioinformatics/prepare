@@ -247,6 +247,34 @@ class TestGenomeDownloadCommand:
             mock_download.assert_called_once()
             mock_extract.assert_called_once()
 
+    @patch("prepare.cli.commands.genome.download_genomes")
+    def test_missing_requested_genome_fails_but_registers_extracted_one(self, mock_download, tmp_path):
+        import zipfile
+
+        from prepare.data.registry import load_registry
+
+        zip_path = tmp_path / "download.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("ncbi_dataset/data/GCF_000005845.2/GCF_000005845.2_genomic.fna", ">s\nACGT\n")
+        mock_download.return_value = zip_path
+        registry_file = tmp_path / "prepare_registry.json"
+        args = argparse.Namespace(
+            accessions=["GCF_000005845.2", "GCF_000009999.1"],
+            accession_file=None,
+            species=None,
+            genus=None,
+            output_dir=str(tmp_path / "genomes"),
+            representative_only=True,
+            assembly_level=None,
+            force=False,
+            dry_run=False,
+            registry=str(registry_file),
+        )
+
+        assert GenomeDownloadCommand().execute(args) != 0
+
+        assert "GCF_000005845.2" in load_registry(registry_file).genomes
+
     @patch("prepare.cli.commands.genome.extract_and_organize")
     @patch("prepare.cli.commands.genome.download_genomes")
     def test_execute_with_no_extracted_genomes_leaves_registry_untouched(self, mock_download, mock_extract):
@@ -616,6 +644,37 @@ class TestGenomePrepareCommand:
             )
             result = cmd.execute(args)
             assert result == 0
+
+    @patch("prepare.cli.commands.genome.download_genomes")
+    def test_partial_download_fails_but_manifests_and_registers_the_extracted_genome(self, mock_download, tmp_path):
+        import zipfile
+
+        from prepare.data.registry import load_registry
+
+        zip_path = tmp_path / "download.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("ncbi_dataset/data/GCF_000005845.2/GCF_000005845.2_genomic.fna", ">s\nACGT\n")
+        mock_download.return_value = zip_path
+        acc_file = tmp_path / "accessions.txt"
+        acc_file.write_text("GCF_000005845.2\nGCF_000009999.1\n")
+        registry_file = tmp_path / "prepare_registry.json"
+        manifest = tmp_path / "manifest.csv"
+        args = argparse.Namespace(
+            species=None,
+            genus=None,
+            accession_file=str(acc_file),
+            output_dir=str(tmp_path / "genomes"),
+            representative_only=True,
+            manifest_file=str(manifest),
+            skip_download=False,
+            registry=str(registry_file),
+        )
+
+        assert GenomePrepareCommand().execute(args) == 1
+
+        assert "GCF_000005845.2" in manifest.read_text()
+        assert "GCF_000009999.1" not in manifest.read_text()
+        assert "GCF_000005845.2" in load_registry(registry_file).genomes
 
     def test_prepare_with_no_genomes_leaves_registry_untouched(self, tmp_path):
         """With no genome files to manifest, no registry transaction should even open: an

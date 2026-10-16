@@ -10,7 +10,7 @@ import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import AbstractSet, Any, Dict, List, Optional, Tuple
 
 from prepare.cli.base import BaseCommand, emit_error_json
 from prepare.cli.commands.store._shared import _no_store_hint, _stale_project_row
@@ -20,11 +20,13 @@ from prepare.data import registry_blocks as rb
 from prepare.data.file_io import is_hidden_name
 from prepare.data.registry import load_registry
 from prepare.data.sra import is_transient_folder
+from prepare.store import journal
 from prepare.store.catalog import REBUILT_WITHOUT_PROJECTS, Catalog, catalog_write
 from prepare.store.layout import StorePaths, sra_dir, store_paths
 from prepare.store.locks import LockHeld, dataset_lock, last_dataset_use, lock_holder, lock_is_held
 from prepare.store.resolve import resolve_store_root
 from prepare.store.usage import linked_by, stale_projects
+from prepare.utils.sizes import tree_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -40,30 +42,12 @@ def _remove_path(path: Path) -> None:
         logger.warning("Could not remove %s: %s", path, e)
 
 
-def _path_bytes(path: Path) -> int:
-    """Total bytes held by ``path``: its own size for a file, or the recursive sum for a directory."""
-    if path.is_file():
-        try:
-            return path.stat().st_size
-        except OSError:
-            return 0
-    total = 0
-    if path.is_dir():
-        for sub in path.rglob("*"):
-            if sub.is_file():
-                try:
-                    total += sub.stat().st_size
-                except OSError:
-                    continue
-    return total
-
-
 class StoreGcCommand(BaseCommand):
     """Command to report, and optionally remove, unused datasets and leftover temp files.
 
-    A dataset is a removal candidate when it has no usage rows at all and no live project
-    symlinks it. Three things keep a dataset out of the candidate list and into the report's
-    ``still_linked``, ``in_use`` and ``kept_stale`` sections: a live project's symlink, a held
+    A dataset is a removal candidate when it has no usage rows at all and no project on this
+    host symlinks it. Three things keep a dataset out of the candidate list and into the report's
+    ``still_linked``, ``in_use`` and ``kept_stale`` sections: a project's symlink, a held
     accession lock (another run is downloading or adopting it right now), and usage rows that
     belong only to projects ``stale_projects`` (see ``prepare.store.usage``) cannot see from
     this machine, which on a shared store is every project on another workstation. That last
@@ -236,9 +220,10 @@ class StoreGcCommand(BaseCommand):
         """Why this dataset is, or is not, a removal candidate: ``(bucket, reason)``.
 
         The buckets are ``candidate``, ``in_use`` (another run holds the accession's lock right
-        now), ``linked`` (a live project still symlinks it despite carrying no usage row),
+        now), ``linked`` (a project on this host still symlinks it, even one that looks stale),
         ``stale`` (its only users look stale from this machine, kept unless ``--include-stale``)
-        and ``keep`` (a live project uses it).
+        and ``keep`` (a live project uses it). ``stale`` maps each stale project id to its name,
+        computed once per run by the caller.
         """
         accession = row["accession"]
         if lock_is_held(paths, accession):
@@ -246,7 +231,7 @@ class StoreGcCommand(BaseCommand):
         if project_ids and not project_ids <= set(stale):
             return "keep", "in use by a live project"
 
-        linked_names = linked_by(paths, catalog, accession)
+        linked_names = linked_by(paths, catalog, accession, stale_ids=stale.keys())
         if linked_names:
             return "linked", "still linked by " + ", ".join(linked_names)
 
@@ -271,7 +256,8 @@ class StoreGcCommand(BaseCommand):
         Returns a dict with ``candidates``, ``still_linked``, ``in_use`` and ``kept_stale``.
         Placeholder rows (``state = "unknown"``, inserted so a usage row can reference an
         accession the catalogue has not indexed yet) stand for no files at all and are never
-        offered for removal.
+        offered for removal. ``stale`` is the run's one ``stale_projects`` result: every registry
+        is read once per run, not once per dataset.
         """
         stale_names = {row["project_id"]: (row.get("name") or row["project_id"]) for row in stale}
 
@@ -342,7 +328,7 @@ class StoreGcCommand(BaseCommand):
                     for sub in sorted(entry.iterdir()):
                         if lock_is_held(paths, cls._accession_of_leftover(sub.name)):
                             continue
-                        candidates.append({"path": sub, "bytes": _path_bytes(sub), "reason": "leftover"})
+                        candidates.append({"path": sub, "bytes": tree_bytes(sub), "reason": "leftover"})
                     continue
                 if is_hidden_name(entry.name):
                     continue
@@ -356,10 +342,10 @@ class StoreGcCommand(BaseCommand):
                     continue
                 if lock_is_held(paths, cls._accession_of_leftover(entry.name)):
                     continue
-                candidates.append({"path": entry, "bytes": _path_bytes(entry), "reason": reason})
+                candidates.append({"path": entry, "bytes": tree_bytes(entry), "reason": reason})
         sra_cache = paths.sra / ".sra-cache"
         if sra_cache.exists():
-            candidates.append({"path": sra_cache, "bytes": _path_bytes(sra_cache), "reason": "leftover"})
+            candidates.append({"path": sra_cache, "bytes": tree_bytes(sra_cache), "reason": "leftover"})
         return candidates
 
     # ----------------------------------------------------------------- print
@@ -458,7 +444,9 @@ class StoreGcCommand(BaseCommand):
         return 0
 
     @staticmethod
-    def _still_removable(paths: StorePaths, accession: str, candidate: Dict[str, Any]) -> Tuple[bool, str]:
+    def _still_removable(
+        paths: StorePaths, accession: str, candidate: Dict[str, Any], stale_ids: AbstractSet[str]
+    ) -> Tuple[bool, str]:
         """Re-check ``accession`` right before it is removed, with its lock already held.
 
         The read-only classification pass that produced ``candidate`` ran before the lock was
@@ -468,7 +456,10 @@ class StoreGcCommand(BaseCommand):
         the sidecar was not re-downloaded (``downloaded`` unchanged), no live project has
         recorded usage since, no project still symlinks it, and it was not just handed to a
         project (``prepare.store.locks.touch_dataset_use``) within the grace period. Returns
-        ``(True, "")`` when removal may proceed, else ``(False, <reason>)``.
+        ``(True, "")`` when removal may proceed, else ``(False, <reason>)``. ``stale_ids`` is
+        computed once per removal batch (``_stale_ids``), so the registries are not read again
+        for every accession; a project registered since then is absent from it and so counts
+        as live.
         """
         with Catalog(paths) as catalog:
             row = catalog.conn.execute("SELECT downloaded FROM datasets WHERE accession = ?", (accession,)).fetchone()
@@ -482,31 +473,35 @@ class StoreGcCommand(BaseCommand):
                     "SELECT DISTINCT project_id FROM usage WHERE accession = ?", (accession,)
                 ).fetchall()
             }
-            if usage_ids:
-                stale_ids = {stale_row["project_id"] for stale_row in stale_projects(catalog)}
-                if not usage_ids <= stale_ids:
-                    return False, "now used by a live project"
-            if linked_by(paths, catalog, accession):
-                return False, "now linked by a live project"
+            if usage_ids and not usage_ids <= stale_ids:
+                return False, "now used by a live project"
+            if linked_by(paths, catalog, accession, stale_ids=stale_ids):
+                return False, "now linked by a project"
         last_use = last_dataset_use(paths, accession)
         if last_use is not None and (time.time() - last_use) < GC_RECENT_USE_GRACE_SECONDS:
             return False, "recently used"
         return True, ""
 
     def _remove_one_dataset(
-        self, paths: StorePaths, candidate: Dict[str, Any], report: Dict[str, Any], aside_by_accession: Dict[str, Path]
+        self,
+        paths: StorePaths,
+        candidate: Dict[str, Any],
+        report: Dict[str, Any],
+        aside_by_accession: Dict[str, Optional[Path]],
+        stale_ids: AbstractSet[str],
     ) -> None:
         """Remove one candidate under its own non-blocking lock, or report why it was kept.
 
         A folder actually removed is first renamed aside (``<store>/tmp/<ACC>_gc``), not
         deleted outright: the catalogue row is only dropped afterwards, in one batched write
         shared by every dataset removed this run (see ``_remove_candidates``), so a catalogue
-        failure can still restore every folder this call renamed.
+        failure can still restore every folder this call renamed. A candidate whose folder is
+        already gone is recorded with no aside (``None``), so only its catalogue row is dropped.
         """
         accession = candidate["accession"]
         try:
             with dataset_lock(paths, accession, blocking=False):
-                removable, reason = self._still_removable(paths, accession, candidate)
+                removable, reason = self._still_removable(paths, accession, candidate, stale_ids)
                 if not removable:
                     report["in_use"].append(
                         {"accession": accession, "bytes": candidate["bytes"], "reason": f"in use: {reason}"}
@@ -517,6 +512,13 @@ class StoreGcCommand(BaseCommand):
                     _remove_path(aside)
                     paths.tmp.mkdir(parents=True, exist_ok=True)
                     os.replace(sra_dir(paths, accession), aside)
+                except FileNotFoundError as e:
+                    if os.path.lexists(sra_dir(paths, accession)):
+                        self.logger.warning("%s: could not move it aside for removal: %s", accession, e)
+                        return
+                    self.logger.warning("%s: folder already gone; removing its catalogue row", accession)
+                    aside_by_accession[accession] = None
+                    return
                 except OSError as e:
                     self.logger.warning("%s: could not move it aside for removal: %s", accession, e)
                     return
@@ -553,9 +555,15 @@ class StoreGcCommand(BaseCommand):
         copy moved aside is removed, and the accession is reported in use. Leftovers take the
         same non-blocking lock, mapped back to an accession by ``_accession_of_leftover``.
         """
-        aside_by_accession: Dict[str, Path] = {}
-        for candidate in dataset_candidates:
-            self._remove_one_dataset(paths, candidate, report, aside_by_accession)
+        aside_by_accession: Dict[str, Optional[Path]] = {}
+        if dataset_candidates:
+            try:
+                stale_ids = self._stale_ids(paths)
+            except DataAccessError as e:
+                self.logger.error("%s: %s", self.name, e)
+                return 1
+            for candidate in dataset_candidates:
+                self._remove_one_dataset(paths, candidate, report, aside_by_accession, stale_ids)
 
         republished: List[str] = []
         if aside_by_accession:
@@ -570,16 +578,11 @@ class StoreGcCommand(BaseCommand):
                         catalog.delete_dataset(accession)
             except DataAccessError as e:
                 self.logger.error("%s: %s", self.name, e)
-                for accession, aside in aside_by_accession.items():
-                    try:
-                        os.replace(aside, sra_dir(paths, accession))
-                    except OSError as restore_error:
-                        self.logger.error(
-                            "%s: could not restore it after a catalogue failure: %s", accession, restore_error
-                        )
+                self._restore_asides(paths, aside_by_accession)
                 return 1
             for aside in aside_by_accession.values():
-                _remove_path(aside)
+                if aside is not None:
+                    _remove_path(aside)
             for accession in republished:
                 self.logger.warning("%s: published again during removal; the new copy is kept", accession)
                 report["in_use"].append(
@@ -587,7 +590,48 @@ class StoreGcCommand(BaseCommand):
                 )
 
         removed_datasets = [accession for accession in aside_by_accession if accession not in republished]
+        if removed_datasets:
+            self._prune_usage_journal(paths, removed_datasets)
 
+        report["removed_datasets"] = removed_datasets
+        report["removed_leftovers"] = self._remove_leftovers(paths, leftover_candidates)
+        return 0
+
+    @staticmethod
+    def _stale_ids(paths: StorePaths) -> AbstractSet[str]:
+        """The ids of every stale project, read once for a whole removal batch."""
+        with Catalog(paths) as catalog:
+            return frozenset(row["project_id"] for row in stale_projects(catalog))
+
+    def _prune_usage_journal(self, paths: StorePaths, removed: List[str]) -> None:
+        """Drop the journal's usage lines for the removed accessions, under the catalogue lock.
+
+        Runs in its own write session after the deletions have committed, so a failed commit
+        never costs history for a dataset that was put back. A failure here is only logged:
+        the datasets are gone either way, and a usage line left behind for one of them is
+        replayed by ``store_reindex`` as a placeholder that its sidecar check removes again.
+        """
+        try:
+            with catalog_write(paths):
+                dropped = journal.prune_usage(paths, removed)
+        except DataAccessError as e:
+            self.logger.warning("Could not prune the usage journal: %s", e)
+            return
+        if dropped:
+            self.logger.info("Dropped %d usage journal line(s) of the removed dataset(s)", dropped)
+
+    def _restore_asides(self, paths: StorePaths, aside_by_accession: Dict[str, Optional[Path]]) -> None:
+        """Put every folder renamed aside back under its original name, after a catalogue failure."""
+        for accession, aside in aside_by_accession.items():
+            if aside is None:
+                continue
+            try:
+                os.replace(aside, sra_dir(paths, accession))
+            except OSError as restore_error:
+                self.logger.error("%s: could not restore it after a catalogue failure: %s", accession, restore_error)
+
+    def _remove_leftovers(self, paths: StorePaths, leftover_candidates: List[Dict[str, Any]]) -> List[str]:
+        """Remove each leftover whose accession's lock is free; return the paths removed."""
         removed_leftovers: List[str] = []
         for candidate in leftover_candidates:
             path = candidate["path"]
@@ -598,7 +642,4 @@ class StoreGcCommand(BaseCommand):
                     removed_leftovers.append(str(path))
             except LockHeld:
                 continue
-
-        report["removed_datasets"] = removed_datasets
-        report["removed_leftovers"] = removed_leftovers
-        return 0
+        return removed_leftovers

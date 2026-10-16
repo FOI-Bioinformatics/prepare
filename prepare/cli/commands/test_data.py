@@ -4,7 +4,7 @@ Test data CLI commands.
 
 import argparse
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import BaseCommand, anchored_folder
 from prepare.core.exceptions import PrepareError
 from prepare.processing.containment import download_test_genome
 
@@ -33,6 +33,7 @@ class DownloadTestGenomeCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            args.output_folder = str(anchored_folder(args.output_folder, getattr(args, "registry", None)))
             download_test_genome(args.output_folder)
             return 0
         except PrepareError as e:

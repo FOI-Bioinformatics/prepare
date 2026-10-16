@@ -4,11 +4,13 @@
 
 import argparse
 import logging
+import re
 from pathlib import Path
 from typing import Any, Collection, Dict, List, Optional
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import BaseCommand, refuse_bad_accessions
 from prepare.cli.commands.store._shared import _no_store_hint
+from prepare.core.constants import SRA_ACCESSION_PATTERN
 from prepare.core.exceptions import DataAccessError
 from prepare.data import registry_blocks as rb
 from prepare.data import run_log
@@ -83,9 +85,20 @@ class StoreVerifyCommand(BaseCommand):
 
     @staticmethod
     def _accessions_to_check(args: argparse.Namespace, paths: StorePaths) -> List[str]:
+        """The accessions named on the command line, else every accession folder in the store.
+
+        A folder in ``sra/`` not named like an SRA accession is not a dataset: it is logged as
+        skipped, as ``store_reindex`` does, rather than stopping the check of the others.
+        """
         if args.accessions:
             return list(args.accessions)
-        return [p.name for p in visible_files(paths.sra, dirs=True)]
+        accessions = []
+        for folder in visible_files(paths.sra, dirs=True):
+            if re.fullmatch(SRA_ACCESSION_PATTERN, folder.name):
+                accessions.append(folder.name)
+            else:
+                logger.warning("%s in %s is not named like an SRA accession; skipped", folder.name, paths.sra)
+        return accessions
 
     @staticmethod
     def _check_bytes_and_md5(accession: str, store_dir: Path, sidecar: Sidecar, check_md5: bool):
@@ -516,6 +529,8 @@ class StoreVerifyCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         """Run the command; return the exit code."""
+        if (rc := refuse_bad_accessions(self.logger, args.accessions)) is not None:
+            return rc
         try:
             registry = load_registry(args.registry)
             root = resolve_store_root(args.data_root, rb.store_block(registry).root)

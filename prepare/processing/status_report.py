@@ -91,12 +91,18 @@ def _listed_or_probed(
 
 
 def inventory_report(
-    args: argparse.Namespace, registry: Registry, store: Optional[StorePaths] = None
+    args: argparse.Namespace,
+    registry: Registry,
+    store: Optional[StorePaths] = None,
+    paths: Optional[ProjectPaths] = None,
 ) -> Dict[str, Any]:
-    """The on-disk inventory part of the report: FASTQ, metadata and genome files against what is wanted."""
-    fastq_dir = Path(args.fastq_folder)
-    meta_dir = Path(args.metadata_folder)
-    genomes_dir = Path(args.genomes_folder)
+    """The on-disk inventory part of the report: FASTQ, metadata and genome files against what is wanted.
+
+    The folders come from ``paths`` (anchored on the project root) when given, else from ``args``.
+    """
+    if paths is None:
+        paths = ProjectPaths(Path(args.fastq_folder), Path(args.metadata_folder), Path(args.genomes_folder))
+    fastq_dir, meta_dir, genomes_dir = paths.fastq, paths.metadata, paths.genomes
 
     on_disk_fastq = sorted(
         d.name
@@ -312,7 +318,7 @@ def build_report(
         store = store_paths(store_root)
         logger.info("Using shared data store at %s", store_root)
 
-    report = inventory_report(args, registry, store)
+    report = inventory_report(args, registry, store, paths)
     report["registry"] = {
         "path": str(registry_file),
         "version": registry.version,

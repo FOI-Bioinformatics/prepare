@@ -20,6 +20,7 @@ from prepare.data.sra.run_report import (
     REASONS,
     REPORT_HEADER,
     RunOutcomes,
+    attempt_timing,
     failure_reason,
     report_rows,
     run_document,
@@ -60,6 +61,12 @@ def test_failure_reason(message, reason):
 def test_failure_reason_reads_through_a_retry_prefix():
     assert failure_reason(f"Retry 2: {INSUFFICIENT_SPACE_PREFIX} for SRR1") == "insufficient-space"
     assert failure_reason("Retry 1 error: [Errno 28] No space left on device") == "disk-full"
+
+
+def test_attempt_timing_ignores_the_worker_time_of_a_prefixed_store_link():
+    timings = {"SRR1": ("2026-01-01T00:00:00Z", 3.0)}
+    assert attempt_timing("SRR1", True, "Retry 1: linked from store, 1 files", timings) is None
+    assert attempt_timing("SRR1", True, "Retry 1: Downloaded 1 files", timings) == timings["SRR1"]
 
 
 class TestRunOutcomes:

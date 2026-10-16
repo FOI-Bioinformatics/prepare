@@ -8,6 +8,7 @@ tests/test_cli_store.py and tests/test_store_resolve.py.
 import argparse
 import json
 import logging
+import os
 import threading
 
 import pytest
@@ -961,8 +962,8 @@ class TestStoreGcRemovalUnderTheLock:
             cat.upsert_dataset(_sidecar("SRR2"))
         original = StoreGcCommand._remove_one_dataset
 
-        def _remove_then_republish(self, paths_arg, candidate, report, aside_by_accession):
-            original(self, paths_arg, candidate, report, aside_by_accession)
+        def _remove_then_republish(self, paths_arg, candidate, report, aside_by_accession, *rest):
+            original(self, paths_arg, candidate, report, aside_by_accession, *rest)
             if candidate["accession"] == "SRR1":
                 # A download_sra of SRR1 takes the now free lock and publishes a new copy.
                 with dataset_lock(paths, "SRR1"):
@@ -985,6 +986,35 @@ class TestStoreGcRemovalUnderTheLock:
             assert cat.get_dataset("SRR1")["downloaded"] == "2026-09-30T00:00:00+00:00"
             assert cat.get_dataset("SRR2") is None
 
+    def test_a_catalogue_row_whose_folder_is_gone_is_removed(self, tmp_path, capsys, caplog):
+        """A catalogue row with no dataset folder (removed by hand, or by an interrupted run)
+        is dropped by --yes and reported, rather than staying a candidate on every run."""
+        root = tmp_path / "store"
+        paths = init_store(root)
+        _write_dataset_dir(paths, "SRR1")
+        with catalog_write(paths) as cat:
+            cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
+            cat.upsert_dataset(_sidecar("SRR1"))
+            cat.upsert_dataset(_sidecar("SRR9"))
+        assert not sra_dir(paths, "SRR9").exists()
+
+        with caplog.at_level(logging.INFO):
+            rc = StoreGcCommand().execute(_gc_args(data_root=str(root), yes=True, json=True))
+        report = json.loads(capsys.readouterr().out)
+
+        assert rc == 0
+        assert sorted(report["removed_datasets"]) == ["SRR1", "SRR9"]
+        assert any("SRR9" in r.message and "folder already gone" in r.message for r in caplog.records)
+        with Catalog(paths) as cat:
+            assert cat.get_dataset("SRR9") is None
+            assert cat.get_dataset("SRR1") is None
+        assert not (paths.tmp / "SRR9_gc").exists()
+
+        rc = StoreGcCommand().execute(_gc_args(data_root=str(root), yes=True, json=True))
+        report = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert report["datasets"] == []
+
     def test_leftover_aside_from_an_interrupted_gc_is_swept_up_next_run(self, tmp_path, capsys):
         """A `<ACC>_gc` folder left behind by an interrupted removal (the rename succeeded,
         the catalogue delete or final cleanup did not) is picked up as an ordinary leftover
@@ -1005,3 +1035,145 @@ class TestStoreGcRemovalUnderTheLock:
         assert rc == 0
         assert any("SRR1_gc" in entry for entry in report["removed_leftovers"])
         assert not aside.exists()
+
+
+def test_gc_include_stale_keeps_a_dataset_linked_by_a_relative_registry_project(tmp_path, monkeypatch, capsys):
+    """Audit H2: a project bound with a relative ``--registry`` must not look stale from
+    another working directory, and its live symlink must keep the dataset out of gc."""
+    root = tmp_path / "store"
+    init_store(root)
+    paths = store_paths(root)
+    acc_dir = _write_dataset_dir(paths, "SRR2")
+    write_sidecar(sidecar_path(paths, "SRR2"), _sidecar("SRR2"))
+    with catalog_write(paths) as cat:
+        cat.upsert_dataset(_sidecar("SRR2"))
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    monkeypatch.chdir(proj)
+    assert StoreInitCommand().execute(_init_args(root, proj, registry="prepare_registry.json")) == 0
+    assert StoreLinkCommand().execute(_link_args(["SRR2"], data_root=str(root), registry="prepare_registry.json")) == 0
+    used = root / "locks" / "SRR2.used"
+    assert used.is_file()
+    os.utime(used, (1, 1))  # past the 24 h grace
+
+    capsys.readouterr()
+    monkeypatch.chdir(tmp_path)
+    rc = StoreGcCommand().execute(_gc_args(data_root=str(root), include_stale=True, yes=True, json=True))
+    assert rc == 0
+    assert acc_dir.is_dir()
+    report = json.loads(capsys.readouterr().out)
+    assert "SRR2" not in report["removed_datasets"]
+
+
+class TestStoreGcLoadsRegistriesOnceAndPrunesTheJournal:
+    """Classification reads every project's registry once per run, not once per dataset, and a
+    removed accession leaves no usage line in the journal for a later replay to bring back."""
+
+    @staticmethod
+    def _count_stale_calls(monkeypatch):
+        from prepare.cli.commands.store import gc as gc_module
+        from prepare.store import usage as usage_module
+
+        real = usage_module.stale_projects
+        calls = []
+
+        def counting(catalog):
+            calls.append(1)
+            return real(catalog)
+
+        monkeypatch.setattr(usage_module, "stale_projects", counting)
+        monkeypatch.setattr(gc_module, "stale_projects", counting)
+        return calls
+
+    @staticmethod
+    def _store_with_datasets(tmp_path, count):
+        paths = init_store(tmp_path / "store")
+        stale_dir = tmp_path / "stale_proj"
+        stale_dir.mkdir()
+        with catalog_write(paths) as cat:
+            cat.upsert_project("stale1", "OldProject", str(stale_dir), str(stale_dir / "prepare_registry.json"))
+            for number in range(1, count + 1):
+                accession = f"SRR{number}"
+                _write_dataset_dir(paths, accession)
+                cat.upsert_dataset(_sidecar(accession))
+                if number % 2:
+                    cat.record_usage(accession, "stale1", "wMel", "downloaded")
+        return paths
+
+    def test_stale_projects_is_called_once_for_a_50_dataset_classification(self, tmp_path, monkeypatch, capsys):
+        paths = self._store_with_datasets(tmp_path, 50)
+        calls = self._count_stale_calls(monkeypatch)
+
+        rc = StoreGcCommand().execute(_gc_args(data_root=str(paths.root), json=True))
+        report = json.loads(capsys.readouterr().out)
+
+        assert rc == 0
+        assert len(report["datasets"]) == 25
+        assert len(report["kept_stale"]) == 25
+        assert len(calls) == 1
+
+    def test_removal_rechecks_staleness_once_per_batch(self, tmp_path, monkeypatch, capsys):
+        paths = self._store_with_datasets(tmp_path, 10)
+        calls = self._count_stale_calls(monkeypatch)
+
+        rc = StoreGcCommand().execute(_gc_args(data_root=str(paths.root), yes=True, include_stale=True, json=True))
+        report = json.loads(capsys.readouterr().out)
+
+        assert rc == 0
+        assert len(report["removed_datasets"]) == 10
+        # One for the classification and report, one for the removal batch's re-check.
+        assert len(calls) == 2
+
+    def test_gc_prunes_the_usage_journal_for_removed_accessions(self, tmp_path, capsys, caplog):
+        paths = init_store(tmp_path / "store")
+        stale_dir = tmp_path / "stale_proj"
+        stale_dir.mkdir()
+        live_dir = tmp_path / "live_proj"
+        live_dir.mkdir()
+        registry_file = live_dir / "prepare_registry.json"
+        registry_file.write_text(json.dumps({"project": {"id": "live1"}}))
+        for accession in ("SRR1", "SRR2"):
+            _write_dataset_dir(paths, accession)
+        with catalog_write(paths) as cat:
+            cat.upsert_project("stale1", "OldProject", str(stale_dir), str(stale_dir / "prepare_registry.json"))
+            cat.upsert_project("live1", "LiveProject", str(live_dir), str(registry_file))
+            cat.upsert_dataset(_sidecar("SRR1"))
+            cat.upsert_dataset(_sidecar("SRR2"))
+            cat.record_usage("SRR1", "stale1", "wMel", "downloaded")
+            cat.record_usage("SRR1", "stale1", "wMel", "linked")
+            cat.record_usage("SRR2", "live1", "wMel", "downloaded")
+        usage_file = paths.journal / "usage.jsonl"
+        with open(usage_file, "a", encoding="utf-8") as handle:
+            handle.write("{not json\n")
+
+        with caplog.at_level(logging.WARNING):
+            rc = StoreGcCommand().execute(_gc_args(data_root=str(paths.root), yes=True, include_stale=True, json=True))
+        report = json.loads(capsys.readouterr().out)
+
+        assert rc == 0
+        assert report["removed_datasets"] == ["SRR1"]
+        lines = usage_file.read_text(encoding="utf-8").splitlines()
+        assert "{not json" in lines
+        records = [json.loads(line) for line in lines if line != "{not json"]
+        assert [record["accession"] for record in records] == ["SRR2"]
+        assert sum("could not be parsed" in record.message for record in caplog.records) == 1
+
+    def test_reindex_compacts_the_projects_journal_to_the_latest_line_per_project(self, tmp_path):
+        paths = init_store(tmp_path / "store")
+        with catalog_write(paths) as cat:
+            cat.upsert_project("p1", "first", str(tmp_path / "a"), "r1.json")
+            cat.upsert_project("p2", "other", str(tmp_path / "b"), "r2.json")
+            cat.upsert_project("p1", "second", str(tmp_path / "a"), "r1.json")
+            cat.upsert_project("p1", "third", str(tmp_path / "a"), "r1.json")
+
+        rc = StoreReindexCommand().execute(argparse.Namespace(data_root=str(paths.root), registry=None))
+
+        assert rc == 0
+        records = [
+            json.loads(line) for line in (paths.journal / "projects.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        assert [(record["project_id"], record["name"]) for record in records] == [("p2", "other"), ("p1", "third")]
+        with Catalog(paths) as cat:
+            names = dict(cat.conn.execute("SELECT project_id, name FROM projects").fetchall())
+        assert names == {"p1": "third", "p2": "other"}

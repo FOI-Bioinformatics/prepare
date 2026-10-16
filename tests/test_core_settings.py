@@ -160,7 +160,7 @@ def test_config_value_of_the_wrong_type_is_refused(tmp_path):
         settings.resolve_setting("log_host")
 
 
-@pytest.mark.parametrize("value", ["auto", "0.5", "1", "32G", "32000M", "1000000", "16g"])
+@pytest.mark.parametrize("value", ["auto", "0.5", "1", "32G", "32000M", "2000000", "16g"])
 def test_assembly_memory_accepts_documented_forms(monkeypatch, value):
     monkeypatch.setenv("PREPARE_ASSEMBLY_MEMORY", value)
     assert settings.resolve_setting("assembly_memory").value == value
@@ -169,6 +169,14 @@ def test_assembly_memory_accepts_documented_forms(monkeypatch, value):
 @pytest.mark.parametrize("value", ["2.5", "0", "lots", "-1G"])
 def test_assembly_memory_rejects_other_forms(monkeypatch, value):
     # "2.5" is neither a fraction (at most 1) nor a whole number of bytes.
+    monkeypatch.setenv("PREPARE_ASSEMBLY_MEMORY", value)
+    with pytest.raises(ConfigurationError, match="PREPARE_ASSEMBLY_MEMORY"):
+        settings.resolve_setting("assembly_memory")
+
+
+@pytest.mark.parametrize("value", ["500", ".0", "0.0"])
+def test_assembly_memory_agrees_with_the_assembly_parser(monkeypatch, value):
+    # 500 bytes is below the 1M floor of resources.parse_memory, so startup refuses it too.
     monkeypatch.setenv("PREPARE_ASSEMBLY_MEMORY", value)
     with pytest.raises(ConfigurationError, match="PREPARE_ASSEMBLY_MEMORY"):
         settings.resolve_setting("assembly_memory")

@@ -10,7 +10,7 @@ import os
 import pytest
 
 from prepare.core.constants import CONFIG_DIRNAME, CONFIG_FILENAME, STORE_ENV
-from prepare.core.exceptions import DataAccessError
+from prepare.core.exceptions import ConfigurationError, DataAccessError
 from prepare.store.layout import init_store
 from prepare.store.resolve import (
     config_path,
@@ -237,3 +237,30 @@ def test_resolve_registers_root_with_secure_subprocess(tmp_path):
     resolved = resolve_store_root(explicit=str(root), registry_root=None)
 
     assert resolved in SecureSubprocess.allowed_roots()
+
+
+def test_resolve_refuses_a_store_entry_that_is_not_a_table(tmp_path):
+    config_path().parent.mkdir(parents=True, exist_ok=True)
+    config_path().write_text('store = "x"\n')
+    with pytest.raises(ConfigurationError, match="store"):
+        resolve_store_root(None, None)
+
+
+def test_resolve_refuses_a_data_root_that_is_not_a_string(tmp_path):
+    config_path().parent.mkdir(parents=True, exist_ok=True)
+    config_path().write_text("[store]\ndata_root = 5\n")
+    with pytest.raises(ConfigurationError, match="data_root"):
+        resolve_store_root(None, None)
+
+
+def test_resolve_ignores_a_broken_config_when_the_explicit_root_is_found(tmp_path):
+    root = tmp_path / "store"
+    init_store(root)
+    config_path().parent.mkdir(parents=True, exist_ok=True)
+    config_path().write_text("not toml = = =\n")
+    assert resolve_store_root(str(root), None) == root.resolve()
+
+
+def test_resolve_expands_a_home_relative_candidate(tmp_path):
+    init_store(tmp_path / "store")
+    assert resolve_store_root("~/store", None) == (tmp_path / "store").resolve()

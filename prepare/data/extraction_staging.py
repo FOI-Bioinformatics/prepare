@@ -98,6 +98,28 @@ def publish_staged(staging: Path, returned: List[Path], out_dir: Path, genome_id
 _RECORD_SUFFIX = ".extracted.json"
 
 
+def remove_published(out_dir: Path, genome_id: str) -> List[Path]:
+    """Remove the files this genome's last extraction recorded, then the record; return the files removed.
+
+    Used when a forced rerun maps nothing, so that the earlier reads are not reported as current.
+    Without a record nothing is removed. A file that another genome's record lists is kept.
+    """
+    out_dir = Path(out_dir)
+    record = _record_path(out_dir, genome_id)
+    others = set()
+    for other in out_dir.glob(".*" + _RECORD_SUFFIX):
+        if other != record:
+            others.update(_recorded_names(other))
+    removed = []
+    for name in _recorded_names(record):
+        path = out_dir / name
+        if name not in others and path.exists():
+            path.unlink()
+            removed.append(path)
+    record.unlink(missing_ok=True)
+    return removed
+
+
 def _record_path(out_dir: Path, genome_id: str) -> Path:
     """The hidden record of the FASTQ names the last extraction of ``genome_id`` published here."""
     return Path(out_dir) / f".{genome_id}{_RECORD_SUFFIX}"

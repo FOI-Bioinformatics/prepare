@@ -115,7 +115,8 @@ class TestInteractiveTSNE:
                 sample_data, output_file=output_file, perplexity=5.0, show_plot=False  # Must be < n_samples (10)
             )
 
-            mock_write.assert_called_once_with(str(output_file))
+            mock_write.assert_called_once()
+            assert output_file.exists()  # replaced from a temporary file, not written in place
 
     @patch("plotly.graph_objects.Figure.show")
     def test_create_tsne_missing_metadata_column(self, mock_show, sample_data, sample_metadata):
@@ -156,6 +157,18 @@ class TestInteractivePCAExtended:
 
         assert fig is not None
         mock_show.assert_not_called()
+
+    def test_pca_with_a_text_size_column_drops_the_size_mapping(self, sample_data, sample_metadata, caplog):
+        """A size column that is not numeric is dropped with a warning instead of failing the plot."""
+        metadata = sample_metadata.copy()
+        metadata["size_label"] = ["small", "large"] * 5
+
+        with caplog.at_level("WARNING"):
+            fig = create_interactive_pca(sample_data, metadata=metadata, size_by="size_label", show_plot=False)
+
+        assert fig is not None
+        assert "size_label" in caplog.text and "numeric" in caplog.text
+        assert all(getattr(trace.marker, "size", None) is None for trace in fig.data)
 
     @patch("plotly.graph_objects.Figure.show")
     def test_pca_with_missing_size_column(self, mock_show, sample_data, sample_metadata):
@@ -219,7 +232,8 @@ class TestInteractiveHeatmapExtended:
         with patch("plotly.graph_objects.Figure.write_html") as mock_write:
             create_interactive_heatmap(sample_data, output_file=output_file, show_plot=False)
 
-            mock_write.assert_called_once_with(str(output_file))
+            mock_write.assert_called_once()
+            assert output_file.exists()  # replaced from a temporary file, not written in place
 
     @patch("plotly.graph_objects.Figure.show")
     def test_heatmap_custom_clustering_parameters(self, mock_show, sample_data):
@@ -286,7 +300,8 @@ class TestDiversityComparisonExtended:
                 show_plot=False,
             )
 
-            mock_write.assert_called_once_with(str(output_file))
+            mock_write.assert_called_once()
+            assert output_file.exists()  # replaced from a temporary file, not written in place
 
     @patch("plotly.graph_objects.Figure.show")
     def test_diversity_custom_title(self, mock_show, sample_alpha_diversity, sample_metadata):

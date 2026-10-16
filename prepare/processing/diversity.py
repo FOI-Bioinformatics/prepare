@@ -8,9 +8,9 @@ essential for microbiome and metagenomic analysis.
 import logging
 import numpy as np
 import pandas as pd
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from prepare.core.exceptions import ProcessingError
+from prepare.core.exceptions import ProcessingError, ValidationError
 from prepare.core.optional import require
 
 logger = logging.getLogger(__name__)
@@ -125,11 +125,20 @@ def calculate_beta_diversity(
         raise ProcessingError(f"Failed to calculate beta diversity: {e}")
 
 
+def check_metadata_covers_samples(sample_names: Sequence[Any], metadata: pd.DataFrame) -> None:
+    """Raise ValidationError naming every sample that has no row in the metadata."""
+    present = set(metadata.index)
+    missing = [str(name) for name in sample_names if name not in present]
+    if missing:
+        raise ValidationError(f"Samples missing from the metadata: {', '.join(missing)}")
+
+
 def perform_permanova(
     distance_matrix: Union[pd.DataFrame, np.ndarray],
     metadata: pd.DataFrame,
     formula: str,
     n_permutations: int = 999,
+    seed: Optional[int] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Perform PERMANOVA (Permutational Multivariate Analysis of Variance).
@@ -141,11 +150,13 @@ def perform_permanova(
         metadata: Sample metadata DataFrame
         formula: Formula string (e.g., "treatment + site")
         n_permutations: Number of permutations for p-value calculation
+        seed: Seed for the permutation generator; None draws fresh entropy
 
     Returns:
-        Dictionary with test statistics and p-values
+        Dictionary with test statistics and p-values; each variable is tested on its own
 
     Raises:
+        ValidationError: If a sample in the distance matrix is absent from the metadata
         ProcessingError: If test fails
     """
     try:
@@ -165,13 +176,17 @@ def perform_permanova(
             raise ProcessingError(f"Variables not found in metadata: {missing_vars}")
 
         # Align metadata with distance matrix
-        metadata_aligned = metadata.loc[sample_names]
+        check_metadata_covers_samples(sample_names, metadata)
+        # A sample listed more than once is read from its first row, as the plots do.
+        unique = metadata[~metadata.index.duplicated(keep="first")]
+        metadata_aligned = unique.loc[sample_names]
 
         # Perform PERMANOVA
+        rng = np.random.default_rng(seed)
         results = {}
         for variable in variables:
             groups = metadata_aligned[variable]
-            f_stat, p_value = _permanova_test(distances, groups, n_permutations)
+            f_stat, p_value = _permanova_test(distances, groups, n_permutations, rng=rng)
             results[variable] = {
                 "F_statistic": f_stat,
                 "p_value": p_value,
@@ -181,6 +196,8 @@ def perform_permanova(
         logger.info(f"PERMANOVA completed for variables: {variables}")
         return results
 
+    except ValidationError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Failed to perform PERMANOVA: {e}")
 
@@ -309,55 +326,59 @@ def _calculate_jaccard_distance(data: np.ndarray) -> np.ndarray:
     return distances
 
 
-def _permanova_test(distance_matrix: np.ndarray, groups: pd.Series, n_permutations: int) -> Tuple[float, float]:
-    """Perform PERMANOVA test."""
+def _permanova_f(distance_matrix: np.ndarray, labels: np.ndarray) -> float:
+    """Pseudo-F of Anderson (2001) for one labelling; nan when it is undefined."""
     n_samples = distance_matrix.shape[0]
+    unique_groups = np.unique(labels)
+    n_groups = len(unique_groups)
+    if n_groups < 2 or n_samples - n_groups < 1:
+        return float("nan")
 
-    # Calculate total sum of squares
-    upper_triangle_distances = distance_matrix[np.triu_indices(n_samples, k=1)] ** 2
-    if len(upper_triangle_distances) > 0:
-        grand_mean = np.mean(upper_triangle_distances)
-    else:
-        grand_mean = 0
-    total_ss = np.sum(distance_matrix**2) / (2 * n_samples) - grand_mean
+    squared = distance_matrix**2
+    upper = np.triu_indices(n_samples, k=1)
+    total_ss = squared[upper].sum() / n_samples
 
-    # Calculate within-group sum of squares
-    within_ss = 0
-    unique_groups = groups.unique()
-
+    within_ss = 0.0
     for group in unique_groups:
-        group_indices = np.where(groups == group)[0]
-        if len(group_indices) > 1:
-            group_distances = distance_matrix[np.ix_(group_indices, group_indices)]
-            group_upper_triangle = group_distances[np.triu_indices(len(group_indices), k=1)] ** 2
-            if len(group_upper_triangle) > 0:
-                group_mean = np.mean(group_upper_triangle)
-            else:
-                group_mean = 0
-            within_ss += np.sum(group_distances**2) / (2 * len(group_indices)) - group_mean
+        members = np.flatnonzero(labels == group)
+        block = squared[np.ix_(members, members)]
+        within_ss += block[np.triu_indices(len(members), k=1)].sum() / len(members)
 
-    # Calculate between-group sum of squares
     between_ss = total_ss - within_ss
+    if within_ss <= 0:
+        return float("inf") if between_ss > 0 else float("nan")
+    return float((between_ss / (n_groups - 1)) / (within_ss / (n_samples - n_groups)))
 
-    # Calculate F-statistic
-    df_between = len(unique_groups) - 1
-    df_within = n_samples - len(unique_groups)
 
-    if df_within > 0 and within_ss > 0:
-        f_stat = (between_ss / df_between) / (within_ss / df_within)
-    else:
-        f_stat = 0
+def _permanova_test(
+    distance_matrix: np.ndarray,
+    groups: pd.Series,
+    n_permutations: int,
+    rng: Optional[np.random.Generator] = None,
+) -> Tuple[float, float]:
+    """One-factor PERMANOVA (Anderson 2001).
 
-    # Permutation test for p-value
-    permuted_f_stats = []
+    Samples whose group label is missing are removed with their rows and columns.
+    SS_T = sum_{i<j} d_ij^2 / N, SS_W = sum_g sum_{i<j in g} d_ij^2 / n_g, SS_A = SS_T - SS_W,
+    F = (SS_A / (a - 1)) / (SS_W / (N - a)), and the permutation p-value is
+    (1 + #{F_perm >= F}) / (1 + n_permutations). F and p are nan when fewer than two
+    groups remain or N - a < 1; p is nan when no permutations are requested.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    keep = ~pd.isna(np.asarray(groups, dtype=object))
+    labels = np.asarray(groups, dtype=object)[keep].astype(str)
+    distances = np.asarray(distance_matrix, dtype=float)[np.ix_(keep, keep)]
+
+    f_stat = _permanova_f(distances, labels)
+    if np.isnan(f_stat) or n_permutations < 1:
+        return f_stat, float("nan")
+
+    n_extreme = 0
     for _ in range(n_permutations):
-        permuted_groups = groups.sample(frac=1).values
-        perm_f, _ = _permanova_test(distance_matrix, pd.Series(permuted_groups), 0)
-        permuted_f_stats.append(perm_f)
+        if _permanova_f(distances, rng.permutation(labels)) >= f_stat:
+            n_extreme += 1
+    p_value = (1 + n_extreme) / (1 + n_permutations)
 
-    if len(permuted_f_stats) > 0:
-        p_value = np.mean(np.array(permuted_f_stats) >= f_stat)
-    else:
-        p_value = np.nan  # Return NaN when no permutations were performed
-
-    return f_stat, p_value
+    return f_stat, float(p_value)

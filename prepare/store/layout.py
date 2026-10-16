@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from prepare.core.constants import STORE_LAYOUT, STORE_MARKER
+from prepare.data.accessions import require_accession
 from prepare.data.file_io import unique_temp_path, write_text_atomic
 
 logger = logging.getLogger(__name__)
@@ -121,7 +122,7 @@ def read_marker(root: Path) -> Optional[dict]:
 
 def sra_dir(paths: StorePaths, acc: str) -> Path:
     """Directory holding the downloaded files for one SRA accession."""
-    return paths.sra / acc
+    return paths.sra / require_accession(acc)
 
 
 def sidecar_path(paths: StorePaths, acc: str) -> Path:

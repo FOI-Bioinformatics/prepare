@@ -28,6 +28,16 @@ prepare plot_metadata_counts --file-path metadata_counts.txt --plot-type bar --s
 
 This writes `metadata_counts_bar.png` in the current working directory. The plot types are `bar`, `pie` and `radar`. The input is a count table from `count_metadata`.
 
+## Plotting sample locations
+
+`plot_map` draws the sample locations of a metadata table on a world map. It reads the coordinates from one column, `lat_lon` by default, and accepts values such as `38.98 N 77.10 W` or `12.5,-3.1`. Rows without parseable coordinates are not drawn. It needs the `maps` extra.
+
+```bash
+prepare plot_map --metadata-file metadata_table.txt --output sample_map.png --lat-lon-column lat_lon
+```
+
+The image format follows the extension of `--output`: png, jpg, pdf or svg.
+
 ## diversity_analysis
 
 `diversity_analysis` calculates alpha and beta diversity metrics for an abundance matrix and, with a metadata table, a PERMANOVA test. It needs the `analysis` extra.
@@ -42,6 +52,8 @@ prepare diversity_analysis \
 ```
 
 The alpha metrics default to `shannon`, `simpson`, `chao1` and `observed_species`. `--beta-metric` is one of `bray_curtis` (the default), `jaccard`, `euclidean` and `manhattan`. The terms of `--permanova-formula` are columns of the metadata table. Results go to `--output-dir` (default `diversity_results`).
+
+Each term of `--permanova-formula` is tested on its own as a one-factor PERMANOVA (Anderson 2001) on the beta-diversity distance matrix, with 999 permutations. Samples with a missing value for the term are left out of that test. The pseudo-F statistic uses the standard sums of squares, SS_T = sum of d_ij^2 / N over all pairs and SS_W = sum over groups of the within-group pairs' d_ij^2 / n_g, and the p-value is (1 + the number of permutations with F >= the observed F) / (1 + 999). F and p are reported as nan when fewer than two groups remain. Since 0.10.1 these values differ from those of 0.10.0 and earlier, which used a different sum of squares and no +1 correction; results from earlier versions should be recomputed. The command has no seed option, so the p-value can vary slightly between runs.
 
 ## interactive_plot
 
@@ -90,7 +102,7 @@ prepare validate_taxonomy \
     --email your.email@domain.com
 ```
 
-`--cache-file` names the lookup cache (default `taxonomy_cache.csv`), and `--api-key` raises the NCBI rate limit.
+`--cache-file` names the NCBI lookup cache (default `taxonomy_validation_cache.csv`), and `--api-key` raises the NCBI rate limit. This cache is separate from the GTDB cache `taxonomy_cache.tsv` that `enrich_taxonomy` and `explore_containment` use (see below); the two have different formats and are not interchangeable.
 
 ## enrich_taxonomy and taxonomic_summary
 

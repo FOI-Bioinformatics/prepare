@@ -17,7 +17,7 @@ from prepare.data.registry import load_registry
 from prepare.store import journal
 from prepare.store.adopt import rebuild_missing_sidecar
 from prepare.store.catalog import REBUILT_WITHOUT_PROJECTS, catalog_write
-from prepare.store.layout import StorePaths, sidecar_path, sra_dir, store_paths
+from prepare.store.layout import StorePaths, sra_dir, store_paths
 from prepare.store.locks import LockHeld, dataset_lock, lock_holder
 from prepare.store.resolve import resolve_store_root
 from prepare.store.sidecar import Sidecar, read_sidecar
@@ -71,7 +71,8 @@ class StoreReindexCommand(BaseCommand):
         unreadable: List[str] = []
         missing: List[str] = []
         for acc_dir in visible_files(paths.sra, dirs=True):
-            sc_path = sidecar_path(paths, acc_dir.name)
+            # built from the folder itself: a stray folder name is not an accession and sra_dir refuses it
+            sc_path = acc_dir / f"{acc_dir.name}.json"
             if not sc_path.is_file():
                 if re.fullmatch(SRA_ACCESSION_PATTERN, acc_dir.name):
                     missing.append(acc_dir.name)
@@ -145,6 +146,9 @@ class StoreReindexCommand(BaseCommand):
                 # whose accession is not among the sidecars just read and whose folder is gone
                 # from disk, so a dataset gc already removed is never resurrected by replay.
                 projects, usage = journal.replay(paths, catalog)
+                # Only the latest line of each project decides what replay restores, so the
+                # earlier ones are dropped now, under the same lock every append takes.
+                journal.compact_projects(paths)
                 count = catalog.reindex(sidecars)
                 has_datasets = catalog.conn.execute("SELECT 1 FROM datasets LIMIT 1").fetchone() is not None
                 if projects == 0 and has_datasets:

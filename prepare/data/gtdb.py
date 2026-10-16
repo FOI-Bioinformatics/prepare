@@ -2,7 +2,7 @@
 
 import logging
 import threading
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import requests
 
@@ -91,11 +91,13 @@ def search_species(species_name: str) -> List[Dict]:
     return []
 
 
-def search_taxon(taxon_name: str, limit: int = 100) -> List[Dict]:
-    """Search GTDB by any taxonomic name (genus, family, etc.)."""
-    url = f"{GTDB_API_BASE}/taxon/search/{requests.utils.quote(taxon_name)}"
-    params = {"limit": limit}
-    logger.debug("Searching GTDB taxon: %s (limit=%d)", taxon_name, limit)
+MAX_TAXON_PAGES = 50
+
+
+def _fetch_taxon_page(url: str, taxon_name: str, limit: int, page: int) -> List[Dict]:
+    """Fetch and normalise one page of taxon search results."""
+    params = {"limit": limit, "page": page}
+    logger.debug("Searching GTDB taxon: %s (limit=%d, page=%d)", taxon_name, limit, page)
 
     try:
         response = get_session().get(url, params=params, timeout=REQUEST_TIMEOUT)
@@ -105,9 +107,9 @@ def search_taxon(taxon_name: str, limit: int = 100) -> List[Dict]:
         raise DataAccessError(_api_error_message("taxon", taxon_name, e))
 
     if not data:
-        logger.warning("No results found for taxon '%s'", taxon_name)
         return []
 
+    # The API may return a list or a dict with matches or results
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
@@ -116,6 +118,36 @@ def search_taxon(taxon_name: str, limit: int = 100) -> List[Dict]:
         return data.get("results", [data])
 
     return []
+
+
+def _row_key(row: Dict) -> str:
+    """Identify a taxon search row by accession, falling back to name."""
+    return str(_record_accession(row) or row.get("name") or row)
+
+
+def search_taxon(taxon_name: str, limit: int = 100) -> List[Dict]:
+    """Search GTDB by any taxonomic name (genus, family, etc.).
+
+    ``limit`` is the page size. Pages are requested until one returns fewer than
+    ``limit`` rows or adds no row not already seen (the endpoint may ignore ``page``),
+    up to ``MAX_TAXON_PAGES`` pages.
+    """
+    url = f"{GTDB_API_BASE}/taxon/search/{requests.utils.quote(taxon_name)}"
+    results: List[Dict] = []
+    seen: Set[str] = set()
+    for page in range(1, MAX_TAXON_PAGES + 1):
+        rows = _fetch_taxon_page(url, taxon_name, limit, page)
+        new_rows = [row for row in rows if _row_key(row) not in seen]
+        seen.update(_row_key(row) for row in new_rows)
+        results.extend(new_rows)
+        if len(rows) < limit or not new_rows:
+            break
+    else:
+        logger.warning("Stopped after %d pages of GTDB results for taxon '%s'", MAX_TAXON_PAGES, taxon_name)
+
+    if not results:
+        logger.warning("No results found for taxon '%s'", taxon_name)
+    return results
 
 
 def _record_accession(record: Dict) -> Optional[str]:

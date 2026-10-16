@@ -361,6 +361,32 @@ class TestRunLevelStop:
         )
         assert worker.call_args.kwargs["stop"] is token
 
+    def test_a_stop_during_the_retry_pass_leaves_the_remaining_accessions_unrecorded(self, tmp_path):
+        token = threading.Event()
+
+        def worker(accession, *args, **kwargs):
+            token.set()
+            return True, "ok"
+
+        results = {"SRR1": "Download failed: timeout", "SRR2": "Download failed: timeout"}
+        seen = []
+        retried, failed, abort = retry_mod._retry_failed_downloads(
+            ["SRR1", "SRR2"],
+            1,
+            tmp_path,
+            1,
+            None,
+            results,
+            on_result=lambda *args: seen.append(args[0]),
+            downloader=worker,
+            stop=token,
+        )
+        assert retried == 1
+        assert failed == ["SRR2"]
+        assert abort is None
+        assert seen == ["SRR1"]
+        assert results["SRR2"] == "Download failed: timeout"
+
 
 @needs_sleep
 def test_cancelling_one_download_run_leaves_a_concurrent_run_running(tmp_path, allow_sleep):
@@ -374,11 +400,11 @@ def test_cancelling_one_download_run_leaves_a_concurrent_run_running(tmp_path, a
         seen[accession] = stop
         # Run A's tool would run for 30 s; run B's finishes by itself after 3 s. B starts its
         # tool only once A is starting its own, so B's 3 s cannot run out before both are seen.
-        if accession == "SRRA1":
+        if accession == "SRR1000001":
             a_starting.set()
         else:
             assert a_starting.wait(10), "run A never started its tool"
-        seconds = "30" if accession == "SRRA1" else "3"
+        seconds = "30" if accession == "SRR1000001" else "3"
         try:
             accession_mod._run_download_tool("sleep", [seconds], stop)
         except accession_mod._DownloadInterrupted:
@@ -393,8 +419,8 @@ def test_cancelling_one_download_run_leaves_a_concurrent_run_running(tmp_path, a
         stats[name] = download_sra(tmp_path / f"fastq_{name}", accessions, max_retries=1, max_workers=1, stop=token)
 
     with patch.object(accession_mod, "_project_download", side_effect=fake_project_download):
-        thread_a = threading.Thread(target=run, args=("a", "SRRA1", token_a))
-        thread_b = threading.Thread(target=run, args=("b", "SRRB1", token_b))
+        thread_a = threading.Thread(target=run, args=("a", "SRR1000001", token_a))
+        thread_b = threading.Thread(target=run, args=("b", "SRR1000002", token_b))
         thread_a.start()
         thread_b.start()
         try:
@@ -414,9 +440,9 @@ def test_cancelling_one_download_run_leaves_a_concurrent_run_running(tmp_path, a
             thread_a.join(5)
             thread_b.join(5)
 
-    assert seen == {"SRRA1": token_a, "SRRB1": token_b}
+    assert seen == {"SRR1000001": token_a, "SRR1000002": token_b}
     assert stats["a"]["successful"] == 0 and stats["a"]["failed"] == 1
-    assert stats["a"]["results"]["SRRA1"] == "interrupted"
+    assert stats["a"]["results"]["SRR1000001"] == "interrupted"
     assert stats["b"]["successful"] == 1 and stats["b"]["failed"] == 0
     assert not accession_mod.STOP.is_set()
 

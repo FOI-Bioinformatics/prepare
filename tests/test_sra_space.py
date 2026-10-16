@@ -87,6 +87,25 @@ class TestNeeds:
 
 
 class TestReserve:
+    def test_a_second_reserve_without_a_release_raises(self, tmp_path, fake_disks):
+        fake_disks.devices.update({"out": 1, "tmp": 2, "cache": 3})
+        fake_disks.free.update({1: 100 * GB, 2: 100 * GB, 3: 100 * GB})
+        guard = space_mod.SpaceGuard(_locations(tmp_path), GB, {"SRR1": GB // 2}, use_prefetch=True)
+        assert guard.reserve("SRR1") is None
+        reserved = dict(guard._reserved)
+        with pytest.raises(RuntimeError, match="SRR1 is already reserved"):
+            guard.reserve("SRR1")
+        assert guard._reserved == reserved
+
+    def test_reserve_release_twice_leaves_nothing_reserved(self, tmp_path, fake_disks):
+        fake_disks.devices.update({"out": 1, "tmp": 2, "cache": 3})
+        fake_disks.free.update({1: 100 * GB, 2: 100 * GB, 3: 100 * GB})
+        guard = space_mod.SpaceGuard(_locations(tmp_path), GB, {"SRR1": GB // 2}, use_prefetch=True)
+        for _ in range(2):
+            assert guard.reserve("SRR1") is None
+            guard.release("SRR1")
+        assert sum(guard._reserved.values()) == 0
+
     def test_refuses_when_one_filesystem_is_short(self, tmp_path, fake_disks):
         fake_disks.devices.update({"out": 1, "tmp": 2, "cache": 3})
         fake_disks.free.update({1: 100 * GB, 2: 3 * GB, 3: 100 * GB})

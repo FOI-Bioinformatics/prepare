@@ -5,7 +5,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import finite_float, BaseCommand
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD, DEFAULT_TOP_N
 from prepare.core.exceptions import PrepareError
 from prepare.data import registry_blocks as rb
@@ -122,7 +122,10 @@ class SelectDatasetsCommand(BaseCommand):
             help="With --genome-ids, require any or all columns to meet the threshold",
         )
         parser.add_argument(
-            "--threshold", type=float, default=DEFAULT_CONTAINMENT_THRESHOLD, help="Minimum containment, inclusive"
+            "--threshold",
+            type=finite_float,
+            default=DEFAULT_CONTAINMENT_THRESHOLD,
+            help="Minimum containment, inclusive",
         )
         parser.add_argument(
             "--top-n",

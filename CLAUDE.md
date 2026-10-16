@@ -4,7 +4,7 @@
 
 PREPARE is a command-line toolkit that finds public metagenomic datasets containing a target genome
 (Branchwater containment), downloads their metadata and reads from NCBI/SRA, and analyses them. The
-package is `prepare`, version 0.10.0, and needs Python 3.12 or newer. The documentation index is
+package is `prepare`, version 0.10.1, and needs Python 3.12 or newer. The documentation index is
 `docs/README.md`; design reasoning is in `docs/ARCHITECTURE.md`.
 
 ## Commands
@@ -34,7 +34,7 @@ package is `prepare`, version 0.10.0, and needs Python 3.12 or newer. The docume
 
 ## Architecture
 
-`prepare --help` lists 44 commands in seven groups: Containment, Metadata, Genomes, Reads, Store,
+`prepare --help` lists 45 commands in seven groups: Containment, Metadata, Genomes, Reads, Store,
 Analysis and Environment (`doctor`, `runs`, `project_report`). The old names `sra_stats`,
 `sra_profile_quality`, `sra_dashboard` and `sra_compare` are hidden commands in
 `cli/commands/renamed.py` that log the new name and exit 2.

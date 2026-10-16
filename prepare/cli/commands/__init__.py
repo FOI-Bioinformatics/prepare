@@ -12,6 +12,7 @@ from .metadata import (
     CheckMetadataAttributesCommand,
     CountMetadataCommand,
     PlotMetadataCountsCommand,
+    PlotMapCommand,
 )
 from .samples import SingleSampleCommand
 from .sra import DownloadSraCommand
@@ -36,6 +37,7 @@ __all__ = [
     "CheckMetadataAttributesCommand",
     "CountMetadataCommand",
     "PlotMetadataCountsCommand",
+    "PlotMapCommand",
     "SingleSampleCommand",
     "DownloadSraCommand",
     "StatusCommand",

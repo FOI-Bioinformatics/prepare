@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from prepare.cli.commands.sra_report import SRAReportCommand, load_groups
-from prepare.core.exceptions import ValidationError
+from prepare.core.exceptions import DataAccessError, ValidationError
 from prepare.sra.analytics import ComparativeAnalysis, QualityProfile, SRADatasetAnalyzer
 from prepare.sra.profiles import write_profile_json
 from prepare.utils.logging import ConsoleFormatter
@@ -315,7 +315,7 @@ def test_parser_defaults():
 
 def test_no_accession_source_is_an_error(tmp_path, caplog):
     with caplog.at_level(logging.ERROR):
-        assert SRAReportCommand().execute(_args(tmp_path)) == 1
+        assert SRAReportCommand().execute(_args(tmp_path)) == 2
     assert any("Give --accessions-file, --groups-file or a --quality-profiles" in r.message for r in caplog.records)
     assert not any("Traceback" in ConsoleFormatter().format(r) for r in caplog.records)
 
@@ -332,7 +332,7 @@ def test_a_quality_profiles_path_that_is_not_a_folder_is_logged(tmp_path, caplog
     if kind == "file":
         path.write_text("not a folder")
     with caplog.at_level(logging.WARNING):
-        assert SRAReportCommand().execute(_args(tmp_path, quality_profiles=str(path))) == 1
+        assert SRAReportCommand().execute(_args(tmp_path, quality_profiles=str(path))) == 2
     expected = "is not a directory" if kind == "file" else "not found"
     assert str(path) in caplog.text and expected in caplog.text
 
@@ -343,21 +343,32 @@ def test_load_groups_success(tmp_path):
 
 @pytest.mark.parametrize(
     "content,message",
-    [(None, "Cannot read groups file"), ("{invalid json", "Invalid JSON"), ('["SRR1"]', "must map group names")],
+    [("{invalid json", "Invalid JSON"), ('["SRR1"]', "must map group names")],
 )
 def test_load_groups_rejects_bad_files(tmp_path, content, message):
     path = tmp_path / "groups.json"
-    if content is not None:
-        path.write_text(content)
+    path.write_text(content)
     with pytest.raises(ValidationError, match=message):
         load_groups(str(path))
+
+
+def test_a_missing_groups_file_is_a_data_access_error(tmp_path):
+    with pytest.raises(DataAccessError, match="Cannot read groups file") as caught:
+        load_groups(str(tmp_path / "groups.json"))
+    assert not isinstance(caught.value, ValidationError)
+
+
+def test_a_missing_groups_file_exits_1(tmp_path, caplog):
+    with caplog.at_level(logging.ERROR):
+        assert SRAReportCommand().execute(_args(tmp_path, groups_file=str(tmp_path / "groups.json"))) == 1
+    assert "Cannot read groups file" in caplog.text
 
 
 def test_a_bad_groups_file_is_an_error_on_stderr_not_stdout(tmp_path, caplog, capsys):
     path = tmp_path / "groups.json"
     path.write_text("{invalid json")
     with caplog.at_level(logging.ERROR):
-        assert SRAReportCommand().execute(_args(tmp_path, groups_file=str(path))) == 1
+        assert SRAReportCommand().execute(_args(tmp_path, groups_file=str(path))) == 2
     assert "Invalid JSON" in caplog.text
     assert "Invalid JSON" not in capsys.readouterr().out
 

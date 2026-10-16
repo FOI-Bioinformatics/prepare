@@ -277,5 +277,10 @@ CATALOG_BUSY_TIMEOUT_SECONDS = 30.0
 # Memory and Resource Limits
 MAX_CONCURRENT_DOWNLOADS = 10
 
+# HTML containment explorer: rows written to the results table (highest containment first)
+# and the tallest heatmap in pixels, so a large run still opens in a browser.
+EXPLORER_TABLE_ROWS = 5000
+EXPLORER_HEATMAP_MAX_HEIGHT = 2000
+
 # Plugin System Constants
 PLUGIN_REGISTRY_NAME = "prepare_plugins"

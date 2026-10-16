@@ -136,20 +136,20 @@ class TestDownloadSingleMetadata:
         metadata_path = tmp_path / "metadata"
         metadata_path.mkdir()
 
-        mock_response = b"<?xml version='1.0'?><root>test metadata</root>"  # Return bytes
+        mock_response = _package_xml([("SRR123", {})]).encode()
 
         with patch("prepare.data.metadata.Entrez.efetch") as mock_efetch:
             mock_handle = MagicMock()
             mock_handle.read.return_value = mock_response
             mock_efetch.return_value = mock_handle
 
-            with patch("prepare.data.metadata._pace_requests"):
+            with patch("prepare.data.metadata_fetch._pace_requests"):
                 success, result = _download_single_metadata("SRR123", metadata_path, "test@example.com")
 
         assert success is True
         assert isinstance(result, Path)
         assert result.name == "SRR123_metadata.xml"
-        assert result.read_text() == mock_response.decode()
+        assert ET.fromstring(result.read_text()).find(".//RUN").get("accession") == "SRR123"
 
     def test_download_single_metadata_404_is_final(self, tmp_path):
         """A 404 on a single accession is a final failure, never retried."""
@@ -157,7 +157,7 @@ class TestDownloadSingleMetadata:
         metadata_path.mkdir()
 
         with patch("prepare.data.metadata.Entrez.efetch", side_effect=_http_error(404)) as mock_efetch:
-            with patch("prepare.data.metadata._pace_requests"):
+            with patch("prepare.data.metadata_fetch._pace_requests"):
                 with patch("time.sleep") as mock_sleep:
                     success, result = _download_single_metadata("SRR123", metadata_path, "test@example.com")
 
@@ -172,7 +172,7 @@ class TestDownloadSingleMetadata:
         metadata_path.mkdir()
 
         with patch("prepare.data.metadata.Entrez.efetch", side_effect=_http_error(503)):
-            with patch("prepare.data.metadata._pace_requests"):
+            with patch("prepare.data.metadata_fetch._pace_requests"):
                 with patch("time.sleep") as mock_sleep:
                     success, result = _download_single_metadata("SRR123", metadata_path, "test@example.com")
 
@@ -185,7 +185,7 @@ class TestDownloadSingleMetadata:
         metadata_path = tmp_path / "metadata"
         metadata_path.mkdir()
 
-        mock_response = b"<?xml version='1.0'?><root>test metadata</root>"  # Return bytes
+        mock_response = _package_xml([("SRR123", {})]).encode()
 
         with patch("prepare.data.metadata.Entrez.efetch") as mock_efetch:
             # First call fails, second succeeds
@@ -193,7 +193,7 @@ class TestDownloadSingleMetadata:
             mock_handle.read.return_value = mock_response
             mock_efetch.side_effect = [URLError("Network error"), mock_handle]
 
-            with patch("prepare.data.metadata._pace_requests"):
+            with patch("prepare.data.metadata_fetch._pace_requests"):
                 with patch("time.sleep"):
                     success, result = _download_single_metadata("SRR123", metadata_path, "test@example.com")
 
@@ -217,7 +217,7 @@ class TestDownloadSingleMetadata:
             return handle
 
         with patch("prepare.data.metadata.Entrez.efetch", side_effect=fake_efetch):
-            with patch("prepare.data.metadata._pace_requests"):
+            with patch("prepare.data.metadata_fetch._pace_requests"):
                 _download_single_metadata("SRR123", metadata_path, "test@example.com", api_key="my-key")
                 _download_single_metadata("SRR124", metadata_path, "test@example.com", api_key=None)
 
@@ -259,6 +259,17 @@ class TestDownloadMetadata:
 
         assert result == {}
         mock_logger.info.assert_called_with("Dry run, not downloading metadata")
+
+    def test_download_metadata_dry_run_creates_no_folder(self, tmp_path):
+        matches_dir = tmp_path / "matches"
+        metadata_dir = tmp_path / "metadata"
+        matches_dir.mkdir()
+        (matches_dir / "genome1.csv").write_text("acc,containment,organism\nSRR123,0.95,E. coli")
+
+        result = download_metadata("test@example.com", matches_dir, metadata_dir, dry_run=True)
+
+        assert result == {}
+        assert not metadata_dir.exists()
 
     def test_download_metadata_skip_existing(self, tmp_path):
         """Test skipping existing metadata files."""
@@ -443,7 +454,7 @@ class TestDownloadBatchMetadata:
         mock_handle.read.return_value = xml_text.encode()
 
         with patch("prepare.data.metadata.Entrez.efetch", return_value=mock_handle) as mock_efetch:
-            with patch("prepare.data.metadata._pace_requests"):
+            with patch("prepare.data.metadata_fetch._pace_requests"):
                 successes, failures = _download_batch_metadata(
                     ["SRR1", "SRR2", "SRR3"], metadata_path, "test@example.com", None
                 )
@@ -467,7 +478,7 @@ class TestDownloadBatchMetadata:
         mock_handle.read.return_value = xml_text.encode()
 
         with patch("prepare.data.metadata.Entrez.efetch", return_value=mock_handle) as mock_efetch:
-            with patch("prepare.data.metadata._pace_requests"):
+            with patch("prepare.data.metadata_fetch._pace_requests"):
                 successes, failures = _download_batch_metadata(
                     ["SRR1", "SRR2", "SRR4"], metadata_path, "test@example.com", None
                 )
@@ -492,7 +503,7 @@ class TestDownloadBatchMetadata:
 
         with patch("prepare.data.metadata.Entrez.efetch", side_effect=fake_efetch) as mock_efetch:
             with patch("prepare.data.metadata.Entrez.email", "test@example.com"):
-                with patch("prepare.data.metadata._pace_requests"):
+                with patch("prepare.data.metadata_fetch._pace_requests"):
                     successes, failures = _download_batch_metadata(batch, metadata_path, "test@example.com", None)
 
         assert failures == {}
@@ -506,7 +517,7 @@ class TestDownloadBatchMetadata:
         metadata_path.mkdir()
 
         with patch("prepare.data.metadata.Entrez.efetch", side_effect=_http_error(404)) as mock_efetch:
-            with patch("prepare.data.metadata._pace_requests"):
+            with patch("prepare.data.metadata_fetch._pace_requests"):
                 with patch("time.sleep") as mock_sleep:
                     successes, failures = _download_batch_metadata(["SRR1"], metadata_path, "test@example.com", None)
 
@@ -522,7 +533,7 @@ class TestDownloadBatchMetadata:
         batch = ["SRR1", "SRR2"]
 
         with patch("prepare.data.metadata.Entrez.efetch", side_effect=_http_error(503)):
-            with patch("prepare.data.metadata._pace_requests"):
+            with patch("prepare.data.metadata_fetch._pace_requests"):
                 with patch("time.sleep") as mock_sleep:
                     successes, failures = _download_batch_metadata(batch, metadata_path, "test@example.com", None)
 
@@ -540,7 +551,7 @@ class TestDownloadBatchMetadata:
         mock_handle.read.return_value = xml_text.encode()
 
         with patch("prepare.data.metadata.Entrez.efetch", return_value=mock_handle):
-            with patch("prepare.data.metadata._pace_requests") as mock_pace:
+            with patch("prepare.data.metadata_fetch._pace_requests") as mock_pace:
                 with patch("time.sleep") as mock_sleep:
                     successes, failures = _download_batch_metadata(
                         ["SRR1"], metadata_path, "test@example.com", "my-key"
@@ -583,39 +594,73 @@ class TestSplitEfetchPackages:
 
 
 class TestPaceRequests:
-    """Test _pace_requests: sleeps only enough to respect the per-key rate limit."""
+    """Test _pace_requests: one RequestPacer per rate, shared across batches in one process."""
 
-    def test_sleeps_remaining_delay_without_api_key(self):
-        import prepare.data.metadata as metadata_module
+    def test_reuses_one_pacer_per_rate(self, monkeypatch):
+        import prepare.data.metadata_fetch as metadata_module
 
-        with patch("prepare.data.metadata.time.monotonic", side_effect=[100.1, 100.34]):
-            with patch("prepare.data.metadata.time.sleep") as mock_sleep:
-                metadata_module._last_request_time = 100.0
+        monkeypatch.setattr(metadata_module, "_PACERS", {})
+        with patch("prepare.data.ncbi_pacing.RequestPacer.wait", autospec=True) as mock_wait:
+            _pace_requests(None)
+            _pace_requests(None)
+            _pace_requests("my-key")
+
+        pacers = [call_.args[0] for call_ in mock_wait.call_args_list]
+        assert pacers[0] is pacers[1]
+        assert pacers[0].delay == pytest.approx(1 / 3)
+        assert pacers[2].delay == pytest.approx(1 / 10)
+
+    def test_successive_requests_are_spaced_by_the_delay(self, monkeypatch):
+        import prepare.data.metadata_fetch as metadata_module
+
+        monkeypatch.setattr(metadata_module, "_PACERS", {})
+        clock = {"now": 100.0}
+
+        def fake_sleep(seconds):
+            clock["now"] += seconds
+
+        with patch("prepare.data.ncbi_pacing.time.monotonic", side_effect=lambda: clock["now"]):
+            with patch("prepare.data.ncbi_pacing.time.sleep", side_effect=fake_sleep) as mock_sleep:
+                _pace_requests(None)
                 _pace_requests(None)
 
         mock_sleep.assert_called_once()
-        assert mock_sleep.call_args.args[0] == pytest.approx(0.24, abs=1e-6)
+        assert mock_sleep.call_args.args[0] == pytest.approx(1 / 3)
 
-    def test_sleeps_remaining_delay_with_api_key(self):
-        import prepare.data.metadata as metadata_module
+    def test_concurrent_first_calls_share_one_pacer(self, monkeypatch):
+        """Two threads racing on the first call for a key build one pacer, not two."""
+        import threading
+        import time as time_module
 
-        with patch("prepare.data.metadata.time.monotonic", side_effect=[100.05, 100.1]):
-            with patch("prepare.data.metadata.time.sleep") as mock_sleep:
-                metadata_module._last_request_time = 100.0
-                _pace_requests("my-key")
+        import prepare.data.metadata_fetch as metadata_module
 
-        mock_sleep.assert_called_once()
-        assert mock_sleep.call_args.args[0] == pytest.approx(0.05, abs=1e-6)
+        monkeypatch.setattr(metadata_module, "_PACERS", {})
+        built = []
+        waited = []
 
-    def test_no_sleep_when_delay_already_elapsed(self):
-        import prepare.data.metadata as metadata_module
+        class SlowPacer:
+            def __init__(self, api_key):
+                built.append(self)
+                time_module.sleep(0.05)  # widen the check-then-set window
 
-        with patch("prepare.data.metadata.time.monotonic", side_effect=[101.0, 101.0]):
-            with patch("prepare.data.metadata.time.sleep") as mock_sleep:
-                metadata_module._last_request_time = 100.0
-                _pace_requests(None)
+            def wait(self):
+                waited.append(self)
 
-        mock_sleep.assert_not_called()
+        monkeypatch.setattr(metadata_module, "RequestPacer", SlowPacer)
+        barrier = threading.Barrier(2)
+
+        def call():
+            barrier.wait()
+            _pace_requests(None)
+
+        threads = [threading.Thread(target=call) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert len(built) == 1
+        assert len(waited) == 2 and waited[0] is waited[1] is built[0]
 
 
 class TestExtractMetadataFields:
@@ -797,6 +842,28 @@ class TestExtractMetadataFields:
 
         assert result["Run_MD5"] == "right"
         assert result["Run_Filename"] == "SRR2"
+
+    def test_extract_metadata_fields_normalized_url_is_taken_by_semantic_name(self):
+        """The normalized URL comes from the SRA Normalized element, wherever it is listed."""
+        xml_content = """<?xml version="1.0"?>
+        <EXPERIMENT_PACKAGE_SET>
+            <EXPERIMENT_PACKAGE>
+                <RUN_SET>
+                    <RUN accession="SRR3">
+                        <SRAFiles>
+                            <SRAFile filename="SRR3" semantic_name="run" url="https://example.org/run"/>
+                            <SRAFile filename="SRR3.lite" semantic_name="SRA Lite" url="https://example.org/lite"/>
+                            <SRAFile filename="SRR3.nm" semantic_name="SRA Normalized" url="https://example.org/norm"/>
+                            <SRAFile filename="SRR3.x" semantic_name="Other" url="https://example.org/x"/>
+                        </SRAFiles>
+                    </RUN>
+                </RUN_SET>
+            </EXPERIMENT_PACKAGE>
+        </EXPERIMENT_PACKAGE_SET>"""
+
+        result = _extract_metadata_fields(ET.fromstring(xml_content), "test.xml")
+
+        assert result["SRA_Normalized_URL"] == "https://example.org/norm"
 
 
 class TestExtractSampleAttributes:
@@ -1081,7 +1148,7 @@ def test_data_access_error_from_download_metadata_chains_the_cause(tmp_path):
             metadata_folder=tmp_path / "metadata",
             accessions_file=tmp_path / "missing.txt",
         )
-    assert isinstance(exc.value.__cause__, OSError)
+    assert isinstance(exc.value.__cause__.__cause__, OSError)
 
 
 def test_unexpected_error_while_parsing_one_metadata_file_propagates(tmp_path):
@@ -1106,7 +1173,7 @@ def test_incomplete_read_in_a_batch_is_retried_then_reported_as_failed(tmp_path)
     handle.read.side_effect = IncompleteRead(b"<EXPERIMENT")
     with (
         patch("prepare.data.metadata.Entrez.efetch", return_value=handle),
-        patch("prepare.data.metadata._pace_requests"),
+        patch("prepare.data.metadata_fetch._pace_requests"),
         patch("time.sleep") as mock_sleep,
     ):
         successes, failures = _download_batch_metadata(["SRR1", "SRR2"], tmp_path, "a@b.c", None)
@@ -1123,13 +1190,52 @@ def test_incomplete_read_for_one_accession_is_retried_then_reported_as_failed(tm
     handle.read.side_effect = IncompleteRead(b"<EXPERIMENT")
     with (
         patch("prepare.data.metadata.Entrez.efetch", return_value=handle),
-        patch("prepare.data.metadata._pace_requests"),
+        patch("prepare.data.metadata_fetch._pace_requests"),
         patch("time.sleep") as mock_sleep,
     ):
         success, message = _download_single_metadata("SRR1", tmp_path, "a@b.c")
     assert success is False
     assert "IncompleteRead" in message
     assert mock_sleep.call_count == 3
+
+
+def _single_download(tmp_path, body, accession="SRR2"):
+    handle = MagicMock()
+    handle.read.return_value = body.encode()
+    with (
+        patch("prepare.data.metadata.Entrez.efetch", return_value=handle),
+        patch("prepare.data.metadata_fetch._pace_requests"),
+        patch("time.sleep"),
+    ):
+        return _download_single_metadata(accession, tmp_path, "a@b.c")
+
+
+def test_single_download_keeps_only_the_requested_run(tmp_path):
+    """Audit M10: a package listing SRR1 and SRR2 is pruned to SRR2 before it is written."""
+    root = ET.fromstring(_package_xml([("SRR1", {})]))
+    second = ET.SubElement(root.find(".//RUN_SET"), "RUN", accession="SRR2")
+    ET.SubElement(ET.SubElement(second, "IDENTIFIERS"), "PRIMARY_ID").text = "SRR2"
+    success, result = _single_download(tmp_path, ET.tostring(root, encoding="unicode"))
+    assert success is True
+    assert result.name == "SRR2_metadata.xml"
+    fields = _extract_metadata_fields(ET.parse(result), result)
+    assert fields["Run_ID"] == "SRR2"
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        ("<html>error</html>", "no package for SRR2"),
+        ("<html><body>Error", "non-XML"),
+        (_package_xml([("SRR9", {})]), "no package for SRR2"),
+    ],
+)
+def test_single_download_refuses_bodies_without_the_package(tmp_path, body, expected):
+    """An HTTP 200 error page or a package set without the accession writes nothing."""
+    success, message = _single_download(tmp_path, body)
+    assert success is False
+    assert expected in message
+    assert list(tmp_path.iterdir()) == []
 
 
 # --- Single-pass metadata parsing (performance plan, task 6) ---

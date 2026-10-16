@@ -16,7 +16,6 @@ is ``"unknown"`` whatever words its message contains.
 import argparse
 import csv
 import json
-import re
 import socket
 from collections import Counter
 from datetime import datetime
@@ -49,16 +48,8 @@ ResultCallback = Callable[[str, bool, str], None]
 # Accession -> (start as ISO 8601 UTC, seconds) of its last download attempt, filled by download_sra.
 Timings = Dict[str, Tuple[str, float]]
 
-# The retry pass prefixes a result message with "Retry <n>: " (or "Retry <n> error: " for a
-# worker that raised); the reason and the attempt rule read the message underneath.
-_RETRY_PREFIX_RE = re.compile(r"^Retry \d+(?: error)?: ")
 _INTERRUPTED = "interrupted"
 _LOCK_LOST = "lock lost: "
-
-
-def _body(message: str) -> str:
-    """``message`` without the retry pass's ``Retry <n>: `` prefix."""
-    return _RETRY_PREFIX_RE.sub("", message or "", count=1)
 
 
 def failure_reason(message: str) -> str:
@@ -68,7 +59,7 @@ def failure_reason(message: str) -> str:
     ran) are recognised first, then a settled store outcome (``"unknown"``); anything else is
     ``classify_download_error``'s class of the message.
     """
-    body = _body(message)
+    body = accession_mod.result_body(message)
     if body == _INTERRUPTED:
         return "interrupted"
     if body.startswith(INSUFFICIENT_SPACE_PREFIX):
@@ -89,7 +80,7 @@ def started_download(success: bool, message: str) -> bool:
     already held. A lock lost during the download did start one, and so did every other
     ``incomplete:`` outcome (it follows a fetch).
     """
-    body = _body(message)
+    body = accession_mod.result_body(message)
     if success:
         return body != accession_mod.ALREADY_EXISTS and not body.startswith(STORE_LINKED_PREFIX)
     if body == DISK_FULL_NOT_ATTEMPTED or body.startswith(STORE_PARTIAL_PREFIX):
@@ -162,7 +153,7 @@ def attempt_timing(accession: str, success: bool, message: str, timings: Timings
     A dataset linked from the store was not downloaded, so it has no time even when the worker
     that linked it was timed.
     """
-    if success and message.startswith(STORE_LINKED_PREFIX):
+    if success and accession_mod.result_body(message).startswith(STORE_LINKED_PREFIX):
         return None
     return timings.get(accession)
 

@@ -8,7 +8,6 @@ validating taxonomic assignments, and creating taxonomic summaries.
 import csv
 import logging
 import requests
-import time
 import xml.etree.ElementTree as ET
 import pandas as pd
 from typing import Dict, List, Optional, Union
@@ -17,6 +16,7 @@ import re
 
 from prepare.core.exceptions import ProcessingError
 from prepare.data.file_io import open_atomic, write_csv
+from prepare.data.ncbi_pacing import RequestPacer
 from prepare.utils.http import retrying_session
 
 logger = logging.getLogger(__name__)
@@ -80,8 +80,7 @@ class NCBITaxonomyClient:
         self.email = email
         self.api_key = api_key
         self.base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
-        self.last_request_time: float = 0
-        self.request_delay = 1.0 / 3 if api_key else 1.0 / 10  # Rate limiting
+        self.pacer = RequestPacer(api_key)
         self.session = _build_retrying_session()
 
     def close(self) -> None:
@@ -98,11 +97,7 @@ class NCBITaxonomyClient:
 
     def _make_request(self, url: str, params: Dict[str, str]) -> str:
         """Make rate-limited request to NCBI API."""
-        # Rate limiting
-        current_time = time.time()
-        time_since_last = current_time - self.last_request_time
-        if time_since_last < self.request_delay:
-            time.sleep(self.request_delay - time_since_last)
+        self.pacer.wait()
 
         # Add required parameters
         params["email"] = self.email
@@ -112,7 +107,6 @@ class NCBITaxonomyClient:
         try:
             response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
-            self.last_request_time = time.time()
             return response.text
         except requests.RequestException as e:
             logger.error(f"NCBI API request failed: {e}")
@@ -327,7 +321,8 @@ def validate_taxonomic_assignments(
         cache_needs_reset = False
         if cache_file and Path(cache_file).exists():
             try:
-                cache_df = pd.read_csv(cache_file, encoding="utf-8")
+                cache_df = pd.read_csv(cache_file, encoding="utf-8", dtype=str, keep_default_na=False)
+                cache_df["is_valid"] = cache_df["is_valid"].str.strip().str.lower() == "true"
                 cached_results = dict(zip(cache_df["original_name"], cache_df.to_dict("records")))
                 logger.info(f"Loaded {len(cached_results)} cached taxonomy validations")
             except Exception as e:
@@ -372,17 +367,7 @@ def validate_taxonomic_assignments(
             results_df = pd.DataFrame(results)
         else:
             # Create empty DataFrame with expected columns
-            results_df = pd.DataFrame(
-                columns=[
-                    "original_name",
-                    "validated_name",
-                    "is_valid",
-                    "tax_id",
-                    "rank",
-                    "lineage",
-                    "confidence",
-                ]
-            )
+            results_df = pd.DataFrame(columns=_VALIDATION_CACHE_COLUMNS)
 
         # Save results
         if output_file:
@@ -497,6 +482,7 @@ def analyze_taxonomic_composition(
     taxonomy_data: pd.DataFrame,
     levels: List[str] = ["phylum", "class", "order", "family", "genus"],
     output_dir: Optional[Union[str, Path]] = None,
+    min_abundance: float = 0.001,
 ) -> Dict[str, pd.DataFrame]:
     """
     Analyze taxonomic composition at multiple levels.
@@ -506,6 +492,7 @@ def analyze_taxonomic_composition(
         taxonomy_data: Taxonomy information
         levels: List of taxonomic levels to analyze
         output_dir: Directory to save results
+        min_abundance: Abundances below this value are left out of each summary
 
     Returns:
         Dictionary of summary matrices for each level
@@ -515,7 +502,7 @@ def analyze_taxonomic_composition(
 
         for level in levels:
             logger.info(f"Creating taxonomic summary at {level} level")
-            summary_df = create_taxonomic_summary(abundance_data, taxonomy_data, level)
+            summary_df = create_taxonomic_summary(abundance_data, taxonomy_data, level, min_abundance)
             results[level] = summary_df
 
             if output_dir:

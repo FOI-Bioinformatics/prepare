@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 mypy pytest black
+          pip install flake8 mypy pytest black radon
           pip install -e ".[dev]"
 
       - name: Audit dependencies for known vulnerabilities
@@ -39,20 +39,8 @@ jobs:
           # path argument as an (invalid) choice for --desc; --desc=auto avoids that.
           pip-audit --strict --desc=auto .
 
-      - name: Check code formatting with Black
-        run: black --check --diff prepare
-
-      - name: Lint with flake8
-        run: |
-          # stop the build if there are Python syntax errors or undefined names
-          flake8 prepare --count --select=E9,F63,F7,F82 --show-source --statistics
-          # Style, complexity, line length, docstrings and blind excepts, configured in setup.cfg.
-          # No --extend-ignore here: a command-line value replaces the setup.cfg list and would
-          # re-enable the pydocstyle codes that list switches off.
-          flake8 prepare tests --count --statistics
-
-      - name: Type check with mypy
-        run: python -m mypy prepare
+      - name: Run the local quality gate
+        run: make check
 
   test:
     name: Test ${{ matrix.os }} / Python ${{ matrix.python-version }}
@@ -111,8 +99,14 @@ jobs:
       - name: Build package
         run: python -m build
 
+      - name: Check version consistency
+        run: python scripts/check_version.py
+
       - name: Check wheel contents
         run: check-wheel-contents dist/*.whl
+
+      - name: Check that the typed marker ships
+        run: unzip -l dist/*.whl | grep prepare/py.typed
 
       - name: Check distribution with twine
         run: twine check dist/*

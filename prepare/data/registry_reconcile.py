@@ -258,6 +258,9 @@ def _mark_missing(registry: Registry, plan: ReconcilePlan, report: StoreReconcil
             continue
         download.state, download.date = "missing", _registry._now()
         rb.set_download_block(registry, acc, download)
+        if acc in (rb.store_block(registry).linked or []):
+            # A missing entry is no longer a link into the store.
+            update_linked(registry, acc, add=False)
         report.recorded_missing.append(acc)
     if warn and left_alone:
         named = ", ".join(sorted(left_alone)[:NAMED_IN_WARNING])

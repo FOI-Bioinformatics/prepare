@@ -8,23 +8,17 @@ taken from the registry alone; ``status`` re-checks the filesystem and the
 scanners here rebuild or reconcile the journal from what is on disk.
 """
 
-import json
 import logging
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
-from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED, GENOME_FASTA_GLOBS
-from prepare.core.constants import SHORT_LOCK_HEARTBEAT_SECONDS, SHORT_LOCK_POLL_SECONDS
+from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
 from prepare.core.exceptions import DataAccessError
-from prepare.core.settings import settings_or
-from prepare.data.file_io import visible_files, write_text_atomic
 from prepare.data import registry_blocks as rb
-from prepare.data.read_extraction import coverage_table_path, summarise_contigs, summarise_coverage_table
-from prepare.data.sra import accession_has_fastq, count_fastq_reads, fastq_files, is_transient_folder
-from prepare.utils.lockfile import LockPolicy, held_lock, verify_held
+from prepare.data.sra import count_fastq_reads, fastq_files  # noqa: F401  (count_fastq_reads: re-export)
+from prepare.utils.lockfile import held_lock  # noqa: F401  (registry_io looks it up here at call time)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -41,9 +35,6 @@ STAGES = ("screened", "selected", "excluded", "downloaded", "analysed", "extract
 # Lock defaults (repeated in core.settings), read at call time; settings override; the wait fits SLURM KillWait.
 LOCK_STALE_SECONDS = 120.0
 LOCK_WAIT_SECONDS = 30.0
-_MATE_SUFFIXES = ("_1", "_2", "_s", "_0")
-_ASSEMBLY_SUFFIX = "_assembly"
-_CONTIGS_NAME = "final.contigs.fa"
 
 
 def _now() -> str:
@@ -60,18 +51,23 @@ class ProjectPaths:
     targeted: Path = Path("targeted")
     matches: Path = Path("matches")
 
+    @classmethod
+    def anchored(cls, root: Path, **folders: Union[str, Path]) -> "ProjectPaths":
+        """Folders joined onto ``root`` (the project root) unless already absolute."""
+        values = {}
+        for name in ("fastq", "metadata", "genomes", "targeted", "matches"):
+            raw = Path(folders.get(name, name))
+            values[name] = raw if raw.is_absolute() else root / raw
+        return cls(**values)
+
 
 @dataclass
 class Registry:
     """In-memory form of one project's registry file: schema version, timestamps, and state.
 
-    Holds the per-genome screening thresholds (``genomes``), the per-accession dataset records
-    (``datasets``, keyed by accession, each carrying its stage history and provenance), this
-    project's own identity (``project``) once bound by ``store_init``, and the shared data store
-    it is linked to, if any (``store``). ``path`` is set once the registry is bound to a file on
-    disk (by ``load_registry`` or the first ``save_registry``); it is ``None`` for a registry
-    built only in memory, e.g. mid-``bootstrap_from_disk``, and callers that need a project root
-    from it should go through ``project_root`` rather than reading ``path`` directly.
+    Holds per-genome thresholds (``genomes``), per-accession records (``datasets``), this project's
+    identity (``project``) and its shared store (``store``). ``path`` is the bound file, ``None`` for
+    a registry built only in memory; callers needing the project root use ``project_root``.
     """
 
     version: int = SCHEMA_VERSION
@@ -83,30 +79,26 @@ class Registry:
     project: Dict[str, Any] = field(default_factory=dict)
     # The shared data store this project is bound to ({"root", "mode", "linked"}).
     store: Dict[str, Any] = field(default_factory=dict)
+    extra: Dict[str, Any] = field(default_factory=dict)  # unknown top-level keys, written back as found
     path: Optional[Path] = None
 
 
-def project_root(registry: Registry) -> Path:
-    """The project root a registry's paths are recorded relative to: its file's parent folder.
+def project_root(registry: Union[Registry, str, Path]) -> Path:
+    """The project root: the folder of the registry file (a ``Registry`` or the file's path).
 
-    A registry not yet bound to a file (before its first save, e.g. mid-``bootstrap_from_disk``)
-    falls back to the current working directory, so a path recorded at that point resolves the
-    same way once the registry is later bound and saved from the same directory.
+    An unbound registry (e.g. mid-``bootstrap_from_disk``) falls back to the working directory.
     """
-    if registry.path is not None:
-        return registry.path.parent.resolve()
-    return Path.cwd().resolve()
+    path = registry.path if isinstance(registry, Registry) else Path(registry)
+    return Path.cwd().resolve() if path is None else path.parent.resolve()
 
 
 def _project_relative(path: Union[str, Path], root: Path) -> str:
     """The form to record for ``path``: relative to ``root`` when inside it, else absolute.
 
-    Keeps a project's registry movable: renaming or relocating the project directory does not
-    break paths recorded under it. A path outside the project root (for example a genome FASTA
-    shared from elsewhere on disk) has no project-relative form, so it is kept absolute. A path
-    under a symlinked folder resolves to the real (target) location, so a project folder linked
-    into an external store records that store's absolute path here; the store-relative name used
-    to look the dataset up in the store is recorded separately by the store-linking feature.
+    Keeps a registry movable with its project. A path outside the root (e.g. a shared genome FASTA)
+    is kept absolute. A path under a symlinked folder resolves to its target, so a folder linked
+    into an external store records the store's absolute path; the store-relative name is recorded
+    separately by the store-linking feature.
     """
     resolved = Path(path).resolve()
     try:
@@ -158,9 +150,9 @@ class ReconcileReport:
 
 
 def registry_path(explicit: Optional[Union[str, Path]] = None, start: Union[str, Path] = ".") -> Path:
-    """The registry file to use: an explicit path, else the nearest one walking up from ``start``."""
+    """The absolute registry file to use: an explicit path, else the nearest one walking up from ``start``."""
     if explicit:
-        return Path(explicit)
+        return Path(explicit).resolve()
     current = Path(start).resolve()
     for folder in (current, *current.parents):
         candidate = folder / REGISTRY_FILENAME
@@ -169,93 +161,6 @@ def registry_path(explicit: Optional[Union[str, Path]] = None, start: Union[str,
                 logger.info("Using the project registry found above the working directory: %s", candidate)
             return candidate
     return current / REGISTRY_FILENAME
-
-
-def load_registry(path: Optional[Union[str, Path]] = None) -> Registry:
-    """Load the registry, or an empty one bound to the path when the file does not exist."""
-    target = registry_path(path)
-    if not target.exists():
-        return Registry(path=target)
-    try:
-        text = target.read_text()
-    except OSError as e:
-        raise DataAccessError(f"Cannot read registry {target}: {e}") from e
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise DataAccessError(f"Registry is not valid JSON: {target} ({e})") from e
-    return Registry(
-        version=int(data.get("version", SCHEMA_VERSION)),
-        created=str(data.get("created", _now())),
-        updated=str(data.get("updated", _now())),
-        genomes=dict(data.get("genomes", {})),
-        datasets=dict(data.get("datasets", {})),
-        project=dict(data.get("project", {})),
-        store=dict(data.get("store", {})),
-        path=target,
-    )
-
-
-@contextmanager
-def _acquire_lock(lock: Path) -> Iterator[Path]:
-    """Hold the registry lock file ``lock`` for a with-block (``prepare.utils.lockfile``)."""
-    stale, wait = settings_or(registry_lock_stale=LOCK_STALE_SECONDS, registry_lock_wait=LOCK_WAIT_SECONDS)
-    limits = (stale, wait, SHORT_LOCK_POLL_SECONDS, SHORT_LOCK_HEARTBEAT_SECONDS)
-    with held_lock(lock, LockPolicy("Registry", *limits)) as held:
-        yield held
-
-
-def _write_registry(registry: Registry, target: Path, lock: Path) -> Path:
-    """Write the registry to ``target`` atomically (temp file, compact JSON, rename) while ``lock`` is still held."""
-    verify_held(lock)  # LockLost (a DataAccessError) if a stall let another holder reclaim it
-    target.parent.mkdir(parents=True, exist_ok=True)
-    registry.updated = _now()
-    registry.path = target
-    # A registry of an older schema is upgraded on save; there is no migration step, since
-    # every field new schema versions add defaults to {} when missing.
-    registry.version = SCHEMA_VERSION
-    payload = {
-        "version": registry.version,
-        "created": registry.created,
-        "updated": registry.updated,
-        "genomes": registry.genomes,
-        "datasets": registry.datasets,
-        "project": registry.project,
-        "store": registry.store,
-    }
-    # write_text_atomic removes its temporary file on any exit that did not replace the target,
-    # KeyboardInterrupt included, and fsync keeps a power loss from leaving an empty registry.
-    try:
-        return write_text_atomic(target, json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", fsync=True)
-    except OSError as e:
-        raise DataAccessError(f"Cannot write registry {target}: {e}") from e
-
-
-def save_registry(registry: Registry, path: Optional[Union[str, Path]] = None) -> Path:
-    """Write an already loaded registry atomically under a lock file."""
-    target = Path(path) if path else (registry.path or registry_path())
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with _acquire_lock(target.with_name(target.name + ".lock")) as lock:
-        return _write_registry(registry, target, lock)
-
-
-@contextmanager
-def registry_transaction(path: Optional[Union[str, Path]] = None) -> Iterator[Registry]:
-    """Load, mutate and save the registry under one lock, so a concurrent edit is never reverted.
-
-    Not re-entrant: nesting a second call to this function (or to `save_registry`) for the
-    same registry file inside this block's body raises ``LockReentry`` at once.
-
-    Use this instead of holding one loaded registry across a long run: the file is
-    read inside the lock and written back at the end of the block. If the block
-    raises, the lock is released and nothing is written.
-    """
-    target = registry_path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with _acquire_lock(target.with_name(target.name + ".lock")) as lock:
-        registry = load_registry(target)
-        yield registry
-        _write_registry(registry, target, lock)
 
 
 # --------------------------------------------------------------------- writers
@@ -289,7 +194,7 @@ def record_screening(
     screening.genomes[genome_id] = rb.ScreeningEntry(
         containment=round(float(containment), 4),
         cani=round(float(cani), 4) if cani is not None else None,
-        csv=str(csv_path) if csv_path else None,
+        csv=_project_relative(project_root(registry) / csv_path, project_root(registry)) if csv_path else None,
         source=source,
         query_threshold=query_threshold,
     )
@@ -759,237 +664,6 @@ def known_genome_ids(registry: Registry) -> Set[str]:
     return ids
 
 
-# -------------------------------------------------------------------- scanners
-
-
-def split_extract_filename(name: str, genome_ids: Sequence[str]) -> Optional[Tuple[str, str]]:
-    """Split ``<genome><mate>.fastq(.gz)`` into (genome_id, mate suffix); known genome ids win, longest first."""
-    stem = name
-    for suffix in (".fastq.gz", ".fastq", ".fq.gz", ".fq"):
-        if stem.endswith(suffix):
-            stem = stem[: -len(suffix)]
-            break
-    else:
-        return None
-    for genome_id in sorted(genome_ids, key=len, reverse=True):
-        if stem == genome_id:
-            return genome_id, ""
-        for mate in _MATE_SUFFIXES:
-            if stem == genome_id + mate:
-                return genome_id, mate
-    for mate in _MATE_SUFFIXES:
-        if stem.endswith(mate):
-            return stem[: -len(mate)], mate
-    return stem, ""
-
-
-def scan_downloads(fastq_folder: Path) -> Dict[str, Tuple[int, int]]:
-    """Accession -> (number of FASTQ files, total bytes) for every per-accession folder with reads.
-
-    Transient folders (``<acc>_temp``, ``.sra-cache``) are skipped even when they hold a
-    partial FASTQ file, so an in-progress or failed download is never mistaken for a
-    downloaded accession.
-    """
-    found: Dict[str, Tuple[int, int]] = {}
-    for folder in visible_files(fastq_folder, dirs=True):
-        if is_transient_folder(folder.name):
-            continue
-        if accession_has_fastq(folder):
-            # fastq_files, not a raw glob: a zero-byte file or the hidden temporary leftover of
-            # an interrupted compression is not a downloaded read file.
-            files = fastq_files(folder)
-            found[folder.name] = (len(files), sum(p.stat().st_size for p in files))
-    return found
-
-
-def scan_metadata(metadata_folder: Path) -> Set[str]:
-    """Return the accessions with an ``<accession>_metadata.xml`` file directly under ``metadata_folder``."""
-    return {p.name[: -len("_metadata.xml")] for p in visible_files(metadata_folder, "*_metadata.xml")}
-
-
-def _genome_ids_on_disk(paths: ProjectPaths, registry: Optional[Registry]) -> Set[str]:
-    ids: Set[str] = set(known_genome_ids(registry)) if registry else set()
-    for pattern in GENOME_FASTA_GLOBS:
-        for p in visible_files(paths.genomes, pattern):
-            ids.add(p.name[: -len(pattern[1:])])
-    ids.update(p.stem for p in visible_files(paths.matches, "*.csv"))
-    for acc_dir in visible_files(paths.targeted, dirs=True):
-        for asm in visible_files(acc_dir, f"*{_ASSEMBLY_SUFFIX}", dirs=True):
-            ids.add(asm.name[: -len(_ASSEMBLY_SUFFIX)])
-    return ids
-
-
-def scan_extractions(targeted_folder: Path, genome_ids: Sequence[str]) -> Dict[str, Dict[str, List[Path]]]:
-    """Return the extracted read files found on disk, as accession -> genome id -> list of file paths.
-
-    Walks each per-accession folder under ``targeted_folder`` and classifies its files with
-    ``split_extract_filename`` against ``genome_ids``; files that do not match a known genome id
-    or mate suffix pattern are skipped. Returns an empty mapping if ``targeted_folder`` does not
-    exist as a directory.
-    """
-    found: Dict[str, Dict[str, List[Path]]] = {}
-    if not targeted_folder.is_dir():
-        return found
-    for acc_dir in visible_files(targeted_folder, dirs=True):
-        for path in visible_files(acc_dir):
-            split = split_extract_filename(path.name, genome_ids)
-            if split:
-                found.setdefault(acc_dir.name, {}).setdefault(split[0], []).append(path)
-    return found
-
-
-def scan_assemblies(targeted_folder: Path, genome_ids: Sequence[str]) -> Dict[str, Dict[str, Path]]:
-    """Return the assembly directories found on disk, as accession -> genome id -> assembly directory path.
-
-    Walks each per-accession folder under ``targeted_folder`` for subfolders named
-    ``<genome_id>_assembly``; ``genome_ids`` is accepted for symmetry with ``scan_extractions``
-    but not otherwise used, since the assembly suffix alone identifies the genome id. Returns an
-    empty mapping if ``targeted_folder`` does not exist as a directory.
-    """
-    found: Dict[str, Dict[str, Path]] = {}
-    if not targeted_folder.is_dir():
-        return found
-    for acc_dir in visible_files(targeted_folder, dirs=True):
-        for asm in visible_files(acc_dir, f"*{_ASSEMBLY_SUFFIX}", dirs=True):
-            found.setdefault(acc_dir.name, {})[asm.name[: -len(_ASSEMBLY_SUFFIX)]] = asm
-    return found
-
-
-def empty_assembly_dirs(targeted_folder: Path, genome_ids: Sequence[str]) -> List[Tuple[str, str]]:
-    """(accession, genome_id) pairs whose assembly directory holds zero contigs, sorted."""
-    pairs: List[Tuple[str, str]] = []
-    for acc, per_genome_asm in scan_assemblies(targeted_folder, genome_ids).items():
-        for genome_id, asm_dir in per_genome_asm.items():
-            if summarise_contigs(asm_dir / _CONTIGS_NAME)["contigs"] == 0:
-                pairs.append((acc, genome_id))
-    return sorted(pairs)
-
-
-def _read_accession_list(path: Optional[Union[str, Path]]) -> List[str]:
-    if not path or not Path(path).exists():
-        return []
-    return [ln.strip() for ln in Path(path).read_text().splitlines() if ln.strip() and not ln.startswith("#")]
-
-
-def _screening_from_matches(registry: Registry, matches_folder: Path) -> None:
-    import csv
-
-    for csv_path in visible_files(matches_folder, "*.csv"):
-        with open(csv_path, newline="") as handle:
-            for row in csv.DictReader(handle):
-                acc = (row.get("acc") or row.get("SRA accession") or "").strip()
-                if not acc:
-                    continue
-                try:
-                    containment = float(row.get("containment", ""))
-                except ValueError:
-                    continue
-                cani_raw = row.get("cANI") or ""
-                try:
-                    cani = float(cani_raw) if cani_raw.strip() else None
-                except ValueError:
-                    cani = None
-                record_screening(registry, acc, csv_path.stem, containment, cani, "matches", 0.0, csv_path)
-                rb.mark_inferred(registry, acc, "screening")
-
-
-def _bootstrap_selection(
-    registry: Registry, accessions_file: Optional[Union[str, Path]], parsed_containment: Optional[Union[str, Path]]
-) -> None:
-    wanted = _read_accession_list(accessions_file)
-    if parsed_containment and Path(parsed_containment).exists():
-        with open(parsed_containment) as handle:
-            next(handle, None)
-            wanted += [ln.split("\t", 1)[0].strip() for ln in handle if ln.strip()]
-    if wanted:
-        record_selection(
-            registry, list(dict.fromkeys(wanted)), {"source": "bootstrap"}, accessions_file or parsed_containment or ""
-        )
-        for acc in wanted:
-            rb.mark_inferred(registry, acc, "selection")
-
-
-def _bootstrap_downloads_and_metadata(registry: Registry, paths: ProjectPaths) -> None:
-    for acc in scan_downloads(paths.fastq):
-        record_download(registry, acc, "downloaded", paths.fastq)
-        rb.mark_inferred(registry, acc, "download", attempts=0)
-    root = project_root(registry)
-    for acc in sorted(scan_metadata(paths.metadata)):
-        record_metadata(registry, acc, paths.metadata / f"{acc}_metadata.xml", {}, root=root)
-        rb.mark_inferred(registry, acc, "metadata")
-
-
-def _infer_extraction(registry: Registry, acc: str, genome_id: str, files: Sequence[Path]) -> None:
-    """Record one (accession, genome) extraction found on disk, marked as inferred.
-
-    Reads are counted in every file of the pair (both mates, singles and unpaired), so the
-    inferred count approximates the number of BAM records a real extraction records. When the
-    extraction's ``<genome>_coverage.tsv`` is on disk, breadth and mean depth are read from it;
-    otherwise (or when it cannot be read) they are None.
-    """
-    reads = sum(count_fastq_reads(f) for f in files)
-    coverage = _infer_coverage(coverage_table_path(files[0].parent, genome_id)) if files else None
-    record_extraction(registry, acc, genome_id, files, reads, False, {}, coverage=coverage)
-    rb.mark_inferred(registry, acc, "extractions", genome_id=genome_id)
-
-
-def _infer_coverage(tsv: Path) -> Optional[Dict[str, Any]]:
-    """Breadth, mean depth and path of an existing ``samtools coverage`` table, else None."""
-    if not tsv.is_file():
-        return None
-    try:
-        summary = summarise_coverage_table(tsv)
-    except (OSError, ValueError, KeyError) as e:
-        logger.warning("Cannot read coverage table %s (%s); recording no coverage for it", tsv, e)
-        return None
-    return {"breadth": summary["breadth"], "mean_depth": summary["mean_depth"], "coverage_tsv": tsv}
-
-
-def _infer_assembly(registry: Registry, acc: str, genome_id: str, asm_dir: Path) -> None:
-    """Record the assembly in ``asm_dir``, marked as inferred, when it holds contigs."""
-    stats = summarise_contigs(asm_dir / _CONTIGS_NAME)
-    if stats["contigs"] > 0:
-        record_assembly(registry, acc, genome_id, asm_dir, stats, "", {})
-        rb.mark_inferred(registry, acc, "extractions", genome_id=genome_id)
-
-
-def _bootstrap_extractions(registry: Registry, paths: ProjectPaths, genome_ids: List[str]) -> None:
-    for acc, per_genome_files in scan_extractions(paths.targeted, genome_ids).items():
-        for genome_id, files in per_genome_files.items():
-            _infer_extraction(registry, acc, genome_id, files)
-    for acc, per_genome_asm in scan_assemblies(paths.targeted, genome_ids).items():
-        for genome_id, asm_dir in per_genome_asm.items():
-            _infer_assembly(registry, acc, genome_id, asm_dir)
-
-
-def bootstrap_from_disk(
-    paths: ProjectPaths,
-    accessions_file: Optional[Union[str, Path]] = None,
-    parsed_containment: Optional[Union[str, Path]] = None,
-    target_path: Optional[Path] = None,
-) -> Registry:
-    """Rebuild a registry from what is on disk; every reconstructed block carries ``"inferred": true``.
-
-    ``target_path`` is the file the caller intends to save this registry to (``status --init``
-    passes ``registry_file``); it is bound to the registry before any writer below runs, so every
-    path recorded during bootstrap is already relative to the right project root, even when
-    ``--registry`` points somewhere other than the working directory. Left as ``None`` (a caller
-    with no file in mind, e.g. the in-memory report built when no registry exists yet), the
-    writers fall back to the working directory as the project root, same as an unbound
-    ``Registry()``.
-    """
-    registry = Registry(path=target_path)
-    if paths.matches.is_dir():
-        _screening_from_matches(registry, paths.matches)
-    _bootstrap_selection(registry, accessions_file, parsed_containment)
-    _bootstrap_downloads_and_metadata(registry, paths)
-    genome_ids = sorted(_genome_ids_on_disk(paths, registry))
-    for genome_id in genome_ids:
-        registry.genomes.setdefault(genome_id, {})
-    _bootstrap_extractions(registry, paths, genome_ids)
-    return registry
-
-
 def reconcile(registry: Registry, paths: ProjectPaths) -> ReconcileReport:
     """Compare the registry with the disk; see ``prepare.data.registry_reconcile.reconcile``.
 
@@ -999,3 +673,28 @@ def reconcile(registry: Registry, paths: ProjectPaths) -> ReconcileReport:
     from prepare.data.registry_reconcile import reconcile as _reconcile
 
     return _reconcile(registry, paths)
+
+
+# Re-exports for one release. registry_io and registry_scan import this module lazily at call time: no cycle.
+from prepare.data.registry_io import (  # noqa: E402,F401
+    KNOWN_KEYS,
+    _acquire_lock,
+    _write_registry,
+    load_registry,
+    parse_registry_document,
+    registry_transaction,
+    save_registry,
+)
+from prepare.data.registry_scan import (  # noqa: E402,F401
+    _genome_ids_on_disk,
+    _infer_assembly,
+    _infer_coverage,
+    _infer_extraction,
+    bootstrap_from_disk,
+    empty_assembly_dirs,
+    scan_assemblies,
+    scan_downloads,
+    scan_extractions,
+    scan_metadata,
+    split_extract_filename,
+)

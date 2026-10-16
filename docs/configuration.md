@@ -175,8 +175,8 @@ command, before or after the command name:
 | `--log-file PATH` | Also append every line to `PATH`; its folder is created |
 | `--progress-every N` | Log a progress summary every N items of a long run (default 50) |
 
-`-q` and `-v` cannot be given together, and either one overrides `--log-level`. `store_status` keeps its
-own `--verbose` (list every dataset), so its log level is raised with `prepare -v store_status`. A flag
+`-q` and `-v` cannot be given together, and either one overrides `--log-level`. `store_status` lists every
+dataset with `--details`; its former `--verbose` spelling still works but is deprecated. A flag
 takes precedence over the environment variable and the `[runtime]` key of the same setting.
 
 The log file is opened for appending, so several runs on one machine can share one file on a local disk.

@@ -133,7 +133,7 @@ def _corrupt_project_registry(tmp_path: Path) -> Path:
 
 def _store_status_argv(tmp_path: Path) -> List[str]:
     root = _corrupt_project_registry(tmp_path)
-    return ["store_status", "--data-root", str(root), "--verbose", "--json"]
+    return ["store_status", "--data-root", str(root), "--details", "--json"]
 
 
 def _store_gc_argv(tmp_path: Path) -> List[str]:
@@ -248,3 +248,39 @@ def test_print_gate_script_fails_on_a_print_outside_base(tmp_path):
     assert "prepare/writer.py:2:" in result.stdout
     assert "prepare/cli/base.py:1:" not in result.stdout
     assert "prepare/other.py:" not in result.stdout
+
+
+class TestAnchoredFolder:
+    """Relative project folders live beside the registry the command uses (audit H4 follow-up)."""
+
+    def test_no_registry_above_resolves_against_the_working_directory(self, tmp_path, monkeypatch):
+        from prepare.cli.base import anchored_folder
+
+        monkeypatch.chdir(tmp_path)
+        assert anchored_folder("fastq", None) == tmp_path.resolve() / "fastq"
+
+    def test_registry_above_the_working_directory_anchors_on_its_folder(self, tmp_path, monkeypatch):
+        from prepare.cli.base import anchored_folder
+
+        proj = tmp_path / "proj"
+        (proj / "sub").mkdir(parents=True)
+        (proj / "prepare_registry.json").write_text("{}")
+        monkeypatch.chdir(proj / "sub")
+        assert anchored_folder("fastq", None) == proj.resolve() / "fastq"
+
+    def test_explicit_registry_anchors_on_its_folder(self, tmp_path, monkeypatch):
+        from prepare.cli.base import anchored_folder
+
+        monkeypatch.chdir(tmp_path)
+        explicit = tmp_path / "other" / "prepare_registry.json"
+        assert anchored_folder(Path("metadata"), str(explicit)) == (tmp_path / "other").resolve() / "metadata"
+
+    def test_absolute_folder_is_returned_unchanged(self, tmp_path, monkeypatch):
+        from prepare.cli.base import anchored_folder
+
+        proj = tmp_path / "proj"
+        (proj / "sub").mkdir(parents=True)
+        (proj / "prepare_registry.json").write_text("{}")
+        monkeypatch.chdir(proj / "sub")
+        elsewhere = tmp_path / "elsewhere" / "fastq"
+        assert anchored_folder(str(elsewhere), None) == elsewhere

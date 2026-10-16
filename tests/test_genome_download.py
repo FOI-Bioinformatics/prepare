@@ -130,6 +130,15 @@ def _create_mock_ncbi_zip(zip_path, accessions_and_files):
 
 
 class TestExtractAndOrganize:
+    def test_missing_expected_accession_raises_and_names_it(self, tmp_path):
+        zip_path = tmp_path / "test.zip"
+        _create_mock_ncbi_zip(zip_path, {"GCF_000005845.2": ">seq1\nATCG\n"})
+
+        with pytest.raises(DataAccessError, match="GCF_000009999.1"):
+            extract_and_organize(zip_path, tmp_path / "genomes", expected=["GCF_000005845.2", "GCF_000009999.1"])
+
+        assert (tmp_path / "genomes" / "GCF_000005845.2.fna").exists()
+
     def test_single_genome(self, tmp_path):
         zip_path = tmp_path / "test.zip"
         _create_mock_ncbi_zip(zip_path, {"GCF_000005845.2": ">seq1\nATCG\n"})

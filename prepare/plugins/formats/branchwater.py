@@ -9,15 +9,15 @@ import logging
 from pathlib import Path
 from typing import List, Optional, Union
 
-from prepare.core.exceptions import ValidationError
+from prepare.core.exceptions import DataAccessError, ValidationError
 from prepare.core.models import Containment, SRAMetadata
 from prepare.core.validation import validate_accession, validate_containment_value
-from prepare.plugins.base import Plugin
+from prepare.plugins.base import FormatPlugin
 
 logger = logging.getLogger(__name__)
 
 
-class BranchWaterFormatPlugin(Plugin):
+class BranchWaterFormatPlugin(FormatPlugin):
     """Plugin for handling Branchwater format files."""
 
     name = "branchwater"
@@ -52,7 +52,7 @@ class BranchWaterFormatPlugin(Plugin):
         return all(col in headers for col in cls.REQUIRED_COLS)
 
     @classmethod
-    def _validate_headers(cls, file_path: Path, fieldnames: List[str]) -> None:
+    def require_headers(cls, file_path: Path, fieldnames: List[str]) -> None:
         """Raise ValidationError if the required columns are missing."""
         if not cls.validate_header(fieldnames):
             missing = [col for col in cls.REQUIRED_COLS if col not in fieldnames]
@@ -92,15 +92,16 @@ class BranchWaterFormatPlugin(Plugin):
             List of Containment objects
 
         Raises:
-            ValidationError: If the file is invalid or cannot be parsed
+            DataAccessError: If the file cannot be opened or read
+            ValidationError: If the header lacks a required column or the content cannot be parsed
         """
         containments = []
         file_path = Path(file_path)
 
         try:
-            with open(file_path, "r") as f:
+            with open(file_path, "r", encoding="utf-8-sig", newline="") as f:
                 reader = csv.DictReader(f)
-                cls._validate_headers(file_path, list(reader.fieldnames or []))
+                cls.require_headers(file_path, list(reader.fieldnames or []))
 
                 for row in reader:
                     containment = cls._row_to_containment(row, genome_id, file_path)
@@ -109,10 +110,10 @@ class BranchWaterFormatPlugin(Plugin):
 
             return containments
 
-        except Exception as e:
-            if isinstance(e, ValidationError):
-                raise
-            raise ValidationError(f"Error parsing Branchwater file {file_path}: {str(e)}")
+        except OSError as e:
+            raise DataAccessError(f"Cannot read Branchwater file {file_path}: {e}") from e
+        except (csv.Error, UnicodeDecodeError) as e:
+            raise ValidationError(f"Error parsing Branchwater file {file_path}: {e}") from e
 
     @classmethod
     def extract_metadata(cls, containment: Containment) -> Optional[SRAMetadata]:

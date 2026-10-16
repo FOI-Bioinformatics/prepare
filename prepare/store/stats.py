@@ -17,12 +17,13 @@ parsed record by record in Python.
 """
 
 import logging
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from prepare.core.constants import DEFAULT_NUM_THREADS
+from prepare.core.constants import DEFAULT_NUM_THREADS, SRA_ACCESSION_PATTERN
 from prepare.core.exceptions import DataAccessError
 from prepare.data.sra import count_fastq_reads, fastq_files, sample_records
 from prepare.data.sra.sampling import distribution_from_histogram, quality_histogram
@@ -301,6 +302,8 @@ def _store_location(path: Path) -> Optional[Tuple[StorePaths, str]]:
     """
     acc_dir = path.parent
     accession = acc_dir.name
+    if not re.fullmatch(SRA_ACCESSION_PATTERN, accession):
+        return None
     paths = store_paths(acc_dir.parent.parent)
     if dataset_sidecar_path(paths, accession) != path:
         return None

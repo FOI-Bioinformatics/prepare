@@ -15,10 +15,12 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from prepare.core.exceptions import DataAccessError
+from prepare.data.accessions import require_accession
 from prepare.data.file_io import unique_temp_path
 from prepare.store.layout import StorePaths, sra_dir
-from prepare.store.locks import touch_dataset_use
+from prepare.store.locks import LockHeld, dataset_lock, lock_holder, touch_dataset_use
 from prepare.utils.progress import active_item_level
+from prepare.utils.sizes import tree_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -136,18 +138,6 @@ def room_shortfall(location: Path, needed: int) -> Optional[int]:
     return free if free < needed else None
 
 
-def _tree_bytes(folder: Path) -> int:
-    """Total bytes of the files under ``folder``; a file that cannot be stat'ed counts as 0."""
-    total = 0
-    for path in folder.rglob("*"):
-        try:
-            if path.is_file():
-                total += path.stat().st_size
-        except OSError:
-            continue
-    return total
-
-
 def _copy_into_place(store_dataset: Path, link: Path) -> None:
     """Copy ``store_dataset`` to ``link``, replacing an earlier copy only once the new one is complete.
 
@@ -160,7 +150,7 @@ def _copy_into_place(store_dataset: Path, link: Path) -> None:
     accession.
     """
     accession = store_dataset.name
-    needed = _tree_bytes(store_dataset)
+    needed = tree_bytes(store_dataset)
     free = room_shortfall(link.parent, needed)
     if free is not None:
         raise DataAccessError(
@@ -203,6 +193,7 @@ def link_dataset(
     accession: str,
     paths: StorePaths,
     mode: str = "auto",
+    locked: bool = False,
 ) -> Path:
     """Point ``<project_fastq>/<accession>`` at the store's copy of ``accession``.
 
@@ -216,15 +207,30 @@ def link_dataset(
     records ``accession`` as just used (``prepare.store.locks.touch_dataset_use``), so
     ``store_gc`` keeps it for a grace period even before this project's usage row reaches the
     catalogue.
+
+    The check for the store folder and the link or copy run under the dataset's lock
+    (``prepare.store.locks.dataset_lock``), taken without waiting, so ``store_gc`` cannot remove
+    the folder in between; a lock held by another run raises ``DataAccessError`` naming the
+    holder. A caller that already holds the lock (the store hand-off) passes ``locked=True``.
     """
+    require_accession(accession)
     if mode not in LINK_MODES:
         raise DataAccessError(f"Unknown link mode '{mode}'; expected one of {', '.join(LINK_MODES)}")
+    if locked:
+        return _link_locked(Path(project_fastq), accession, paths, mode)
+    try:
+        with dataset_lock(paths, accession, blocking=False):
+            return _link_locked(Path(project_fastq), accession, paths, mode)
+    except LockHeld as e:
+        raise DataAccessError(f"{accession} is being written by {lock_holder(paths, accession)}; retry later") from e
 
+
+def _link_locked(project_path: Path, accession: str, paths: StorePaths, mode: str) -> Path:
+    """The body of ``link_dataset``, run while the caller holds ``accession``'s dataset lock."""
     store_dataset = sra_dir(paths, accession)
     if not store_dataset.is_dir():
         raise DataAccessError(f"Store has no dataset folder for {accession}: {store_dataset}")
 
-    project_path = Path(project_fastq)
     project_path.mkdir(parents=True, exist_ok=True)
     link = project_path / accession
     # Resolved forms: the caller may pass a relative folder, and a relative symlink target

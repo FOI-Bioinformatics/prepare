@@ -7,7 +7,7 @@ import shlex
 from typing import List
 
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import finite_float, BaseCommand, anchored_folder
 from prepare.core.exceptions import PrepareError
 from prepare.data.branchwater import parse_containment_data
 from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
@@ -50,7 +50,7 @@ class ParseContainmentCommand(BaseCommand):
         parser.add_argument(
             "--step-size",
             default=0.1,
-            type=float,
+            type=finite_float,
             help="Size of steps for the containment thresholds",
         )
         parser.add_argument(
@@ -69,6 +69,7 @@ class ParseContainmentCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            args.matches_folder = str(anchored_folder(args.matches_folder, getattr(args, "registry", None)))
             errors: List[str] = []
             summary = parse_containment_data(
                 args.matches_folder,
@@ -135,7 +136,7 @@ class PlotContainmentCommand(BaseCommand):
         )
         parser.add_argument(
             "--threshold",
-            type=float,
+            type=finite_float,
             default=None,
             help="Minimum value to include in the plot",
         )
@@ -153,7 +154,7 @@ class PlotContainmentCommand(BaseCommand):
                 column=args.column,
                 title=args.title,
                 colors=args.colors,
-                show_title=args.show_title,
+                show_title=args.show_title or args.title is not None,
                 save_format=args.save_format,
                 threshold=args.threshold,
                 plot_type=args.plot_type,
