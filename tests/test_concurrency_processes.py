@@ -24,6 +24,7 @@ and the lock stress tests across threads and processes are ``tests/test_lockfile
 """
 
 import json
+import gzip
 import os
 import shutil
 import signal
@@ -272,6 +273,26 @@ def test_truncated_download_accepted_with_accept_partial(harness):
     assert dataset["complete"]["verdict"] == "truncated"
     assert _fastq_names(project / "fastq" / "SRR1") == ["SRR1_1.fastq", "SRR1_2.fastq"]
     assert not (project / "fastq" / "failed_accessions.txt").exists()
+
+
+def test_download_with_compression_publishes_gz_files(harness):
+    """With compression on, the fake pigz gzips each mate file and the verdict holds for the .gz files."""
+    project = harness.project("project", ["SRR1"])
+    _with_spots(project, "SRR1", FAKE_READS)
+    args = ["download_sra", "--accessions-file", "accessions.txt", "--no-prefetch", "--num-threads", "1"]
+    proc = spawn_cli(args, project, harness.env)
+    harness.children.append(proc)
+
+    log = harness.finish(proc)
+
+    assert _fastq_names(project / "fastq" / "SRR1") == ["SRR1_1.fastq.gz", "SRR1_2.fastq.gz"], log
+    dataset = _datasets(project)["SRR1"]["download"]
+    assert dataset["state"] == "downloaded"
+    assert dataset["complete"]["verdict"] == "complete"
+    assert dataset["complete"]["reads_r1"] == FAKE_READS
+    with gzip.open(project / "fastq" / "SRR1" / "SRR1_1.fastq.gz", "rt") as handle:
+        assert len(handle.read().splitlines()) == 4 * FAKE_READS
+    assert _temp_names(project) == []
 
 
 def test_tool_failure_then_retry_succeeds(harness):
