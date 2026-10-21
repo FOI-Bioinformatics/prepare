@@ -290,3 +290,111 @@ class TestContainment:
         summary = parse_containment_data(matches, tmp_path / "parsed.txt", tmp_path / "top.txt")
         assert "wMel" in summary.table.columns
         assert summary.table.loc["SRR1", "wMel"] == pytest.approx(0.25)
+
+
+# ------------------------------------------------------------------------------------ store cache
+
+
+class TestStoreCache:
+    """A signature cached beside the store copy, mirroring the statistics record."""
+
+    def _store(self, tmp_path, monkeypatch):
+        from prepare.store.layout import init_store, sidecar_path as dataset_sidecar_path, sra_dir
+        from prepare.store.sidecar import Sidecar, write_sidecar
+
+        monkeypatch.setenv("PREPARE_DATA", str(tmp_path / "store"))
+        paths = init_store(tmp_path / "store")
+        acc_dir = sra_dir(paths, "SRR1")
+        acc_dir.mkdir(parents=True)
+        files = [
+            _write_fastq(acc_dir / "SRR1_1.fastq", READS_1),
+            _write_fastq(acc_dir / "SRR1_2.fastq", READS_2),
+        ]
+        sidecar_path = dataset_sidecar_path(paths, "SRR1")
+        write_sidecar(sidecar_path, Sidecar(accession="SRR1", state="complete"))
+        return paths, acc_dir, sidecar_path, files
+
+    def _signature(self, tmp_path, files):
+        return write_signature(sketch_dataset("SRR1", files), signature_path("SRR1", tmp_path / "sketches"))
+
+    def test_cached_sketch_requires_a_matching_block_and_file(self, tmp_path, monkeypatch):
+        from prepare.store.sketches import cached_sketch, store_sketch
+        from prepare.store.sidecar import read_sidecar
+
+        paths, acc_dir, sidecar_path, files = self._store(tmp_path, monkeypatch)
+        assert cached_sketch(acc_dir, sidecar_path, files) is None
+        assert cached_sketch(acc_dir, None, files) is None
+
+        signature = self._signature(tmp_path, files)
+        summary = sketch_summary(sketch_dataset("SRR1", files))
+        store_sketch(sidecar_path, signature, summary)
+
+        cached = cached_sketch(acc_dir, sidecar_path, files)
+        assert cached is not None
+        path, block = cached
+        assert path == acc_dir / "SRR1.sig.gz" and path.is_file()
+        assert block["files"] == summary["files"] and block["file"] == "SRR1.sig.gz" and block["computed"]
+        sidecar = read_sidecar(sidecar_path)
+        assert sidecar.state == "complete" and sidecar.sketch == block
+
+        path.unlink()
+        assert cached_sketch(acc_dir, sidecar_path, files) is None
+
+    def test_a_changed_file_invalidates_the_cache(self, tmp_path, monkeypatch):
+        import os
+
+        from prepare.store.sketches import cached_sketch, store_sketch
+
+        _paths, acc_dir, sidecar_path, files = self._store(tmp_path, monkeypatch)
+        store_sketch(sidecar_path, self._signature(tmp_path, files), sketch_summary(sketch_dataset("SRR1", files)))
+        assert cached_sketch(acc_dir, sidecar_path, files) is not None
+
+        os.utime(files[0], (1, 1))
+        assert cached_sketch(acc_dir, sidecar_path, files) is None
+
+    def test_store_sketch_takes_the_dataset_lock(self, tmp_path, monkeypatch):
+        from prepare.store import sketches as sketches_module
+        from prepare.store.sketches import store_sketch
+        from prepare.store.stats import STATS_LOCK_WAIT_SECONDS
+        from unittest.mock import patch
+        from contextlib import nullcontext
+
+        paths, _acc_dir, sidecar_path, files = self._store(tmp_path, monkeypatch)
+        held = []
+
+        def record_lock(lock_paths, accession, wait_seconds=0.0):
+            held.append((lock_paths.root, accession, wait_seconds))
+            return nullcontext()
+
+        with patch.object(sketches_module, "dataset_lock", side_effect=record_lock):
+            store_sketch(sidecar_path, self._signature(tmp_path, files), sketch_summary(sketch_dataset("SRR1", files)))
+        assert held == [(paths.root, "SRR1", STATS_LOCK_WAIT_SECONDS)]
+
+    def test_a_held_lock_only_costs_the_cache(self, tmp_path, monkeypatch, caplog):
+        import logging
+
+        from prepare.store import locks as locks_module
+        from prepare.store.layout import lock_path
+        from prepare.store.sidecar import read_sidecar
+        from prepare.store.sketches import store_sketch
+
+        paths, acc_dir, sidecar_path, files = self._store(tmp_path, monkeypatch)
+        lock_path(paths, "SRR1").write_text('{"pid": 999, "host": "other-host", "started": "now"}')
+        monkeypatch.setattr(locks_module, "LOCK_POLL_SECONDS", 0.01)
+        monkeypatch.setattr("prepare.store.sketches.STATS_LOCK_WAIT_SECONDS", 0.02)
+
+        with caplog.at_level(logging.WARNING):
+            store_sketch(sidecar_path, self._signature(tmp_path, files), sketch_summary(sketch_dataset("SRR1", files)))
+
+        assert read_sidecar(sidecar_path).sketch is None
+        assert not (acc_dir / "SRR1.sig.gz").exists()
+        assert "Not caching sketch for SRR1" in caplog.text
+
+    def test_store_sketch_is_a_noop_without_a_sidecar(self, tmp_path, monkeypatch):
+        from prepare.store.sketches import store_sketch
+
+        _paths, _acc_dir, _sidecar_path, files = self._store(tmp_path, monkeypatch)
+        signature = self._signature(tmp_path, files)
+        store_sketch(None, signature, sketch_summary(sketch_dataset("SRR1", files)))
+        store_sketch(tmp_path / "nowhere" / "SRR9.json", signature, sketch_summary(sketch_dataset("SRR1", files)))
+        assert not (tmp_path / "nowhere").exists()

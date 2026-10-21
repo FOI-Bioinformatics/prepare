@@ -357,6 +357,22 @@ def test_sidecar_without_refetch_writes_no_refetch_key():
     assert "refetch" not in sidecar.to_dict()
 
 
+def test_sidecar_sketch_round_trips(tmp_path):
+    sketch = {"ksizes": [21, 31, 51], "scaled": 1000, "file": "SRR1.sig.gz", "files": {"SRR1_1.fastq": [4, 1.0]}}
+    sidecar = _make_sidecar(sketch=sketch)
+    path = tmp_path / "SRR1.json"
+    write_sidecar(path, sidecar)
+
+    assert json.loads(path.read_text())["sketch"] == sketch
+    assert read_sidecar(path).sketch == sketch
+
+
+def test_sidecar_without_sketch_writes_no_sketch_key():
+    sidecar = _make_sidecar()
+    assert sidecar.sketch is None
+    assert "sketch" not in sidecar.to_dict()
+
+
 def test_old_sidecar_json_round_trips_byte_identical(tmp_path):
     """A sidecar written before ``refetch`` existed is rewritten byte for byte as it was read."""
     path = tmp_path / "SRR1.json"
