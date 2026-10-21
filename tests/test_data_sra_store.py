@@ -145,6 +145,23 @@ class TestDownloadSraStore:
         assert _split_not_found(["SRR1"], {"SRR1": message}) == ([], ["SRR1"])
         assert started_download(False, message) is False
 
+    def test_store_download_accepts_a_copy_mode_folder(self, tmp_path):
+        """A real folder holding <ACC>.json is an earlier copy-mode link, not the project's own reads."""
+        from prepare.store.sidecar import Sidecar, write_sidecar
+
+        paths = self._store(tmp_path)
+        self._store_dataset(paths)
+        fastq_folder = tmp_path / "project" / "fastq"
+        copy = fastq_folder / "SRR1"
+        copy.mkdir(parents=True)
+        (copy / "SRR1_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        write_sidecar(copy / "SRR1.json", Sidecar(accession="SRR1", state="complete"))
+
+        success, message = store_handoff_mod._store_download("SRR1", fastq_folder, paths, link_mode="copy")
+
+        assert success is True, message
+        assert not message.startswith(store_handoff_mod.STORE_PROJECT_FOLDER_PREFIX)
+
     def test_a_ready_copy_whose_lock_is_briefly_held_waits_and_then_links(self, tmp_path):
         """A ready copy found without the lock is linked under it; when another run holds the
         lock at that moment the hand-off waits for it instead of failing."""

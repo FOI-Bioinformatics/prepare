@@ -2392,6 +2392,7 @@ def test_fasterq_dump_version_is_empty_on_a_tool_error_and_propagates_a_bug():
     with patch("prepare.utils.tools.shutil.which", return_value="/usr/bin/fasterq-dump"):
         with patch("prepare.data.sra.accession.SecureSubprocess.run_secure", side_effect=SecurityError("not found")):
             assert fasterq_dump_version() == ""
+        fasterq_dump_version.cache_clear()  # probed once per process; the second probe must run
         with patch("prepare.data.sra.accession.SecureSubprocess.run_secure", side_effect=TypeError("bug")):
             with pytest.raises(TypeError):
                 fasterq_dump_version()
@@ -2797,11 +2798,6 @@ class TestPublishFolder:
             assert [p.name for p in target.iterdir()] == ["new"]
         # The folder a replaced link pointed at is not touched.
         assert (tmp_path / "elsewhere" / "keep").read_text() == "keep"
-
-    def test_the_store_keeps_its_old_name(self):
-        from prepare.data.sra.cleanup import publish_folder
-
-        assert store_handoff_mod._publish_store_dataset is publish_folder
 
 
 class TestCachedArchiveWithKeepSra:

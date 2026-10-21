@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 # The publish step moved to ``cleanup.publish_folder`` so plain projects share it; the old
 # name stays for callers and tests that use it.
-_publish_store_dataset = cleanup_mod.publish_folder
 
 
 # Sidecar states that mean the store's copy is usable as it stands: verified against NCBI's
@@ -197,17 +196,6 @@ def _incomplete_message(accession: str, sidecar) -> str:
     )
 
 
-def _read_count(value: Any) -> Optional[int]:
-    """``value`` as a read count: a whole number of zero or more, else None (unknown)."""
-    if isinstance(value, bool):
-        return None
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number >= 0 else None
-
-
 def _refetch_record(previous, new) -> Optional[Dict[str, Any]]:
     """The ``refetch`` record of the store copy after ``new`` (a refetch) was built over ``previous``.
 
@@ -221,7 +209,7 @@ def _refetch_record(previous, new) -> Optional[Dict[str, Any]]:
     if previous is None or new.state == "complete":
         return None
     prior = previous.refetch or {}
-    counts = (_read_count(previous.reads_per_mate), _read_count(prior.get("reads_per_mate")))
+    counts = (spots_mod.read_count(previous.reads_per_mate), spots_mod.read_count(prior.get("reads_per_mate")))
     known = [n for n in counts if n is not None]
     best = max(known) if known else None
     gained = new.reads_per_mate is not None and (best is None or new.reads_per_mate > best)
@@ -609,11 +597,12 @@ def _store_download(
     lost while the download ran (``verify_held`` just before the publish) ends with
     ``(False, "lock lost: ...")`` and nothing published.
     """
+    from prepare.store.link import _is_store_copy
     from prepare.store.locks import LockWaitStopped, dataset_lock
 
     project_path = Path(project_fastq)
     own = project_path / accession
-    if own.exists() and not own.is_symlink():
+    if own.exists() and not own.is_symlink() and not _is_store_copy(own):
         # link_dataset would refuse this after the fetch; refusing here starts no fetch, and
         # the outcome is settled (not retried) because a rerun alone cannot change it.
         return False, (

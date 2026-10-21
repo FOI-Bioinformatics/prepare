@@ -719,10 +719,12 @@ def _project_download(
         return False, f"{classify_download_error(message)}: {message}"
 
 
+@functools.lru_cache(maxsize=1)
 def fasterq_dump_version() -> str:
     """The installed fasterq-dump's version line (``fasterq-dump : 3.1.1``), or an empty string.
 
     Recorded in a store dataset's sidecar so a later reader knows which tool produced the
     files. Empty when the tool is missing or prints no version (``prepare.utils.tools.probe_tool``).
+    Probed once per process; tests that change the tool clear the cache.
     """
     return tools.probe_tool("fasterq-dump").version_text

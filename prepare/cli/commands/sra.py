@@ -154,7 +154,7 @@ class DownloadSraCommand(BaseCommand):
             dest="verify_downloads",
             action="store_false",
             default=True,
-            help="Skip completeness verification against NCBI spot counts (on by default)",
+            help="Skip completeness verification against NCBI spot counts (default: on)",
         )
         parser.add_argument(
             "--redownload-truncated",

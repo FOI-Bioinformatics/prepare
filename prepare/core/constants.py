@@ -30,7 +30,6 @@ FAILED_ACCESSIONS_FILE = "failed_accessions.txt"
 
 # Threading and Performance Defaults
 DEFAULT_NUM_THREADS = 4
-DEFAULT_MAX_RETRIES = 1
 DEFAULT_TOP_N = 100
 # prefetch's --max-size: a run whose .sra archive is larger is not fetched. The
 # prefetch_max_size setting (PREPARE_PREFETCH_MAX_SIZE, config [runtime]) overrides it.
@@ -58,9 +57,8 @@ DEFAULT_LOG_LEVEL = "INFO"
 # Security Constraints
 # No limit by default; prepare.core.settings' subprocess_timeout setting (--timeout,
 # PREPARE_TIMEOUT, config [runtime] timeout) resolves the value prepare.utils.security's
-# run_secure actually uses. MAX_SUBPROCESS_TIMEOUT is the old name, kept as an alias.
+# run_secure actually uses.
 DEFAULT_SUBPROCESS_TIMEOUT = 0
-MAX_SUBPROCESS_TIMEOUT = DEFAULT_SUBPROCESS_TIMEOUT
 # Seconds allowed for a `--version` probe of an external tool: always bounded, regardless of
 # the run's own subprocess_timeout setting, so a hung tool cannot stall version detection.
 VERSION_PROBE_TIMEOUT = 30

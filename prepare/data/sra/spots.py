@@ -186,3 +186,17 @@ def merged_verdict(
     if known_before and after.get("verdict") in (None, _UNVERIFIED):
         return before
     return after
+
+
+def read_count(value: Any) -> Optional[int]:
+    """``value`` as a read count: a whole number of zero or more, else None (unknown).
+
+    A bool is not a count, and neither is a float or a numeric string with a fraction.
+    """
+    if isinstance(value, bool) or isinstance(value, float):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number >= 0 else None

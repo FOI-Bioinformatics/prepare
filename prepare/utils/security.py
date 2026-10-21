@@ -53,12 +53,8 @@ BOOLEAN_FLAGS: Dict[str, FrozenSet[str]] = {
     "megahit": frozenset({"--no-mercy", "--version"}),
     "seqkit": frozenset({"-T", "--version"}),
 }
-# Kept for backward compatibility with any caller importing the old name.
-FASTERQ_DUMP_BOOLEAN_FLAGS = BOOLEAN_FLAGS["fasterq-dump"]
 # Per-tool flags whose value must be a positive integer (a thread or process count).
 POSITIVE_INTEGER_FLAGS = {"fasterq-dump": frozenset({"--threads"}), "pigz": frozenset({"-p"})}
-# Kept for callers importing the old name.
-FASTERQ_DUMP_INTEGER_FLAGS = POSITIVE_INTEGER_FLAGS["fasterq-dump"]
 # Flags (any tool) whose value is a filesystem path and must pass validate_path.
 PATH_VALUE_FLAGS = frozenset({"-O", "-o", "-d", "--out-dir", "--temp", "--tmp-dir", "-1", "-2", "-0", "-s"})
 # Tools whose positional argument is either an SRA accession or a .sra file path.
