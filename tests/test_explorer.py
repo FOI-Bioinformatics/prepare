@@ -79,12 +79,26 @@ class TestGenerateContainmentExplorer:
         # SRR002 has genA=0.1 and genB=0.9. genA should be excluded but genB included.
         assert "SRR002" in html  # still present via genB=0.9
 
-    def test_empty_taxonomy(self, containment_df, tmp_path):
+    def test_no_taxonomy_hides_the_taxonomy_sections(self, containment_df, tmp_path):
+        """G6: without a taxonomy map the page says so instead of charting 'Unknown'."""
         out = tmp_path / "empty_tax.html"
         generate_containment_explorer(containment_df, {}, output_file=out)
         html = out.read_text()
-        assert "Unknown" in html
         assert "resultsTable" in html
+        assert "Taxonomy overview" not in html and "Distributions" not in html
+        assert '<p class="k">Families</p>' not in html and '<p class="k">Genera</p>' not in html
+        assert "Top families" not in html
+        assert "enrich_taxonomy" in html
+
+    def test_an_empty_result_explains_itself(self, containment_df, taxonomy, tmp_path):
+        """G10: no row above --min-containment: the page says so and still counts the genome columns."""
+        out = tmp_path / "empty.html"
+        generate_containment_explorer(containment_df, taxonomy, output_file=out, min_containment=0.95)
+        html = out.read_text()
+        import re
+
+        assert re.search(r"No sample reaches containment 0\.950;\s+lower --min-containment", html)
+        assert "<b>2</b> genomes" in html
 
     def test_custom_title(self, containment_df, taxonomy, tmp_path):
         out = tmp_path / "titled.html"
@@ -132,6 +146,7 @@ class TestBuildSummaryData:
         empty = pd.DataFrame()
         summary = _build_summary_data(empty, containment_df, taxonomy)
         assert summary["total_samples"] == 0
+        assert summary["total_genomes"] == 2  # the genome columns are still there (G10)
 
 
 class TestBuildTableHtml:
