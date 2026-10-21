@@ -183,6 +183,11 @@ class DownloadSraCommand(BaseCommand):
             help="Run fasterq-dump directly against the accession instead of prefetch then fasterq-dump",
         )
         parser.add_argument(
+            "--keep-temp",
+            action="store_true",
+            help="Keep fasterq-dump's build folder of a failed attempt for inspection (its path is logged)",
+        )
+        parser.add_argument(
             "--keep-sra",
             action="store_true",
             help=(
@@ -587,6 +592,7 @@ class DownloadSraCommand(BaseCommand):
                     sra_cache=getattr(args, "sra_cache", None),
                     use_prefetch=getattr(args, "use_prefetch", True),
                     keep_sra=getattr(args, "keep_sra", False),
+                    keep_temp=getattr(args, "keep_temp", False),
                     compress=getattr(args, "compress", True),
                     stop=term.stop,
                     run_sizes=run_sizes,

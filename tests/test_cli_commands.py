@@ -1013,6 +1013,7 @@ class TestDownloadSraCommand:
             "sra_cache": None,
             "use_prefetch": True,
             "keep_sra": False,
+            "keep_temp": False,
             "compress": True,
             "lock_wait": 0.0,
             "accept_partial": False,

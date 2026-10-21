@@ -682,6 +682,7 @@ def _store_downloader(
     store_metadata,
     lock_wait: float = 0.0,
     verify: bool = True,
+    keep_temp: bool = False,
 ):
     """A ``download_accession``-shaped callable that routes every download through the store.
 
@@ -706,6 +707,7 @@ def _store_downloader(
             verify=verify,
             num_threads=num_threads,
             temp_folder=temp_folder,
+            keep_temp=keep_temp,
             **kwargs,
         )
 
