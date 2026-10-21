@@ -235,8 +235,50 @@ class TestParseContainmentCommand:
             "summary.txt",
             0.05,
             details_file=None,
-            errors=[],
         )
+
+    def test_exit_1_leaves_registry_and_table_unchanged_on_an_unreadable_file(self, tmp_path):
+        """A bad match file: exit 1, no table written and the registry's screening blocks kept."""
+        matches_folder = tmp_path / "matches"
+        matches_folder.mkdir()
+        (matches_folder / "GCF_A.csv").write_text("acc,containment\nSRR1,0.9\n")
+        registry_path = tmp_path / "prepare_registry.json"
+        args = argparse.Namespace(
+            matches_folder=str(matches_folder),
+            parsed_containment_file=str(tmp_path / "parsed.txt"),
+            summary_containment_file=str(tmp_path / "summary.txt"),
+            step_size=0.1,
+            details_file=None,
+            registry=str(registry_path),
+            registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
+        )
+        assert ParseContainmentCommand().execute(args) == 0
+        before = registry_path.read_text()
+        table_before = (tmp_path / "parsed.txt").read_bytes()
+
+        (matches_folder / "GCF_B.csv").write_text("acc,containment\nSRR3,0.8\n")
+        (matches_folder / "bad.csv").write_text("run,score\nSRR2,0.5\n")
+        assert ParseContainmentCommand().execute(args) == 1
+        assert registry_path.read_text() == before
+        assert (tmp_path / "parsed.txt").read_bytes() == table_before
+
+    def test_empty_matches_folder_is_exit_1(self, tmp_path, caplog):
+        """No match CSV at all: exit 1 naming the folder, and no registry is created."""
+        matches_folder = tmp_path / "matches"
+        matches_folder.mkdir()
+        args = argparse.Namespace(
+            matches_folder=str(matches_folder),
+            parsed_containment_file=str(tmp_path / "parsed.txt"),
+            summary_containment_file=str(tmp_path / "summary.txt"),
+            step_size=0.1,
+            details_file=None,
+            registry=str(tmp_path / "prepare_registry.json"),
+            registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
+        )
+        with caplog.at_level(logging.ERROR):
+            assert ParseContainmentCommand().execute(args) == 1
+        assert "No match CSV in" in caplog.text and "matches" in caplog.text
+        assert not (tmp_path / "prepare_registry.json").exists()
 
     def test_execute_records_screening_in_registry(self, tmp_path):
         """Every accession in the parsed containment table is recorded as screened from matches."""

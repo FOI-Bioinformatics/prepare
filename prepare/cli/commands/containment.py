@@ -4,7 +4,6 @@ Containment-related CLI commands.
 
 import argparse
 import shlex
-from typing import List
 
 
 from prepare.cli.base import finite_float, BaseCommand, anchored_folder
@@ -70,14 +69,12 @@ class ParseContainmentCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         try:
             args.matches_folder = str(anchored_folder(args.matches_folder, getattr(args, "registry", None)))
-            errors: List[str] = []
             summary = parse_containment_data(
                 args.matches_folder,
                 args.parsed_containment_file,
                 args.summary_containment_file,
                 args.step_size,
                 details_file=args.details_file,
-                errors=errors,
             )
             # The table just built, so it is not read back from disk. A summary without one (no
             # match data) falls back to the file, read here before the registry lock is taken.
@@ -89,10 +86,6 @@ class ParseContainmentCommand(BaseCommand):
                     record_screening_from_table(
                         registry, table, args.matches_folder, max_screened=args.registry_max_screened
                     )
-            if errors:
-                self.logger.error("%d match file(s) could not be read: %s", len(errors), ", ".join(errors))
-                return 1
-
             hint = f"Next: prepare plot_containment --file-path {shlex.quote(str(args.parsed_containment_file))}"
             genome_id = next(iter(sorted(getattr(summary, "genome_to_samples", None) or {})), None)
             if genome_id:

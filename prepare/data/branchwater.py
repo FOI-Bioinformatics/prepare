@@ -326,6 +326,20 @@ def _finalize_metadata_extraction(metadata_records, output_file, processed_count
     return metadata_df
 
 
+def _require_comma_separated(csv_file: Path) -> None:
+    """Raise ``ValueError`` when the header line uses ';' or a tab instead of commas."""
+    try:
+        with open(csv_file, "r", encoding="utf-8", errors="replace") as handle:
+            header = handle.readline()
+    except OSError:
+        return  # the CSV reader reports the missing or unreadable file
+    if "," in header:
+        return
+    for separator, shown in ((";", "';'"), ("\t", "tab")):
+        if separator in header:
+            raise ValueError(f"not comma separated (found {shown})")
+
+
 def _process_genome_containments(csv_file, genome_id, containment_data, details_rows=None):
     """
     Process containment data from a single genome file.
@@ -342,6 +356,7 @@ def _process_genome_containments(csv_file, genome_id, containment_data, details_
         DataAccessError: If processing fails
     """
     try:
+        _require_comma_separated(csv_file)
         # Determine file format and use appropriate plugin
         df_headers = read_csv(csv_file, nrows=0)
         headers = df_headers.columns.tolist()
@@ -475,7 +490,6 @@ def parse_containment_data(
     summary_file: Union[str, Path],
     step_size: float = 0.1,
     details_file: Optional[Union[str, Path]] = None,
-    errors: Optional[List[str]] = None,
 ) -> ContainmentSummary:
     """
     Parse containment data from match files and generate summary.
@@ -483,7 +497,8 @@ def parse_containment_data(
     Alongside the parsed containment table, writes a details table (default
     ``<output_file stem>_details.tsv``) with one row per (accession, genome_id)
     carrying the cANI and sample metadata a Branchwater match brings; the wide
-    containment matrix itself is unchanged.
+    containment matrix itself is unchanged. Every match file is read before anything
+    is written, so an unreadable file leaves the output files as they were.
 
     Args:
         matches_folder: Folder containing match files
@@ -491,14 +506,12 @@ def parse_containment_data(
         summary_file: Path to save containment summary
         step_size: Step size for threshold calculation
         details_file: Path to save the details table (default: derived from output_file)
-        errors: Optional list the caller inspects afterwards; the name of each file
-            that could not be read is appended to it. Left untouched when None.
 
     Returns:
         ContainmentSummary object
 
     Raises:
-        DataAccessError: If the parsing fails
+        DataAccessError: If the folder holds no match CSV or any match file cannot be read
     """
     matches_path = validate_folder(matches_folder)
 
@@ -509,26 +522,21 @@ def parse_containment_data(
     # Get all CSV files in the matches folder
     csv_files = list_files(matches_path, "*.csv")
     if not csv_files:
-        logger.warning(f"No CSV files found in {matches_path}")
-        return ContainmentSummary()
+        raise DataAccessError(f"No match CSV in {matches_path}")
 
-    processed_count = 0
-    error_count = 0
-
+    errors: List[str] = []
     for csv_file in csv_files:
         genome_id = csv_file.stem
 
         try:
             _process_genome_containments(csv_file, genome_id, containment_data, details_rows=details_rows)
-            processed_count += 1
         except PrepareError as e:
-            error_count += 1
             logger.error(f"Error parsing containment from {csv_file}: {e}")
-            if errors is not None:
-                errors.append(csv_file.name)
+            errors.append(f"{csv_file.name} ({e.__cause__ or e})")
 
-    level = logger.warning if error_count else logger.info
-    level(f"Processed {processed_count} files with {error_count} errors")
+    if errors:
+        raise DataAccessError(f"{len(errors)} match file(s) could not be read: {'; '.join(errors)}")
+    logger.info(f"Processed {len(csv_files)} match files")
 
     _write_details_table(details_rows, _resolve_details_file(output_file, details_file))
 

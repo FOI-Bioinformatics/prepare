@@ -8,7 +8,7 @@ available as `sourmash scripts prepare_*` subcommands.
 
 import logging
 import sys
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from prepare.cli.base import finite_float
 from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
@@ -78,14 +78,12 @@ class PrepareParsePlugin(CommandLinePlugin):
 
         try:
             matches_folder = str(anchored_folder(args.matches_folder, args.registry))
-            errors: List[str] = []
             summary = parse_containment_data(
                 matches_folder,
                 args.parsed_containment_file,
                 args.summary_containment_file,
                 args.step_size,
                 details_file=args.details_file,
-                errors=errors,
             )
             # The table just built is used directly; a summary without one falls back to the file.
             table = getattr(summary, "table", None)
@@ -98,9 +96,6 @@ class PrepareParsePlugin(CommandLinePlugin):
                     )
         except Exception as e:
             logger.error(f"Error parsing containment: {e}")
-            sys.exit(1)
-        if errors:
-            logger.error("%d match file(s) could not be read: %s", len(errors), ", ".join(errors))
             sys.exit(1)
 
 
