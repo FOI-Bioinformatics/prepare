@@ -172,7 +172,7 @@ def download_next_steps(registry: Registry) -> List[Dict[str, Any]]:
             continue
         by_output.setdefault(output, []).append(acc)
     steps = [
-        {"command": f"prepare download_sra --accessions-file {output}", "accessions": accs}
+        {"command": f"prepare download_sra --accessions-file {shlex.quote(str(output))}", "accessions": accs}
         for output, accs in by_output.items()
     ]
     for output, (criteria, accs) in reselect_groups.items():
@@ -202,6 +202,16 @@ def _genome_fasta(registry: Registry, paths: ProjectPaths, genome_id: str) -> Pa
     return paths.genomes / f"{genome_id}.fna"
 
 
+def _screened_against(registry: Registry, accession: str, genome_id: str) -> bool:
+    """Whether the accession's screening block names the genome; True when it has no screening block at all.
+
+    A project built by ``status --init`` from downloaded reads alone records no screening, and
+    such a project is not silenced; one that was screened is only pointed at the pairs it holds.
+    """
+    genomes = rb.raw(registry, accession, "screening", "genomes")
+    return not genomes or genome_id in genomes
+
+
 def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict[str, Any]]:
     steps: List[Dict[str, Any]] = []
     excluded = set(query(registry, "excluded"))
@@ -210,12 +220,12 @@ def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict
     for genome_id in sorted(known_genome_ids(registry)):
         genome_fasta = _genome_fasta(registry, paths, genome_id)
         base = (
-            f"prepare extract_target_reads --parsed-containment {table} "
-            f"--genome-id {genome_id} --genome-fasta {genome_fasta}"
+            f"prepare extract_target_reads --parsed-containment {shlex.quote(table)} "
+            f"--genome-id {shlex.quote(genome_id)} --genome-fasta {shlex.quote(str(genome_fasta))}"
         )
         # Any record, including a zero-mapped one, means the sample has been tried.
         recorded = {acc for acc in registry.datasets if rb.extraction_block(registry, acc, genome_id) is not None}
-        to_extract = [acc for acc in downloaded if acc not in recorded]
+        to_extract = [acc for acc in downloaded if acc not in recorded and _screened_against(registry, acc, genome_id)]
         if to_extract:
             steps.append({"command": base, "accessions": to_extract})
         assembled = set(query(registry, "assembled", genome_id))

@@ -11,7 +11,7 @@ import pytest
 
 from prepare.cli.commands.status import StatusCommand
 from prepare.cli.commands.status.render_text import selection_detail
-from prepare.cli.commands.status.suggest import download_next_steps, reselect_command
+from prepare.cli.commands.status.suggest import download_next_steps, next_steps, reselect_command
 from prepare.data.registry import (
     Registry,
     SCHEMA_VERSION,
@@ -1743,3 +1743,51 @@ def test_reconcile_text_names_the_dropped_assemblies(tmp_path, capsys):
 
     assert rc == 0
     assert "Assemblies older than their extraction  : 1 record(s) dropped: SRR1/GCF_1" in out
+
+
+class TestNextStepsAreRunnableAndRelevant:
+    """P4: extraction is suggested only for screened pairs, and every value is shell-quoted."""
+
+    def _registry(self, tmp_path, genomes):
+        registry = load_registry(tmp_path / "prepare_registry.json")
+        for genome_id in genomes:
+            record_genome(registry, genome_id, tmp_path / "genomes" / f"{genome_id}.fna", tmp_path / "m.json")
+        return registry
+
+    def test_extraction_is_suggested_only_for_screened_pairs(self, tmp_path):
+        from prepare.data.registry import ProjectPaths, record_download, record_screening
+
+        registry = self._registry(tmp_path, ["G1", "G2"])
+        for acc in ("SRR1", "SRR3"):
+            record_download(registry, acc, "downloaded", tmp_path / "fastq" / acc)
+        record_screening(registry, "SRR1", "G1", 0.9, None, "matches", 0.0, None)
+        record_screening(registry, "SRR1", "G2", 0.8, None, "matches", 0.0, None)
+        record_screening(registry, "SRR3", "G1", 0.7, None, "matches", 0.0, None)
+        steps = next_steps(registry, ProjectPaths.anchored(tmp_path))
+        by_genome = {("G1" if "--genome-id G1" in s["command"] else "G2"): s["accessions"] for s in steps}
+        assert by_genome == {"G1": ["SRR1", "SRR3"], "G2": ["SRR1"]}
+
+    def test_an_unscreened_project_still_suggests_every_downloaded_accession(self, tmp_path):
+        """A status --init project without screening blocks is not silenced."""
+        from prepare.data.registry import ProjectPaths, record_download
+
+        registry = self._registry(tmp_path, ["G1"])
+        record_download(registry, "SRR1", "downloaded", tmp_path / "fastq" / "SRR1")
+        steps = next_steps(registry, ProjectPaths.anchored(tmp_path))
+        assert [s["accessions"] for s in steps] == [["SRR1"]]
+
+    def test_suggestions_quote_paths_and_ids(self, tmp_path):
+        from prepare.data.registry import ProjectPaths, record_download
+
+        registry = self._registry(tmp_path, ["L crispatus"])
+        record_download(registry, "SRR1", "downloaded", tmp_path / "fastq" / "SRR1")
+        record_selection(registry, ["SRR2"], {"table": "my tables/parsed.txt"}, "my lists/acc.txt")
+        steps = next_steps(registry, ProjectPaths.anchored(tmp_path))
+        commands = [s["command"] for s in steps]
+        download = next(c for c in commands if c.startswith("prepare download_sra"))
+        assert shlex.split(download)[-1] == "my lists/acc.txt"
+        extract = next(c for c in commands if "extract_target_reads" in c)
+        tokens = shlex.split(extract)
+        assert tokens[tokens.index("--genome-id") + 1] == "L crispatus"
+        assert tokens[tokens.index("--parsed-containment") + 1] == "my tables/parsed.txt"
+        assert tokens[tokens.index("--genome-fasta") + 1] == str(tmp_path / "genomes" / "L crispatus.fna")
