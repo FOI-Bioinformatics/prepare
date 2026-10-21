@@ -346,17 +346,18 @@ def record_download(
     When given, it replaces the block on file, except that a read count it carries as ``None``
     (e.g. a store sidecar with no read count of its own) keeps the previous count if, and only
     if, the previous verdict equals the new one; see ``Verdict.carrying_counts_from``.
-    ``source`` says where the reads came from (``"store"`` for a dataset the shared store
-    holds and the project only links to) and ``store_name`` is the dataset's name inside
-    that store. Both describe this outcome, so a call that names neither clears whatever
-    an earlier outcome recorded rather than leaving a stale claim behind.
+    ``source`` says where the reads came from (``"store"`` for a dataset the shared store holds and
+    the project only links to) and ``store_name`` is the dataset's name inside that store. Both describe
+    this outcome, so a call that names neither clears whatever an earlier outcome recorded.
     """
     download = rb.download_block_for_write(registry, accession)
     if attempt and state in ("downloaded", "failed"):
         download.attempts = int(download.attempts or 0) + 1
-    files: List[rb.FileEntry] = []
+    on_disk = fastq_files(Path(fastq_dir) / accession)
     if state == "downloaded":
-        files = _file_entries(fastq_files(Path(fastq_dir) / accession), project_root(registry))
+        files = _file_entries(on_disk, project_root(registry))
+    else:  # a failed redownload leaves the earlier folder in place: keep describing its files
+        files = list(download.files or []) if state == "failed" and on_disk else []
     download.state, download.date, download.files, download.message = state, _now(), files, message
     download.bytes_total = sum(int(f.bytes) for f in files)
     if complete is not None:
@@ -368,9 +369,8 @@ def record_download(
         download.source = source
         if store_name is not None:
             download.store_name = store_name
-    # The mate read counts cached by extract_target_reads describe the files this entry
-    # replaces, so they cannot survive a new attempt or state. Keeping them would let a pair
-    # counted from a truncated download force single-end mapping of the complete one.
+    # The mate read counts cached by extract_target_reads describe the files this entry replaces;
+    # kept, a pair counted from a truncated download would force single-end mapping of the complete one.
     for stale in ("inferred", "mate_reads", "mate_reads_signature"):
         download.discard(stale)
     rb.set_download_block(registry, accession, download)
