@@ -65,6 +65,7 @@ def test_cli_imports_without_optional_packages(monkeypatch, fresh_prepare_module
     assert parser is not None
     args = parser.parse_args(["diversity_analysis", "--abundance-file", "x.csv"])
     assert args.abundance_file == "x.csv"
+    assert parser.parse_args(["sra_sketch", "--accession", "SRR1"]).accession == ["SRR1"]
 
 
 def test_diversity_analysis_names_the_extra_when_sklearn_is_missing(monkeypatch, tmp_path):
