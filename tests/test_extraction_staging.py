@@ -62,9 +62,12 @@ class TestCompleteSample:
     def test_a_rerun_that_writes_fewer_files_removes_the_older_ones(self, tmp_path):
         out_dir = tmp_path / "targeted" / "SRR1"
         first = _extract(tmp_path, out_dir, {"nonempty": ("-1", "-2", "-s")})
-        assert first.files == [out_dir / "GCF_1_1.fastq.gz", out_dir / "GCF_1_2.fastq.gz"]
-        # The singletons are kept beside the pairs, as the in-place export kept them.
-        assert (out_dir / "GCF_1_s.fastq.gz").is_file()
+        # The singletons are part of the record (P10), beside the pairs.
+        assert first.files == [
+            out_dir / "GCF_1_1.fastq.gz",
+            out_dir / "GCF_1_2.fastq.gz",
+            out_dir / "GCF_1_s.fastq.gz",
+        ]
 
         result = _extract(tmp_path, out_dir, {"nonempty": ("-0",)})
 
