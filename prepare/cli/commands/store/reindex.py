@@ -8,18 +8,15 @@ import re
 from typing import List, Tuple
 
 from prepare.cli.base import BaseCommand
-from prepare.cli.commands.store._shared import _now, _no_store_hint
+from prepare.cli.commands.store._shared import _now, _required_store
 from prepare.core.constants import SRA_ACCESSION_PATTERN
 from prepare.core.exceptions import DataAccessError
-from prepare.data import registry_blocks as rb
 from prepare.data.file_io import visible_files
-from prepare.data.registry import load_registry
 from prepare.store import journal
 from prepare.store.adopt import rebuild_missing_sidecar
 from prepare.store.catalog import REBUILT_WITHOUT_PROJECTS, catalog_write
 from prepare.store.layout import StorePaths, sra_dir, store_paths
 from prepare.store.locks import LockHeld, dataset_lock, lock_holder
-from prepare.store.resolve import resolve_store_root
 from prepare.store.sidecar import Sidecar, read_sidecar
 
 logger = logging.getLogger(__name__)
@@ -117,15 +114,10 @@ class StoreReindexCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         """Run the command; return the exit code."""
-        try:
-            registry = load_registry(args.registry)
-            root = resolve_store_root(args.data_root, rb.store_block(registry).root)
-        except DataAccessError as e:
-            return self.fail(e, self.name)
-
-        if root is None:
-            _no_store_hint()
-            return 1
+        ctx = _required_store(args, self)
+        if isinstance(ctx, int):
+            return ctx
+        root = ctx.root
 
         try:
             paths = store_paths(root)

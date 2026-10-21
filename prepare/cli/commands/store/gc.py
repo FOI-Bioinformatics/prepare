@@ -13,18 +13,15 @@ from pathlib import Path
 from typing import AbstractSet, Any, Dict, List, Optional, Tuple
 
 from prepare.cli.base import BaseCommand, emit_error_json
-from prepare.cli.commands.store._shared import _no_store_hint, _stale_project_row
+from prepare.cli.commands.store._shared import _stale_project_row, _required_store
 from prepare.core.constants import GC_RECENT_USE_GRACE_SECONDS, SRA_ACCESSION_PATTERN
 from prepare.core.exceptions import DataAccessError
-from prepare.data import registry_blocks as rb
 from prepare.data.file_io import is_hidden_name
-from prepare.data.registry import load_registry
 from prepare.data.sra import is_transient_folder
 from prepare.store import journal
 from prepare.store.catalog import REBUILT_WITHOUT_PROJECTS, Catalog, catalog_write
 from prepare.store.layout import StorePaths, sra_dir, store_paths
 from prepare.store.locks import LockHeld, dataset_lock, last_dataset_use, lock_holder, lock_is_held
-from prepare.store.resolve import resolve_store_root
 from prepare.store.usage import linked_by, stale_projects
 from prepare.utils.sizes import tree_bytes
 
@@ -376,15 +373,10 @@ class StoreGcCommand(BaseCommand):
             self.logger.error("--dry-run and --yes cannot be combined")
             return 1
 
-        try:
-            registry = load_registry(args.registry)
-            root = resolve_store_root(args.data_root, rb.store_block(registry).root)
-        except DataAccessError as e:
-            return self.fail(e, self.name)
-
-        if root is None:
-            _no_store_hint(getattr(args, "json", False))
-            return 1
+        ctx = _required_store(args, self)
+        if isinstance(ctx, int):
+            return ctx
+        root = ctx.root
 
         paths = store_paths(root)
         try:

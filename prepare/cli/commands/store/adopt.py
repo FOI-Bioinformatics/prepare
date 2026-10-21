@@ -9,15 +9,13 @@ from typing import Any, List
 
 from prepare.cli.base import finite_float, BaseCommand, anchored_folder
 from prepare.cli.commands.sra_verdicts import store_sidecar_verdict, store_spot_count, store_verdict
-from prepare.cli.commands.store._shared import _no_store_hint, _gitignore_guard
+from prepare.cli.commands.store._shared import _gitignore_guard, _required_store
 from prepare.core.exceptions import DataAccessError
 from prepare.core.settings import setting_for
-from prepare.data import registry_blocks as rb
 from prepare.data.registry import load_registry, record_download, registry_transaction, update_linked
 from prepare.store.adopt import adopt
 from prepare.store.layout import StorePaths, store_paths
 from prepare.store.locks import touch_dataset_use
-from prepare.store.resolve import resolve_store_root
 from prepare.store.usage import ensure_project_identity, record_usage_many
 
 logger = logging.getLogger(__name__)
@@ -110,14 +108,12 @@ class StoreAdoptCommand(BaseCommand):
         try:
             args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
             args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
-            registry = load_registry(args.registry)
-            root = resolve_store_root(args.data_root, rb.store_block(registry).root)
         except DataAccessError as e:
             return self.fail(e, self.name)
-
-        if root is None:
-            _no_store_hint()
-            return 1
+        ctx = _required_store(args, self)
+        if isinstance(ctx, int):
+            return ctx
+        root = ctx.root
 
         term = getattr(args, "_termination", None)
         try:

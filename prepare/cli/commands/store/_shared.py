@@ -8,9 +8,17 @@ import logging
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Dict, Union
 
 from prepare.cli.base import emit_error_json
+from prepare.core.exceptions import DataAccessError
+
+if TYPE_CHECKING:
+    import argparse
+
+    from prepare.cli.base import BaseCommand
+    from prepare.data.registry import Registry
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +34,37 @@ def _no_store_hint(as_json: bool = False) -> None:
     logger.error(message)
     if as_json:
         emit_error_json(message)
+
+
+@dataclass(frozen=True)
+class StoreContext:
+    """What a store command works on: the project registry and the resolved store root."""
+
+    registry: "Registry"
+    root: Path
+
+
+def _required_store(args: "argparse.Namespace", command: "BaseCommand") -> Union[StoreContext, int]:
+    """The project registry and the store root a store command works on, or the exit code to return.
+
+    Loads ``--registry``, resolves the store from ``--data-root`` and the registry's ``store``
+    block, and refuses with ``_no_store_hint`` (and the JSON error document under ``--json``)
+    when there is none. Returns a ``StoreContext`` on success and the exit code otherwise, so
+    a command writes ``if isinstance(ctx, int): return ctx``.
+    """
+    from prepare.data import registry_blocks as rb
+    from prepare.data.registry import load_registry
+    from prepare.store.resolve import resolve_store_root
+
+    try:
+        registry = load_registry(args.registry)
+        root = resolve_store_root(args.data_root, rb.store_block(registry).root)
+    except DataAccessError as e:
+        return command.fail(e, command.name)
+    if root is None:
+        _no_store_hint(getattr(args, "json", False))
+        return 1
+    return StoreContext(registry, root)
 
 
 def _stale_project_row(row: Dict[str, Any]) -> Dict[str, Any]:

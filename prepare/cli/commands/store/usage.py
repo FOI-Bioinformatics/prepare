@@ -6,13 +6,10 @@ import argparse
 from typing import Any, Dict, List, Tuple
 
 from prepare.cli.base import BaseCommand
-from prepare.cli.commands.store._shared import _no_store_hint
+from prepare.cli.commands.store._shared import _required_store
 from prepare.core.exceptions import DataAccessError
-from prepare.data import registry_blocks as rb
-from prepare.data.registry import load_registry
 from prepare.store.catalog import Catalog
 from prepare.store.layout import store_paths
-from prepare.store.resolve import resolve_store_root
 
 
 class StoreUsageCommand(BaseCommand):
@@ -176,15 +173,10 @@ class StoreUsageCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         """Run the command; return the exit code."""
-        try:
-            registry = load_registry(args.registry)
-            root = resolve_store_root(args.data_root, rb.store_block(registry).root)
-        except DataAccessError as e:
-            return self.fail(e, self.name)
-
-        if root is None:
-            _no_store_hint(getattr(args, "json", False))
-            return 1
+        ctx = _required_store(args, self)
+        if isinstance(ctx, int):
+            return ctx
+        root = ctx.root
 
         try:
             paths = store_paths(root)
