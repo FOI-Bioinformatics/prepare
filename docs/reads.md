@@ -127,7 +127,7 @@ A rerun skips accessions whose FASTQ files exist, so an interrupted run resumes 
 
 ## sra_validate
 
-`sra_validate` checks that each accession folder under `--fastq-folder` holds readable FASTQ files. `--check-pairs` also verifies that paired files have matching read counts, and `--md5` re-hashes each FASTQ file and compares it with the md5 the store recorded when the file was stored. It detects a file changed since then and has no effect outside a store. `--accessions-file` and repeated `--accession` flags restrict the check to the accessions named.
+`sra_validate` checks that each accession folder under `--fastq-folder` holds readable FASTQ files. `--check-pairs` also verifies that paired files have matching read counts, and `--md5` re-hashes each FASTQ file and compares it with the md5 the store recorded when the file was stored. It detects a file changed since then and has no effect outside a store. `--accessions-file` and repeated `--accession` flags restrict the check to the accessions named; a named accession with no folder is reported as failed. Only folders named like an accession are checked: a download-in-progress folder or any other folder under the FASTQ root is neither validated nor recorded. A failed validation is recorded but does not count the dataset as analysed in `status`.
 
 ```bash
 prepare sra_validate --fastq-folder fastq --check-pairs --accession SRR123456

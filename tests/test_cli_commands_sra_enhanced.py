@@ -962,11 +962,10 @@ class TestSRAValidateCommand:
         result = command.execute(args)
 
         assert result == 1
-        assert "No accession directories found" in caplog.text
+        assert "No accession folder under" in caplog.text
 
-    @patch("prepare.cli.commands.sra_enhanced.logger")
-    def test_execute_exception_handling(self, mock_logger, tmp_path):
-        """Test exception handling during execution."""
+    def test_execute_exception_handling(self, tmp_path, caplog):
+        """An OSError while validating is reported through fail; an unexpected error propagates."""
         command = SRAValidateCommand()
 
         fastq_folder = tmp_path / "fastq"
@@ -982,12 +981,14 @@ class TestSRAValidateCommand:
             data_root=None,
         )
 
-        # Mock _validate_directory to raise an exception
-        with patch.object(command, "_validate_directory", side_effect=Exception("Test error")):
+        with patch.object(command, "_validate_directory", side_effect=OSError("Test error")):
             result = command.execute(args)
-
         assert result == 1
-        mock_logger.error.assert_called_once()
+        assert "Test error" in caplog.text
+
+        with patch.object(command, "_validate_directory", side_effect=RuntimeError("bug")):
+            with pytest.raises(RuntimeError):
+                command.execute(args)
 
 
 def test_validate_restricts_to_the_accessions_file_and_flags(tmp_path):
@@ -1011,3 +1012,61 @@ def test_validate_restricts_to_the_accessions_file_and_flags(tmp_path):
 
     registry = json.loads((tmp_path / "prepare_registry.json").read_text())
     assert set(registry["datasets"]) == {"SRR1", "SRR3"}
+
+
+def _validate_args(tmp_path, **overrides):
+    base = dict(
+        fastq_folder=str(tmp_path / "fastq"),
+        accession=None,
+        accessions_file=None,
+        check_pairs=False,
+        registry=str(tmp_path / "prepare_registry.json"),
+        data_root=None,
+    )
+    base.update(overrides)
+    return argparse.Namespace(**base)
+
+
+def _good_accession(fastq_folder, accession):
+    d = fastq_folder / accession
+    d.mkdir(parents=True)
+    (d / f"{accession}_1.fastq").write_text("@r1\nACGT\n+\nIIII\n")
+    return d
+
+
+class TestValidateNamesWhatItSkips:
+    """P8: named accessions without a folder fail the run; stray folders are neither validated nor recorded."""
+
+    def test_named_accessions_without_a_folder_fail_the_run(self, tmp_path, caplog):
+        import logging
+
+        _good_accession(tmp_path / "fastq", "SRR1")
+        with caplog.at_level(logging.ERROR):
+            rc = SRAValidateCommand().execute(_validate_args(tmp_path, accession=["SRR1", "SRR2"]))
+        assert rc == 1
+        assert any("SRR2" in r.message and "no folder" in r.message for r in caplog.records)
+        datasets = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]
+        assert datasets["SRR1"]["analyses"]["validate"]["summary"]["passed"] is True
+        assert "SRR2" not in datasets
+
+    def test_folder_scan_skips_non_accession_and_transient_folders(self, tmp_path):
+        fastq = tmp_path / "fastq"
+        _good_accession(fastq, "SRR1")
+        for stray in ("old_runs", ".prepare-tmp", "SRR9_temp"):
+            (fastq / stray).mkdir()
+            (fastq / stray / "x.fastq").write_text("@r1\nACGT\n+\nIIII\n")
+        assert [d.name for d in SRAValidateCommand()._find_accession_dirs(fastq)] == ["SRR1"]
+        assert SRAValidateCommand().execute(_validate_args(tmp_path)) == 0
+        datasets = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]
+        assert sorted(datasets) == ["SRR1"]
+
+    def test_an_os_error_is_reported_through_fail(self, tmp_path, caplog):
+        import logging
+
+        _good_accession(tmp_path / "fastq", "SRR1")
+        command = SRAValidateCommand()
+        with patch.object(command, "_validate_directory", side_effect=OSError("disk gone")):
+            with caplog.at_level(logging.ERROR):
+                assert command.execute(_validate_args(tmp_path)) == 1
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(errors) == 1 and errors[0].exc_info is not None and "disk gone" in errors[0].getMessage()
