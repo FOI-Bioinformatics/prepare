@@ -14,7 +14,7 @@ the sidecar, which every other command reads.
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 from prepare.core.exceptions import DataAccessError
 from prepare.data.file_io import copy_file
@@ -56,14 +56,18 @@ def cached_sketch(
 
 
 def store_sketch(
-    sidecar_path: Optional[Union[str, Path]], signature_file: Union[str, Path], summary: Dict[str, Any]
+    sidecar_path: Optional[Union[str, Path]],
+    signature_file: Union[str, Path],
+    summary: Dict[str, Any],
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> None:
     """Copy ``signature_file`` beside the sidecar and record ``summary`` as its ``sketch`` block.
 
     A no-op without a sidecar (``sidecar_path`` None or not a file). Inside a store the copy
     and the read-modify-write of the sidecar run under the dataset lock with the statistics
     wait; a lock held by a running download leaves the cache unwritten, with a warning, since
-    the next ``sra_sketch`` run computes the sketch again.
+    the next ``sra_sketch`` run computes the sketch again. ``should_stop`` (the run's stop
+    token) ends that wait early, with the same warning.
     """
     if sidecar_path is None or not Path(sidecar_path).is_file():
         return
@@ -73,7 +77,7 @@ def store_sketch(
         return
     paths, accession = located
     try:
-        with dataset_lock(paths, accession, wait_seconds=STATS_LOCK_WAIT_SECONDS):
+        with dataset_lock(paths, accession, wait_seconds=STATS_LOCK_WAIT_SECONDS, should_stop=should_stop):
             _write_sketch(Path(sidecar_path), Path(signature_file), summary)
     except DataAccessError as e:
         logger.warning("Not caching sketch for %s: %s", accession, e)

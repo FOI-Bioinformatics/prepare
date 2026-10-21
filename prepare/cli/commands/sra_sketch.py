@@ -193,7 +193,9 @@ class SRASketchCommand(BaseCommand):
         summary = sketch_summary(sketch)
         if item.acc_dir is not None:
             try:
-                store_sketch(_resolved_sidecar_path(item.acc_dir), target, summary)
+                store_sketch(
+                    _resolved_sidecar_path(item.acc_dir), target, summary, should_stop=stop.is_set if stop else None
+                )
             except (OSError, DataAccessError) as e:
                 # The project has its signature; the store cache is only a saving for others.
                 self.logger.warning("Not caching the sketch of %s in the store: %s", item.accession, e)

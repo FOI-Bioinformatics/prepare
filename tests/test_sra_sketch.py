@@ -403,7 +403,7 @@ class TestStoreCache:
         paths, _acc_dir, sidecar_path, files = self._store(tmp_path, monkeypatch)
         held = []
 
-        def record_lock(lock_paths, accession, wait_seconds=0.0):
+        def record_lock(lock_paths, accession, wait_seconds=0.0, should_stop=None):
             held.append((lock_paths.root, accession, wait_seconds))
             return nullcontext()
 
@@ -427,6 +427,32 @@ class TestStoreCache:
         with caplog.at_level(logging.WARNING):
             store_sketch(sidecar_path, self._signature(tmp_path, files), sketch_summary(sketch_dataset("SRR1", files)))
 
+        assert read_sidecar(sidecar_path).sketch is None
+        assert not (acc_dir / "SRR1.sig.gz").exists()
+        assert "Not caching sketch for SRR1" in caplog.text
+
+    def test_store_sketch_stops_waiting_when_stop_is_set(self, tmp_path, monkeypatch, caplog):
+        """A stop request ends the wait for a held lock at once; the cache is skipped with a warning."""
+        import logging
+        import time
+
+        from prepare.store import locks as locks_module
+        from prepare.store.layout import lock_path
+        from prepare.store.sidecar import read_sidecar
+        from prepare.store.sketches import store_sketch
+
+        paths, acc_dir, sidecar_path, files = self._store(tmp_path, monkeypatch)
+        lock_path(paths, "SRR1").write_text('{"pid": 999, "host": "other-host", "started": "now"}')
+        monkeypatch.setattr(locks_module, "LOCK_POLL_SECONDS", 0.01)
+        monkeypatch.setattr("prepare.store.sketches.STATS_LOCK_WAIT_SECONDS", 30.0)
+        signature = self._signature(tmp_path, files)
+        summary = sketch_summary(sketch_dataset("SRR1", files))
+
+        started = time.monotonic()
+        with caplog.at_level(logging.WARNING):
+            store_sketch(sidecar_path, signature, summary, should_stop=lambda: True)
+
+        assert time.monotonic() - started < 2.0
         assert read_sidecar(sidecar_path).sketch is None
         assert not (acc_dir / "SRR1.sig.gz").exists()
         assert "Not caching sketch for SRR1" in caplog.text
