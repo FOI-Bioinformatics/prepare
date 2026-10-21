@@ -66,6 +66,11 @@ def resolve_assembly_threads(requested: Optional[int], fallback: int) -> int:
     return fallback
 
 
+def is_singleton_file(path: Union[str, Path]) -> bool:
+    """Whether ``path`` is the ``<genome>_s.fastq.gz`` file of reads that mapped without their mate."""
+    return Path(path).name.endswith("_s.fastq.gz")
+
+
 def _megahit_args(
     reads: List[Path],
     out_dir: Path,
@@ -86,12 +91,14 @@ def _megahit_args(
             (megahit refuses to run when its ``-o`` directory already exists).
     """
     args: List[str] = []
-    if len(reads) == 2:
+    if len(reads) == 3 and is_singleton_file(reads[2]):
+        args += ["-1", str(reads[0]), "-2", str(reads[1]), "-r", str(reads[2])]
+    elif len(reads) == 2:
         args += ["-1", str(reads[0]), "-2", str(reads[1])]
     elif len(reads) == 1:
         args += ["-r", str(reads[0])]
     else:
-        raise ProcessingError(f"Expected 1 or 2 FASTQ files to assemble, got {len(reads)}")
+        raise ProcessingError(f"Expected 1 or 2 FASTQ files (plus a singleton file) to assemble, got {len(reads)}")
 
     args += ["--num-cpu-threads", str(threads), "-o", str(out_dir)]
     if memory is not None:

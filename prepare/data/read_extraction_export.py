@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import pandas as pd
 
 from prepare.core.exceptions import ConfigurationError, DataAccessError, SecurityError
-from prepare.data.assembly import summarise_contigs
+from prepare.data.assembly import is_singleton_file, summarise_contigs
 from prepare.utils.security import SecureSubprocess
 
 # The same logger as prepare.data.read_extraction: the code here ran there before the split, and the
@@ -69,8 +69,12 @@ def _filter_and_merge_bam(
 
 
 def _export_mapped_fastq(reads: List[Path], bam_path: Path, out_dir: Path, genome_id: str, threads: int) -> List[Path]:
-    """Export a filtered BAM back to FASTQ. Reads without a mate flag (single-end mapping,
-    or the unequal-mates fallback) go to the ``-0`` file."""
+    """Export a filtered BAM back to FASTQ.
+
+    A paired mapping gives the mate files ``_1``/``_2`` and, when some reads mapped without
+    their mate, a singleton file ``_s`` that is part of the extraction. Reads without a mate
+    flag (a single-end mapping, or the unequal-mates fallback) go to the ``_0`` file.
+    """
     if len(reads) < 2:
         out0 = out_dir / f"{genome_id}.fastq.gz"
         SecureSubprocess.run_secure("samtools", _samtools_fastq_single_args(threads, out0, bam_path))
@@ -87,7 +91,7 @@ def _export_mapped_fastq(reads: List[Path], bam_path: Path, out_dir: Path, genom
         if _fastq_is_empty(path):
             path.unlink(missing_ok=True)
     if out1.exists() and out2.exists():
-        return [out1, out2]
+        return [out1, out2, singles] if singles.exists() else [out1, out2]
     if orphans.exists():
         return [orphans]
     return [singles] if singles.exists() else []
@@ -268,8 +272,11 @@ def assembly_coverage(
     work_root = Path(work_dir)
     sam_path = work_root / "coverage.sam"
     bam_path = work_root / "coverage.bam"
+    # minimap2 pairs its query files by position, so a singleton file next to the mate files
+    # is left out of the back-mapping rather than paired with a mate file.
+    queries = [r for r in reads if not is_singleton_file(r)] if len(reads) > 2 else list(reads)
     try:
-        SecureSubprocess.run_secure("minimap2", _minimap2_map_args(preset, threads, sam_path, contigs, reads))
+        SecureSubprocess.run_secure("minimap2", _minimap2_map_args(preset, threads, sam_path, contigs, queries))
         SecureSubprocess.run_secure("samtools", _samtools_view_args(["-F", FILTER_FLAGS], threads, bam_path, sam_path))
         reads_mapped = _count_records(bam_path)
     finally:

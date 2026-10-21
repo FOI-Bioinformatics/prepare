@@ -29,6 +29,8 @@ The command needs `minimap2` and `samtools`, and `megahit` with `--assemble`, on
 
 Mapped reads always drop unmapped, secondary and supplementary alignments. `--min-mapq` additionally discards records below a mapping-quality threshold (default 0, which keeps every mapped record). A value of 20 is reasonable for a close relative of the target genome. A divergent strain can map with a low MAPQ, so a higher threshold can discard real matches.
 
+A paired sample gives `targeted/<ACC>/<genome>_1.fastq.gz` and `<genome>_2.fastq.gz`, plus `<genome>_s.fastq.gz` when some reads mapped without their mate; these singleton reads are part of the extraction and go into the assembly as unpaired reads (megahit `-r`). A single-end sample, or a paired sample whose mate files hold different read counts, gives `<genome>.fastq.gz` or `<genome>_0.fastq.gz`.
+
 For each sample with kept reads, `samtools coverage` runs on the kept alignments. It skips duplicate and QC-fail reads by default and writes `targeted/<ACC>/<genome>_coverage.tsv`. The registry records the breadth of the reference covered at 1x or more and the length-weighted mean depth. A failure of this step is logged as a warning and leaves the extracted reads in place. `--debug-keep-sam` keeps the intermediate SAM files.
 
 ## Skipping and redoing

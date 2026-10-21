@@ -223,6 +223,27 @@ class TestExtractTargetReads:
         assert "different read counts" in caplog.text
 
     @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_paired_export_keeps_the_singleton_file(self, mock_run):
+        """P10: reads whose mate did not map (samtools fastq -s) are part of the extraction."""
+        state = {"nonempty": ("-1", "-2", "-s")}
+        mock_run.side_effect = _fake_tools(state)
+        with tempfile.TemporaryDirectory() as tmp:
+            root, table, genome = _make_tree(tmp, paired=True)
+            results = extract_target_reads(
+                parsed_containment=table,
+                genome_id="GCF_1",
+                genome_fasta=genome,
+                fastq_folder=root / "fastq",
+                output_folder=root / "targeted",
+                threshold=0.5,
+            )
+            assert [p.name for p in results["SRR1"].files] == [
+                "GCF_1_1.fastq.gz",
+                "GCF_1_2.fastq.gz",
+                "GCF_1_s.fastq.gz",
+            ]
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_mapped_count_is_logged(self, mock_run, caplog):
         state = {"mapped": 1234}
         mock_run.side_effect = _fake_tools(state)
@@ -1282,6 +1303,38 @@ class TestFastaLength:
         fasta = tmp_path / "g.fna"
         fasta.write_text(">chr1 some description\nACGTACGT\nACGT\n>chr2\nTTTT\n")
         assert fasta_length(fasta) == 16
+
+
+class TestMegahitInputs:
+    def test_megahit_gets_singletons_as_r(self, tmp_path):
+        from prepare.data.assembly import _megahit_args
+
+        mates = [tmp_path / "G_1.fastq.gz", tmp_path / "G_2.fastq.gz"]
+        singles = tmp_path / "G_s.fastq.gz"
+        args = _megahit_args(mates + [singles], tmp_path / "asm", 1, None, None, None, None)
+        assert args[:6] == ["-1", str(mates[0]), "-2", str(mates[1]), "-r", str(singles)]
+        assert "-r" not in _megahit_args(mates, tmp_path / "asm", 1, None, None, None, None)
+
+    def test_three_files_without_a_singleton_file_are_refused(self, tmp_path):
+        from prepare.data.assembly import _megahit_args
+
+        reads = [tmp_path / f"G_{i}.fastq.gz" for i in (1, 2, 3)]
+        with pytest.raises(ProcessingError):
+            _megahit_args(reads, tmp_path / "asm", 1, None, None, None, None)
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_coverage_maps_the_mates_only_when_singletons_are_present(self, mock_run, tmp_path):
+        """minimap2 pairs its query files positionally, so the singleton file is left out of the back-mapping."""
+        mock_run.side_effect = _fake_tools({"mapped": 4})
+        contigs = tmp_path / "contigs.fa"
+        contigs.write_text(">c1\n" + "A" * 100 + "\n")
+        reads = [tmp_path / "G_1.fastq.gz", tmp_path / "G_2.fastq.gz", tmp_path / "G_s.fastq.gz"]
+        for path in reads:
+            with gzip.open(path, "wt") as handle:
+                handle.write("@r\nACGT\n+\nIIII\n")
+        assembly_coverage(contigs, reads, "sr", 1, tmp_path, mapped_reads=4)
+        minimap_args = next(c.args[1] for c in mock_run.call_args_list if c.args[0] == "minimap2")
+        assert str(reads[2]) not in minimap_args and str(reads[1]) in minimap_args
 
 
 class TestAssemblyCoverage:
