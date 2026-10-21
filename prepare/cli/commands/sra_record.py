@@ -120,7 +120,8 @@ def result_recorder(
         from_store = linked or (bool(success) and body.endswith(STORE_SAVED_SUFFIX))
         if from_store:
             usage_rows.append((accession, "", "linked" if linked else "downloaded", message))
-        complete = parse_verdict_message(message) if success else None
+        # A truncated download fails (unless accepted) but still carries its verdict.
+        complete = parse_verdict_message(message)
         # A store link or a store copy kept unlinked (SETTLED_PREFIXES) records its sidecar's verdict
         # (sra_verdicts.store_verdict); the sidecar is read here, outside the flush's lock.
         use_sidecar = complete is None and (from_store or (not success and body.startswith(SETTLED_PREFIXES)))

@@ -29,6 +29,13 @@ FAKE_READS = 4
 # delays that exit until the file is removed, like a tool that takes a while to shut down. While
 # ``<barrier>/ignore-term-<ACC>`` exists, a download tool ignores SIGTERM altogether (it writes
 # ``<ACC>.<pid>.ignored``), so only SIGKILL ends it.
+#
+# Failure modes, read from the environment of the fake: ``FAKE_FASTERQ_EXIT="<code>:<stderr>"``
+# makes every fasterq-dump call exit with that code and text after writing nothing;
+# ``FAKE_FASTERQ_FAIL_ONCE=1`` does so for the first call per accession only (a marker in the
+# barrier folder remembers it); ``FAKE_FASTERQ_SPOTS=<n>`` sets the records per mate file;
+# ``FAKE_FASTERQ_UNPAIRED=1`` also writes the bare ``<ACC>.fastq`` of unpaired spots that
+# ``--split-3`` produces; ``FAKE_PREFETCH_NOOP=1`` makes prefetch exit 0 without an archive.
 _FAKE_TOOL_BODY = r"""
 import gzip
 import os
@@ -98,21 +105,42 @@ def fastq_record(accession, mate, index):
     return f"@{accession}.{index} read {index}/{mate}\nACGTACGTAC\n+\nIIIIIIIIII\n"
 
 
+def fail_once(accession):
+    # The first fasterq-dump call per accession under FAKE_FASTERQ_FAIL_ONCE.
+    if not os.environ.get("FAKE_FASTERQ_FAIL_ONCE"):
+        return False
+    marker = BARRIER / f"failed-once-{accession}"
+    if marker.exists():
+        return False
+    marker.write_text("")
+    return True
+
+
 def fasterq_dump(args):
     source = positional(args)
     accession = Path(source).name.split(".")[0]
     outdir = Path(value_of(args, "-O", "--outdir") or ".")
     start_and_hold(accession)
     outdir.mkdir(parents=True, exist_ok=True)
+    exit_spec = os.environ.get("FAKE_FASTERQ_EXIT")
+    if exit_spec or fail_once(accession):
+        code, _, text = (exit_spec or "1:err: connection reset by peer").partition(":")
+        sys.stderr.write(text + "\n")
+        sys.exit(int(code))
+    reads = int(os.environ.get("FAKE_FASTERQ_SPOTS", READS))
     for mate in (1, 2):
-        text = "".join(fastq_record(accession, mate, index) for index in range(1, READS + 1))
+        text = "".join(fastq_record(accession, mate, index) for index in range(1, reads + 1))
         (outdir / f"{accession}_{mate}.fastq").write_text(text)
+    if os.environ.get("FAKE_FASTERQ_UNPAIRED"):
+        (outdir / f"{accession}.fastq").write_text(fastq_record(accession, 0, reads + 1))
 
 
 def prefetch(args):
     accession = positional(args)
     outdir = Path(value_of(args, "-O", "--output-directory") or ".")
     start_and_hold(accession)
+    if os.environ.get("FAKE_PREFETCH_NOOP"):
+        return
     folder = outdir / accession
     folder.mkdir(parents=True, exist_ok=True)
     (folder / f"{accession}.sra").write_bytes(b"fake sra archive\n")
