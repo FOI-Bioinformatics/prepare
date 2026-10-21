@@ -240,6 +240,46 @@ def test_print_comparison_marks_significant_tests(capsys):
     assert "gc_percent: t-test p=0.0300 *" in out
 
 
+def test_print_comparison_shows_the_adjusted_p_and_follows_it(capsys):
+    comparison = ComparativeAnalysis(
+        dataset_groups={"A": ["SRR1"], "B": ["SRR2"]},
+        summary_statistics={},
+        statistical_tests={"gc_percent": {"test": "t-test", "p_value": 0.03, "p_adjusted": 0.12, "significant": False}},
+        outlier_datasets=[],
+        clustering_results=None,
+        batch_effects={},
+        recommendations=[],
+        visualization_data={},
+    )
+    SRAReportCommand()._print_comparison(comparison)
+    out = capsys.readouterr().out
+    assert "gc_percent: t-test p=0.0300 adjusted=0.1200" in out and "*" not in out
+
+
+def test_report_shows_raw_and_adjusted_p(tmp_path):
+    """The page carries the raw and the Holm-adjusted p-value of each test that ran."""
+    from prepare.sra.reporting import _render_page
+
+    comparison = ComparativeAnalysis(
+        dataset_groups={"A": ["SRR1", "SRR2"], "B": ["SRR3", "SRR4"]},
+        summary_statistics={},
+        statistical_tests={
+            "gc_percent": {"test": "t-test", "p_value": 0.01, "p_adjusted": 0.04, "significant": True},
+            "total_reads": {"test": "skipped (identical values)", "p_value": 1.0, "significant": False, "note": "x"},
+        },
+        outlier_datasets=[],
+        clustering_results=None,
+        batch_effects={},
+        recommendations=[],
+        visualization_data={},
+    )
+    html = _render_page(
+        "t", "t", "now", quality=None, comparative={"comparison": comparison, "plots": {}, "group_counts": {}}
+    )
+    assert "p 0.0100, adjusted 0.0400 (Holm)" in html
+    assert "p 1.0000" in html and "adjusted" not in html.split("p 1.0000")[1].split("</p>")[0]
+
+
 def test_report_json_is_numpy_safe(tmp_path):
     comparison = ComparativeAnalysis(
         dataset_groups={"a": ["A1"], "b": ["B1"]},

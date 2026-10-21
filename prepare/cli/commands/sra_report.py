@@ -224,8 +224,10 @@ class SRAReportCommand(BaseCommand):
             if "total_reads" in col_stats:
                 self.emit(f"    Mean total reads (mates counted): {col_stats['total_reads']['mean']:,.0f}")
         for test_name, result in comparison.statistical_tests.items():
-            p_value = result.get("p_value", 1.0)
-            self.emit(f"  {test_name}: {result.get('test', '')} p={p_value:.4f} {'*' if p_value < 0.05 else ''}")
+            line = f"  {test_name}: {result.get('test', '')} p={result.get('p_value', 1.0):.4f}"
+            if "p_adjusted" in result:
+                line += f" adjusted={result['p_adjusted']:.4f}"
+            self.emit(line + (" *" if result.get("significant") else ""))
 
     @staticmethod
     def _comparison_payload(comparison: Optional[ComparativeAnalysis]) -> Optional[Dict[str, Any]]:

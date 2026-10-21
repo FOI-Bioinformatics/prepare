@@ -1026,6 +1026,41 @@ class TestStatisticalAnalysis:
 
         assert "SRR5" in outliers  # Should detect read length outlier
 
+    def test_holm_adjusted_p_values_decide_significance(self):
+        """G5: four tests at raw 0.01, 0.02, 0.03, 0.2 adjust to 0.04, 0.06, 0.06, 0.2; one is significant."""
+        comparison_df = pd.DataFrame(
+            {
+                "accession": ["SRR1", "SRR2", "SRR3", "SRR4"],
+                "group": ["A", "A", "B", "B"],
+                "avg_read_length": [150, 155, 250, 245],
+                "gc_percent": [45.0, 47.0, 52.0, 50.0],
+                "total_reads": [10000, 12000, 8000, 9000],
+                "complexity_score": [0.7, 0.75, 0.6, 0.65],
+            }
+        )
+        raw = iter([0.01, 0.02, 0.03, 0.2])
+        with patch("prepare.sra.analytics.compare_group_means", side_effect=lambda data: ("t-test", 1.0, next(raw))):
+            tests = self.analyzer._perform_statistical_tests(
+                comparison_df, {"A": ["SRR1", "SRR2"], "B": ["SRR3", "SRR4"]}
+            )
+
+        columns = ["avg_read_length", "gc_percent", "total_reads", "complexity_score"]
+        assert [tests[c]["p_value"] for c in columns] == [0.01, 0.02, 0.03, 0.2]
+        assert [round(tests[c]["p_adjusted"], 6) for c in columns] == [0.04, 0.06, 0.06, 0.2]
+        assert [tests[c]["significant"] for c in columns] == [True, False, False, False]
+
+    def test_holm_adjusted_helper(self):
+        from prepare.sra.analytics import holm_adjusted
+
+        assert [round(p, 6) for p in holm_adjusted([0.2, 0.01, 0.03, 0.02])] == [0.2, 0.04, 0.06, 0.06]
+        assert holm_adjusted([0.6, 0.7]) == [1.0, 1.0]
+        assert holm_adjusted([]) == []
+
+    def test_recommendation_names_the_correction(self):
+        tests = {"avg_read_length": {"significant": True, "p_value": 0.001, "p_adjusted": 0.004}}
+        recommendations = self.analyzer._generate_comparative_recommendations({}, tests, [])
+        assert any("after Holm correction" in rec for rec in recommendations)
+
     def test_generate_comparative_recommendations(self):
         """Test comparative analysis recommendations."""
         summary_stats = {"group_A": {"avg_read_length": {"mean": 150}}, "group_B": {"avg_read_length": {"mean": 250}}}

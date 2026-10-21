@@ -20,7 +20,7 @@ import pandas as pd
 
 from prepare.core.exceptions import DataAccessError
 from prepare.data.sra_metadata import SRADatasetInfo
-from prepare.processing.statistics import compare_group_means
+from prepare.processing.statistics import compare_group_means, holm_adjusted
 from prepare.sra.dataset_stats import accession_fastq_files, load_dataset_stats
 from prepare.sra.quality import SequenceQualityAnalyzer, _gc_histogram  # noqa: F401 - re-exported
 
@@ -730,6 +730,12 @@ class SRADatasetAnalyzer:
                         tests[col]["p_value"] = np.nan
                         tests[col]["significant"] = False
 
+        # One correction over the tests that ran: four tests at 0.05 each would otherwise
+        # report a chance difference far more often than one in twenty.
+        ran = [col for col, result in tests.items() if result.get("test") in ("t-test", "ANOVA")]
+        for col, adjusted in zip(ran, holm_adjusted([tests[col]["p_value"] for col in ran])):
+            tests[col]["p_adjusted"] = adjusted
+            tests[col]["significant"] = bool(adjusted < 0.05)
         return tests
 
     def _detect_outliers(self, comparison_df: pd.DataFrame) -> List[str]:
@@ -768,7 +774,9 @@ class SRADatasetAnalyzer:
         if statistical_tests:
             significant_tests = [col for col, test in statistical_tests.items() if test.get("significant", False)]
             if significant_tests:
-                recommendations.append(f"Significant differences detected in: {', '.join(significant_tests)}")
+                recommendations.append(
+                    f"Significant differences (after Holm correction) detected in: {', '.join(significant_tests)}"
+                )
                 recommendations.append("Consider including group as covariate in downstream analysis")
 
         if outliers:

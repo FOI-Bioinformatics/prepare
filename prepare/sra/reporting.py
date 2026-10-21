@@ -448,9 +448,11 @@ _PAGE_TEMPLATE = """
                 {% if test_result.p_value is none %}
                 <p>{{ test_result.test }}{% if test_result.note %} &middot; {{ test_result.note }}{% endif %}</p>
                 {% else %}
-                <p>{{ test_result.test }} &middot; p-value
-                    <b>{{ "%.4f"|format(test_result.p_value) }}</b> &middot;
-                    {{ "significant" if test_result.significant else "not significant" }}</p>
+                <p>{{ test_result.test }} &middot; p {{ "%.4f"|format(test_result.p_value) }}
+                    {%- if test_result.p_adjusted is defined -%}
+                    , adjusted {{ "%.4f"|format(test_result.p_adjusted) }} (Holm)
+                    {%- endif %} &middot;
+                    <b>{{ "significant" if test_result.significant else "not significant" }}</b></p>
                 {% endif %}
             </div>
             {% endfor %}

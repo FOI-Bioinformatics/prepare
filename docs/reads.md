@@ -181,7 +181,7 @@ The command records a `sketch` analysis per accession in the project registry (k
 
 ## sra_report
 
-`sra_report` writes one HTML report, `sra_report.html` in `--output-dir` (default `sra_reports`), with the figures behind it in `sra_report.json`. Without groups, the report covers the quality of the datasets named by `--accessions-file`. With `--groups-file`, it adds a comparison of the groups and their statistical tests: a t-test for two groups and one-way ANOVA for more.
+`sra_report` writes one HTML report, `sra_report.html` in `--output-dir` (default `sra_reports`), with the figures behind it in `sra_report.json`. Without groups, the report covers the quality of the datasets named by `--accessions-file`. With `--groups-file`, it adds a comparison of the groups and their statistical tests: a t-test for two groups and one-way ANOVA for more. The four tests (read length, GC, total reads, complexity) are corrected for multiple testing with the Holm step-down procedure; the page and the terminal show the raw and the adjusted p-value, and "significant" follows the adjusted one at 0.05.
 
 ```bash
 # Quality of a set of datasets
