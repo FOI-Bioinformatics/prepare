@@ -15,7 +15,7 @@ from typing import List
 SETUP_CFG = Path(__file__).resolve().parent.parent / "setup.cfg"
 
 # Measured on 2026-10-21; each only goes down.
-B902_EXEMPT = 28
+B902_EXEMPT = 27
 DOCSTRING_EXEMPT = 64
 
 

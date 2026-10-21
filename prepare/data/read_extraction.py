@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 
 import pandas as pd
 
-from prepare.core.exceptions import DataAccessError, ProcessingError
+from prepare.core.exceptions import DataAccessError, PrepareError, ProcessingError, TransientError
 from prepare.data.assembly import (  # noqa: F401 - re-exported; the assembly code moved there
     _megahit_args,
     assemble_extracted_reads,
@@ -91,19 +91,25 @@ class ExtractionResult:
 
 
 def _notify_result(
-    on_result: Optional[Callable[[str, "ExtractionResult"], None]], accession: str, result: "ExtractionResult"
+    on_result: Optional[Callable[[str, "ExtractionResult"], None]],
+    accession: str,
+    result: "ExtractionResult",
+    deferred: List[TransientError],
 ) -> None:
-    """Call ``on_result`` in isolation so a failing callback never stops the run.
+    """Call ``on_result`` so a failing callback never stops the run, but is not forgotten.
 
-    The callback records the result (a registry write, which can raise, for example on a
-    lock timeout). One sample's bookkeeping failing must not cost the remaining samples
-    their extraction.
+    The callback records the result (a registry write). A ``PrepareError`` is logged so the
+    remaining samples are still extracted; a ``TransientError`` (a lock timeout) is also kept
+    in ``deferred`` for the caller to raise after the loop (exit 4). Anything else propagates.
     """
     if on_result is None:
         return
     try:
         on_result(accession, result)
-    except Exception as e:
+    except TransientError as e:
+        logger.warning("Recording the extraction result for %s failed: %s (reported after the run)", accession, e)
+        deferred.append(e)
+    except PrepareError as e:
         logger.warning("Recording the extraction result for %s failed: %s", accession, e)
 
 
@@ -213,14 +219,10 @@ def selected_samples(
     excluded = set(query(registry, "excluded"))
     selection = set() if ignore_selection else set(query(registry, "selected"))
     kept = [acc for acc in samples if acc not in excluded and (not selection or acc in selection)]
+    applied = f"{len(selection)} in the recorded selection" if selection else "no recorded selection applied"
     logger.info(
         "%d sample(s) in the table at containment >= %.3f for %s; %d excluded; %s; %d to extract",
-        len(samples),
-        threshold,
-        genome_id,
-        sum(acc in excluded for acc in samples),
-        f"{len(selection)} in the recorded selection" if selection else "no recorded selection applied",
-        len(kept),
+        *(len(samples), threshold, genome_id, sum(acc in excluded for acc in samples), applied, len(kept)),
     )
     return kept
 
@@ -664,6 +666,7 @@ def extract_target_reads(
         sam_dir = Path(temp_folder)
         SecureSubprocess.add_allowed_root(sam_dir)
 
+    deferred: List[TransientError] = []
     for accession in samples:
         if _skip_if_truncated(accession, truncated_downloads.get(accession), allow_truncated):
             continue
@@ -689,6 +692,8 @@ def extract_target_reads(
             continue
         results[accession] = result
         if not dry_run:
-            _notify_result(on_result, accession, result)
+            _notify_result(on_result, accession, result, deferred)
 
+    if deferred:
+        raise deferred[0]
     return results

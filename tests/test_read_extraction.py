@@ -288,7 +288,7 @@ class TestExtractTargetReads:
         def on_result(accession, result):
             seen.append((accession, result.mapped_records))
             if accession == "SRR1":
-                raise RuntimeError("registry is locked by another process")
+                raise DataAccessError("registry file could not be written")
 
         with tempfile.TemporaryDirectory() as tmp:
             root, table, genome = _make_tree(tmp, paired=True)
@@ -306,6 +306,55 @@ class TestExtractTargetReads:
         assert [acc for acc, _ in seen] == ["SRR1", "SRR2"]
         assert set(results) == {"SRR1", "SRR2"}
         assert "Recording the extraction result for SRR1 failed" in caplog.text
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_a_lock_timeout_while_recording_is_a_transient_error(self, mock_run):
+        """P12: the run finishes the remaining samples, then the lock timeout surfaces (exit 4)."""
+        from prepare.core.exceptions import LockTimeoutError, TransientError
+
+        mock_run.side_effect = _fake_tools({})
+        seen = []
+
+        def on_result(accession, result):
+            seen.append(accession)
+            if accession == "SRR1":
+                raise LockTimeoutError("registry lock held by another process")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, table, genome = _make_tree(tmp, paired=True)
+            with pytest.raises(TransientError, match="registry lock"):
+                extract_target_reads(
+                    parsed_containment=table,
+                    genome_id="GCF_1",
+                    genome_fasta=genome,
+                    fastq_folder=root / "fastq",
+                    output_folder=root / "targeted",
+                    threshold=0.3,
+                    on_result=on_result,
+                )
+            assert (root / "targeted" / "SRR2" / "GCF_1_1.fastq.gz").exists()  # the run went on
+        assert seen == ["SRR1", "SRR2"]
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_an_unexpected_callback_error_propagates(self, mock_run):
+        """A bug in the callback is not hidden behind a warning."""
+        mock_run.side_effect = _fake_tools({})
+
+        def on_result(accession, result):
+            raise RuntimeError("bug")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, table, genome = _make_tree(tmp, paired=True)
+            with pytest.raises(RuntimeError):
+                extract_target_reads(
+                    parsed_containment=table,
+                    genome_id="GCF_1",
+                    genome_fasta=genome,
+                    fastq_folder=root / "fastq",
+                    output_folder=root / "targeted",
+                    threshold=0.3,
+                    on_result=on_result,
+                )
 
     def test_missing_table_raises(self):
         with pytest.raises(DataAccessError):
