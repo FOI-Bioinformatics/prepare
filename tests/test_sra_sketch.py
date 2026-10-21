@@ -158,6 +158,16 @@ class TestSketchDataset:
         assert sketch.bases == sum(len(r) for r in all_reads)
         assert set(sketch.signature) == {f.name for f in files}
 
+    def test_sketch_logs_progress_within_a_dataset(self, tmp_path, caplog, monkeypatch):
+        import logging
+
+        _acc_dir, files = _dataset(tmp_path)
+        monkeypatch.setattr("prepare.data.sra.sampling.CHUNK_SIZE", 512)
+        monkeypatch.setattr("prepare.sra.sketch.PROGRESS_BLOCKS", 2)
+        with caplog.at_level(logging.DEBUG, logger="prepare.sra.sketch"):
+            sketch_dataset("SRR1", files)
+        assert any("reads so far" in r.getMessage() for r in caplog.records)
+
     def test_sketch_stops_on_the_token(self, tmp_path):
         _acc_dir, files = _dataset(tmp_path)
         stop = threading.Event()
@@ -279,6 +289,37 @@ class TestContainment:
         assert by_acc["SRR1"]["containment"] == "0.2500"
         assert by_acc["SRR2"]["cANI"] == str(round(0.75 ** (1 / KSIZE), 4))
         assert list(rows[0].keys()) == BRANCHWATER_COLUMNS
+
+    def test_merge_keeps_the_metadata_of_a_replaced_branchwater_row(self, tmp_path):
+        """Replacing a Branchwater row updates containment and cANI only; its metadata survives."""
+        import csv
+
+        target = tmp_path / "matches" / "genome.csv"
+        target.parent.mkdir()
+        with open(target, "w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=BRANCHWATER_COLUMNS)
+            writer.writeheader()
+            writer.writerow(
+                {"acc": "SRR1", "containment": "0.9", "cANI": "0.995", "organism": "gut metagenome", "lat_lon": "1 2"}
+            )
+            writer.writerow({"acc": "SRR1", "containment": "0.2", "cANI": "0.9", "organism": "duplicate"})
+
+        merge_containment_csv(target, [("SRR1", 0.5)])
+
+        with open(target, newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        assert len(rows) == 1
+        assert rows[0]["containment"] == "0.5000" and rows[0]["organism"] == "gut metagenome"
+        assert rows[0]["lat_lon"] == "1 2"
+
+    def test_merge_drops_rows_of_accessions_that_failed(self, tmp_path):
+        target = tmp_path / "matches" / "genome.csv"
+        merge_containment_csv(target, [("SRR1", 0.5), ("SRR2", 0.4)])
+        merge_containment_csv(target, [("SRR1", 0.6)], drop={"SRR2"})
+        import csv
+
+        with open(target, newline="") as handle:
+            assert [r["acc"] for r in csv.DictReader(handle)] == ["SRR1"]
 
     def test_merged_csv_round_trips_through_parse_containment_data(self, tmp_path):
         from prepare.data.branchwater import parse_containment_data

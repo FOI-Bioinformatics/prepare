@@ -192,7 +192,11 @@ class SRASketchCommand(BaseCommand):
         write_signature(sketch, target)
         summary = sketch_summary(sketch)
         if item.acc_dir is not None:
-            store_sketch(_resolved_sidecar_path(item.acc_dir), target, summary)
+            try:
+                store_sketch(_resolved_sidecar_path(item.acc_dir), target, summary)
+            except (OSError, DataAccessError) as e:
+                # The project has its signature; the store cache is only a saving for others.
+                self.logger.warning("Not caching the sketch of %s in the store: %s", item.accession, e)
         return Done(item.accession, target, summary)
 
     def _sketch_all(self, args: argparse.Namespace, planned: List[Planned]) -> Tuple[List[Done], List[str], bool]:
@@ -268,18 +272,24 @@ class SRASketchCommand(BaseCommand):
         return args.genome_id or Path(source).stem, signature
 
     def _containment(
-        self, args: argparse.Namespace, genome: Tuple[str, Dict[str, Any]], planned: List[Planned]
+        self, args: argparse.Namespace, genome: Tuple[str, Dict[str, Any]], planned: List[Planned], failed: List[str]
     ) -> Dict[str, Tuple[float, float]]:
-        """Write the matches CSV for every accession with a signature on disk; returns the values by accession."""
+        """Write the matches CSV for every accession with a signature on disk; returns the values by accession.
+
+        An accession that failed in this run is left out even when an earlier signature file
+        exists, since that file describes reads that may no longer be on disk, and its row in
+        the matches CSV is removed.
+        """
         genome_id, signature = genome
         output_dir = Path(args.output_dir)
+        excluded = set(failed)
         paths = {
             p.accession: signature_path(p.accession, output_dir)
             for p in planned
-            if p.action != "failed" and signature_path(p.accession, output_dir).is_file()
+            if p.accession not in excluded and signature_path(p.accession, output_dir).is_file()
         }
         rows = containment_rows(genome_minhash(signature), paths)
-        target = merge_containment_csv(Path(args.matches_folder) / f"{genome_id}.csv", rows)
+        target = merge_containment_csv(Path(args.matches_folder) / f"{genome_id}.csv", rows, drop=excluded)
         self.emit(f"Containment of {genome_id} written to {target} ({len(rows)} dataset(s))")
         for accession, value in sorted(rows, key=lambda r: -r[1])[:10]:
             self.emit(f"  {accession}: {value:.4f}")
@@ -366,7 +376,7 @@ class SRASketchCommand(BaseCommand):
         done, failed, interrupted = self._sketch_all(args, planned)
         containment: Dict[str, Tuple[float, float]] = {}
         if genome is not None and not interrupted:
-            containment = self._containment(args, genome, planned)
+            containment = self._containment(args, genome, planned, failed)
         self._record(args, done)
         self._note_run(args, planned, done, failed, genome, containment)
         self.emit(

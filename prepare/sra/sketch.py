@@ -33,6 +33,8 @@ assert KSIZE in KSIZES
 
 SIGNATURE_SUFFIX = ".sig.gz"
 _PURPOSE = "Sketching reads"
+# Blocks (of CHUNK_SIZE bytes) between progress lines while one file is sketched.
+PROGRESS_BLOCKS = 200
 
 
 @dataclass
@@ -69,11 +71,13 @@ def sketch_dataset(
     reads = bases = 0
     for path in paths:
         file_reads = 0
-        for block, n in iter_sequence_blocks(path, stop):
+        for index, (block, n) in enumerate(iter_sequence_blocks(path, stop), 1):
             file_reads += n
             bases += len(block) - (n - 1)
             for minhash in minhashes.values():
                 minhash.add_sequence(block, force=True)
+            if index % PROGRESS_BLOCKS == 0:
+                logger.log(active_item_level(), "Sketching %s: %d reads so far", path.name, file_reads)
         reads += file_reads
         logger.log(active_item_level(), "Sketched %s: %d reads", path.name, file_reads)
     return DatasetSketch(

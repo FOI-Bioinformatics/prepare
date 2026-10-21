@@ -14,7 +14,7 @@ import csv
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Sequence, Tuple, Union
+from typing import AbstractSet, Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from prepare.core.exceptions import DataAccessError
 from prepare.core.optional import require
@@ -51,21 +51,38 @@ def containment_rows(genome_mh: Any, signatures: Mapping[str, Union[str, Path]])
     return rows
 
 
-def merge_containment_csv(path: Union[str, Path], rows: Sequence[Tuple[str, float]], ksize: int = KSIZE) -> Path:
+def merge_containment_csv(
+    path: Union[str, Path],
+    rows: Sequence[Tuple[str, float]],
+    ksize: int = KSIZE,
+    drop: Optional[AbstractSet[str]] = None,
+) -> Path:
     """Write ``rows`` into the matches CSV at ``path``, replacing the rows of the same accessions.
 
-    Rows of other accessions, and every column they carry, are kept; the header is the existing
-    one extended with any missing Branchwater column, or ``BRANCHWATER_COLUMNS`` for a new file.
-    New rows carry ``containment`` to four decimals and ``cANI`` as containment to the power
-    ``1 / ksize``, as ``write_branchwater_csv`` does; their metadata columns are empty.
+    A replaced row keeps every column of the existing row with that accession (a Branchwater
+    result's metadata, for example) and gets a new ``containment`` and ``cANI``; a Branchwater
+    containment value replaced this way is logged, since the file then holds the local value.
+    Rows of accessions in ``drop`` (those whose sketch failed, so an earlier signature is stale)
+    are removed. Rows of other accessions are kept as they are. The header is the existing one
+    extended with any missing Branchwater column, or ``BRANCHWATER_COLUMNS`` for a new file.
+    ``containment`` is written to four decimals and ``cANI`` as containment to the power
+    ``1 / ksize``, as ``write_branchwater_csv`` does.
     """
     target = Path(path)
     fieldnames, existing = _read_existing(target)
     replaced = {accession for accession, _ in rows}
-    kept = [row for row in existing if row.get("acc") not in replaced]
+    dropped = set(drop or ())
+    previous: Dict[str, Dict[str, Any]] = {}
+    for row in existing:
+        previous.setdefault(str(row.get("acc")), row)
+    kept = [row for row in existing if row.get("acc") not in replaced and row.get("acc") not in dropped]
+    overwritten = [acc for acc in replaced if previous.get(acc, {}).get("containment") not in (None, "")]
+    if overwritten:
+        logger.info("Replacing the recorded containment of %d accession(s) in %s", len(overwritten), target)
     for accession, containment in rows:
         cani = round(containment ** (1 / ksize), 4) if containment > 0 else 0.0
-        kept.append({"acc": accession, "containment": f"{containment:.4f}", "cANI": str(cani)})
+        row = {**previous.get(accession, {}), "acc": accession, "containment": f"{containment:.4f}", "cANI": str(cani)}
+        kept.append(row)
     kept.sort(key=lambda row: -_as_float(row.get("containment")))
     target.parent.mkdir(parents=True, exist_ok=True)
     with open_atomic(target, "w", newline="") as handle:

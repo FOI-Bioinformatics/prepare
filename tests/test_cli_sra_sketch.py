@@ -276,6 +276,33 @@ def test_store_cache_round_trip(tmp_path, monkeypatch):
     assert {(r["stage"], r["detail"]) for r in rows} == {("analysed", ANALYSIS_NAME)}
 
 
+def test_a_store_cache_write_error_only_costs_the_cache(tmp_path, caplog):
+    _dataset(tmp_path)
+    with caplog.at_level(logging.WARNING):
+        with patch("prepare.cli.commands.sra_sketch.store_sketch", side_effect=PermissionError("read-only store")):
+            assert SRASketchCommand().execute(_args(tmp_path)) == 0
+    assert (tmp_path / "sketches" / "SRR1.sig.gz").is_file()
+    assert ANALYSIS_NAME in _registry(tmp_path)["SRR1"]["analyses"]
+    assert "read-only store" in caplog.text
+
+
+def test_a_failed_accession_gets_no_containment_from_a_stale_signature(tmp_path):
+    import csv
+
+    _dataset(tmp_path, "SRR1", seed=1)
+    _dataset(tmp_path, "SRR2", seed=7)
+    genome = _genome(tmp_path, seed=1)
+    assert SRASketchCommand().execute(_args(tmp_path, genome_fasta=str(genome))) == 0
+    stale = tmp_path / "sketches" / "SRR2.sig.gz"
+    assert stale.is_file()
+
+    (tmp_path / "fastq" / "SRR2" / "SRR2_2.fastq.gz").write_bytes(b"\x1f\x8b\x08\x00broken")
+    assert SRASketchCommand().execute(_args(tmp_path, genome_fasta=str(genome), max_workers=1)) == 1
+
+    with open(tmp_path / "matches" / "genome.csv", newline="") as handle:
+        assert [r["acc"] for r in csv.DictReader(handle)] == ["SRR1"]
+
+
 def test_missing_sourmash_is_exit_3(tmp_path, monkeypatch, caplog):
     _dataset(tmp_path)
     monkeypatch.setitem(sys.modules, "sourmash", None)
