@@ -548,9 +548,22 @@ class ExtractTargetReadsCommand(BaseCommand):
 
     def _report_no_reads(self, args: argparse.Namespace, results: Dict[str, ExtractionResult]) -> None:
         """Say which of the three reasons left the run without a single mapped read."""
-        selected = self._selected(args, load_registry(args.registry))
+        registry = load_registry(args.registry)
+        selected = self._selected(args, registry)
         if not selected:
-            self.logger.error("No sample meets containment >= %s for %s", args.threshold, args.genome_id)
+            in_table = selected_samples(args.parsed_containment, args.genome_id, args.threshold)
+            if in_table:
+                self.logger.error(
+                    "%d sample(s) meet containment >= %s for %s but all are excluded or outside the recorded "
+                    "selection (%d excluded, %d selected); see blacklist, select_datasets or --ignore-selection",
+                    len(in_table),
+                    args.threshold,
+                    args.genome_id,
+                    len(query(registry, "excluded")),
+                    len(query(registry, "selected")),
+                )
+            else:
+                self.logger.error("No sample meets containment >= %s for %s", args.threshold, args.genome_id)
         elif not results:
             self.logger.error(
                 "No FASTQ files found for the %d selected sample(s) under %s", len(selected), args.fastq_folder

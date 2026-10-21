@@ -31,6 +31,7 @@ from prepare.data.assembly import (  # noqa: F401 - re-exported; the assembly co
 from prepare.data.extraction_locks import LockHeld, index_build_lock, sample_extraction_lock
 from prepare.data.extraction_staging import publish_staged, remove_published, require_nonempty, staged_sample_outputs
 from prepare.data.file_io import atomic_path, ensure_directory, write_text_atomic
+from prepare.data.project_selection import selection_for_genome
 from prepare.data.read_extraction_export import (  # noqa: F401 - re-exported; the export and coverage code moved there
     FILTER_FLAGS,
     MINIMAP2_MIN_VERSION,
@@ -217,7 +218,7 @@ def selected_samples(
     from prepare.data.registry import query  # registry_scan imports this module
 
     excluded = set(query(registry, "excluded"))
-    selection = set() if ignore_selection else set(query(registry, "selected"))
+    selection = set() if ignore_selection else selection_for_genome(registry, genome_id)
     kept = [acc for acc in samples if acc not in excluded and (not selection or acc in selection)]
     applied = f"{len(selection)} in the recorded selection" if selection else "no recorded selection applied"
     logger.info(

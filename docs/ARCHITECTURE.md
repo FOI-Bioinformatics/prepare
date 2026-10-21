@@ -440,6 +440,9 @@ itself if it wants that further run's own tools to start.
   Both modules look `registry` up at call time, since `registry.py` imports them
 - **registry_blocks**: Typed dataclasses for every block the registry file holds, described in
   "Project registry" above
+- **project_selection**: `selection_for_genome`, which recorded selection applies to a genome
+  (made on its column, `max_containment` or a `--genome-ids` list naming it), shared by
+  `extract_target_reads` and the `status --next` suggestions
 - **registry_timing**: `started`/`seconds` for the download, extraction and assembly blocks
   (`set_download_timing` and its two siblings, `Stopwatch`, and `timing_summary` for `status`), kept
   out of `registry.py`, which is at its size ceiling

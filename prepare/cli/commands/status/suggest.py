@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD, DEFAULT_PARSED_CONTAINMENT_FILE, GENOME_FASTA_GLOBS
 from prepare.data import registry_blocks as rb
+from prepare.data.project_selection import selection_for_genome
 from prepare.data.registry import (
     ProjectPaths,
     Registry,
@@ -202,14 +203,23 @@ def _genome_fasta(registry: Registry, paths: ProjectPaths, genome_id: str) -> Pa
     return paths.genomes / f"{genome_id}.fna"
 
 
-def _screened_against(registry: Registry, accession: str, genome_id: str) -> bool:
-    """Whether the accession's screening block names the genome; True when it has no screening block at all.
+def _would_extract(registry: Registry, accession: str, genome_id: str, selection: set) -> bool:
+    """Whether the suggested ``extract_target_reads`` command (default threshold) would take the accession.
 
-    A project built by ``status --init`` from downloaded reads alone records no screening, and
-    such a project is not silenced; one that was screened is only pointed at the pairs it holds.
+    An accession with no screening block at all is kept, so a project built by ``status --init``
+    from downloaded reads alone is not silenced. A screened one must name the genome at or above
+    the default threshold, and be in the recorded selection when that selection covers the genome.
     """
+    if selection and accession not in selection:
+        return False
     genomes = rb.raw(registry, accession, "screening", "genomes")
-    return not genomes or genome_id in genomes
+    if not genomes:
+        return True
+    entry = genomes.get(genome_id)
+    if not isinstance(entry, dict):
+        return False
+    containment = _as_float(entry.get("containment"))
+    return containment is not None and containment >= DEFAULT_CONTAINMENT_THRESHOLD
 
 
 def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict[str, Any]]:
@@ -225,7 +235,10 @@ def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict
         )
         # Any record, including a zero-mapped one, means the sample has been tried.
         recorded = {acc for acc in registry.datasets if rb.extraction_block(registry, acc, genome_id) is not None}
-        to_extract = [acc for acc in downloaded if acc not in recorded and _screened_against(registry, acc, genome_id)]
+        selection = selection_for_genome(registry, genome_id)
+        to_extract = [
+            acc for acc in downloaded if acc not in recorded and _would_extract(registry, acc, genome_id, selection)
+        ]
         if to_extract:
             steps.append({"command": base, "accessions": to_extract})
         assembled = set(query(registry, "assembled", genome_id))

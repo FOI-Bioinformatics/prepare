@@ -533,12 +533,13 @@ def parse_containment_data(
 
     if errors:
         raise DataAccessError(f"{len(errors)} match file(s) could not be read: {'; '.join(errors)}")
+    if not containment_data:
+        # A zero-result file is reported rather than written out, so an older table and its
+        # screening records are not replaced by a run that found nothing.
+        names = ", ".join(f.name for f in csv_files)
+        raise DataAccessError(f"No containment data in {names} (a Branchwater search without results?)")
     logger.info(f"Processed {len(csv_files)} match files")
 
     _write_details_table(details_rows, _resolve_details_file(output_file, details_file))
-
-    if not containment_data:
-        logger.warning("No valid containment data found")
-        return ContainmentSummary()
 
     return _generate_containment_summary(containment_data, output_file, summary_file, step_size)

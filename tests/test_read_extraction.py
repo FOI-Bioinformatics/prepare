@@ -70,6 +70,26 @@ class TestSelectSamples:
         with pytest.raises(ProcessingError):
             select_samples_for_genome(df, "GCF_missing", 0.1)
 
+    def test_a_selection_made_for_another_genome_does_not_bound_this_one(self, tmp_path, caplog):
+        """Review: the selection is project-wide; it applies only when its criteria cover the genome."""
+        from prepare.data.read_extraction import selected_samples
+        from prepare.data.registry import record_selection
+
+        table = tmp_path / "parsed_containment.txt"
+        table.write_text("\tG1\tG2\nSRR1\t0.9\t0.0\nSRR2\t0.0\t0.8\nSRR3\t0.7\t0.6\n")
+        registry = load_registry(tmp_path / "registry.json")
+        record_selection(registry, ["SRR1", "SRR3"], {"column": "G1", "threshold": 0.5}, "accessions.txt")
+
+        assert selected_samples(table, "G1", 0.1, registry=registry) == ["SRR1", "SRR3"]
+        with caplog.at_level(logging.INFO):
+            assert selected_samples(table, "G2", 0.1, registry=registry) == ["SRR2", "SRR3"]
+        assert "selection was made for G1" in caplog.text
+
+        record_selection(registry, ["SRR3"], {"column": "max_containment"}, "accessions.txt")
+        assert selected_samples(table, "G2", 0.1, registry=registry) == ["SRR3"]
+        record_selection(registry, ["SRR2"], {"genome_ids": ["G1", "G2"], "require": "any"}, "accessions.txt")
+        assert selected_samples(table, "G2", 0.1, registry=registry) == ["SRR2"]
+
     def test_selected_samples_applies_exclusions_and_the_selection(self, tmp_path, caplog):
         from prepare.data.read_extraction import selected_samples
         from prepare.data.registry import record_exclusion, record_selection

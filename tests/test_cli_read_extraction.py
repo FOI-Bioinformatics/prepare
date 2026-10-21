@@ -1943,6 +1943,21 @@ class TestExtractionFollowsTheProject:
         args.dry_run = True
         assert _dry_run_listed(ExtractTargetReadsCommand(), args, caplog) == ["SRR1"]
 
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_no_sample_error_names_the_selection_and_exclusions(self, mock_run, tmp_path, caplog):
+        """When the table has samples but the registry leaves none, the error says so."""
+        root, table, genome = _project_tree(tmp_path, {"SRR1": 0.9})
+        registry = load_registry(root / "registry.json")
+        record_exclusion(registry, "SRR1", "blacklisted")
+        save_registry(registry, root / "registry.json")
+        args = _args(
+            tmp_path, parsed_containment=str(table), genome_fasta=str(genome), fastq_folder=str(root / "fastq")
+        )
+        with caplog.at_level("ERROR"):
+            assert ExtractTargetReadsCommand().execute(args) == 1
+        assert "1 sample(s) meet containment >= 0.1 for GCF_1 but" in caplog.text and "excluded" in caplog.text
+        mock_run.assert_not_called()
+
     def test_ignore_selection_flag_parses(self):
         parser = argparse.ArgumentParser()
         ExtractTargetReadsCommand().configure_parser(parser)

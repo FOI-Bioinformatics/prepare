@@ -43,7 +43,7 @@ The four keys are always present in `--json`, as empty lists when there is nothi
 
 ### Suggested next commands
 
-`status --next` lists a runnable `download_sra` command for accessions that are ready to download, and an `extract_target_reads` command per genome for the downloaded accessions screened against it (every downloaded accession when the project recorded no screening). Paths and ids in the printed commands are shell-quoted. For accessions that are still selected under a `select_datasets --no-skip-excluded` run, it prints a `select_datasets ... --skip-excluded` command instead. The command reproduces that run's genome, threshold, metadata and top-N and run filter criteria, so that rerunning it drops the excluded accessions from the selection file first.
+`status --next` lists a runnable `download_sra` command for accessions that are ready to download, and an `extract_target_reads` command per genome for the downloaded accessions that command would extract: screened against the genome at or above the default threshold, not excluded and within the selection when one covers the genome (an accession with no screening record at all is kept). Paths and ids in the printed commands are shell-quoted. For accessions that are still selected under a `select_datasets --no-skip-excluded` run, it prints a `select_datasets ... --skip-excluded` command instead. The command reproduces that run's genome, threshold, metadata and top-N and run filter criteria, so that rerunning it drops the excluded accessions from the selection file first.
 
 ### Wanted lists and folder locations
 

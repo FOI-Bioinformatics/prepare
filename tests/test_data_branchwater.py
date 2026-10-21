@@ -606,6 +606,20 @@ class TestParseContainmentData:
         with pytest.raises(DataAccessError, match=r"not comma separated \(found ';'\)"):
             parse_containment_data(matches_dir, tmp_path / "parsed.txt", tmp_path / "summary.txt")
 
+    def test_a_header_only_match_file_raises_and_writes_nothing(self, tmp_path):
+        """Review: a zero-result match file is an error, not a silent rewrite of an older table."""
+        matches_dir = tmp_path / "matches"
+        matches_dir.mkdir()
+        output_file = tmp_path / "parsed.txt"
+        output_file.write_text("old")
+        (matches_dir / "g.csv").write_text("acc,containment\n")
+
+        with pytest.raises(DataAccessError, match="No containment data in .*g.csv"):
+            parse_containment_data(matches_dir, output_file, tmp_path / "summary.txt")
+
+        assert output_file.read_text() == "old"
+        assert not (tmp_path / "parsed_details.tsv").exists()
+
     def test_parse_containment_data_invalid_folder(self):
         """Test with invalid matches folder."""
         with pytest.raises(ValidationError):

@@ -1767,6 +1767,21 @@ class TestNextStepsAreRunnableAndRelevant:
         by_genome = {("G1" if "--genome-id G1" in s["command"] else "G2"): s["accessions"] for s in steps}
         assert by_genome == {"G1": ["SRR1", "SRR3"], "G2": ["SRR1"]}
 
+    def test_extraction_is_suggested_only_for_what_the_command_would_extract(self, tmp_path):
+        """Review: a suggested accession below the default threshold, excluded, or outside the
+        selection would be listed on every --next and never extracted."""
+        from prepare.data.registry import ProjectPaths, record_download, record_screening
+
+        registry = self._registry(tmp_path, ["G1"])
+        for acc, value in (("SRR1", 0.05), ("SRR2", 0.9), ("SRR3", 0.7), ("SRR4", 0.8)):
+            record_download(registry, acc, "downloaded", tmp_path / "fastq" / acc)
+            record_screening(registry, acc, "G1", value, None, "matches", 0.0, None)
+        record_exclusion(registry, "SRR4", "isolate")
+        record_selection(registry, ["SRR2"], {"column": "G1", "threshold": 0.5}, "accessions.txt")
+        steps = next_steps(registry, ProjectPaths.anchored(tmp_path))
+        extract = [s for s in steps if "extract_target_reads" in s["command"]]
+        assert [s["accessions"] for s in extract] == [["SRR2"]]
+
     def test_an_unscreened_project_still_suggests_every_downloaded_accession(self, tmp_path):
         """A status --init project without screening blocks is not silenced."""
         from prepare.data.registry import ProjectPaths, record_download
@@ -1781,7 +1796,7 @@ class TestNextStepsAreRunnableAndRelevant:
 
         registry = self._registry(tmp_path, ["L crispatus"])
         record_download(registry, "SRR1", "downloaded", tmp_path / "fastq" / "SRR1")
-        record_selection(registry, ["SRR2"], {"table": "my tables/parsed.txt"}, "my lists/acc.txt")
+        record_selection(registry, ["SRR1", "SRR2"], {"table": "my tables/parsed.txt"}, "my lists/acc.txt")
         steps = next_steps(registry, ProjectPaths.anchored(tmp_path))
         commands = [s["command"] for s in steps]
         download = next(c for c in commands if c.startswith("prepare download_sra"))
