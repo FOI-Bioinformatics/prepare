@@ -202,6 +202,68 @@ def test_interrupt_records_finished_and_exits_130(tmp_path):
     assert set(_registry(tmp_path)) == {written[0][: -len(".sig.gz")]}
 
 
+def test_interrupt_counts_the_stopped_accession_as_neither(tmp_path, caplog):
+    """The accession stopped mid-sketch is not a failure, and the stop is reported once."""
+    from prepare.sra import sketch as sketch_module
+
+    _dataset(tmp_path, "SRR1")
+    _dataset(tmp_path, "SRR2", seed=5)
+    args = _args(tmp_path, max_workers=1)
+    real = sketch_module.sketch_dataset
+    summaries = []
+
+    def stop_during_second(accession, files, stop=None):
+        if accession == "SRR2":
+            args._termination.stop.set()
+            raise InterruptedError("stopped")
+        return real(accession, files, stop=stop)
+
+    with (
+        patch("prepare.cli.commands.sra_sketch.sketch_dataset", side_effect=stop_during_second),
+        patch(
+            "prepare.cli.commands.sra_sketch.run_log.note_run", side_effect=lambda a, summary: summaries.append(summary)
+        ),
+        caplog.at_level(logging.WARNING),
+    ):
+        code = SRASketchCommand().run(args)
+
+    assert code == 130
+    assert summaries[0]["sketched"] == 1 and summaries[0]["failed"] == 0
+    assert set(_registry(tmp_path)) == {"SRR1"}
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings == ["Interrupted (stop requested)"] or len(warnings) == 1, warnings
+
+
+def test_worker_error_keeps_the_finished_records(tmp_path, caplog):
+    """A bug in one worker fails that accession, names it, and keeps the others' records."""
+    from prepare.sra import sketch as sketch_module
+
+    _dataset(tmp_path, "SRR1")
+    _dataset(tmp_path, "SRR2", seed=5)
+    args = _args(tmp_path, max_workers=1)
+    real = sketch_module.sketch_dataset
+    summaries = []
+
+    def break_on_second(accession, files, stop=None):
+        if accession == "SRR2":
+            raise RuntimeError("bug")
+        return real(accession, files, stop=stop)
+
+    with (
+        patch("prepare.cli.commands.sra_sketch.sketch_dataset", side_effect=break_on_second),
+        patch(
+            "prepare.cli.commands.sra_sketch.run_log.note_run", side_effect=lambda a, summary: summaries.append(summary)
+        ),
+        caplog.at_level(logging.WARNING),
+    ):
+        code = SRASketchCommand().run(args)
+
+    assert code == 1
+    assert set(_registry(tmp_path)) == {"SRR1"}
+    assert summaries[0]["sketched"] == 1 and summaries[0]["failed"] == 1
+    assert any("SRR2" in r.getMessage() and "bug" in r.getMessage() for r in caplog.records)
+
+
 def test_containment_csv_written_and_parsed(tmp_path):
     from prepare.data.branchwater import parse_containment_data
     from prepare.sra.sketch import load_dataset_minhash

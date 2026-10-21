@@ -249,6 +249,10 @@ class SRASketchCommand(BaseCommand):
             self.logger.warning("Failed to sketch %s: %s", item.accession, e)
             progress.update(ok=False)
             return None
+        except Exception as e:  # noqa: B902 - a worker bug fails its accession; the others' records survive
+            self.logger.exception("Failed to sketch %s: %s", item.accession, e)
+            progress.update(ok=False)
+            return None
         progress.update(ok=True)
         self.logger.log(
             progress.item_level,
