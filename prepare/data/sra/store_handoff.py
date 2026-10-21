@@ -48,7 +48,10 @@ STORE_LINKED_PREFIX = "linked from store"
 # download_sra records the store sidecar's verdict for them.
 STORE_INCOMPLETE_PREFIX = "incomplete:"
 STORE_PARTIAL_PREFIX = "partial in store;"
-SETTLED_PREFIXES = (STORE_INCOMPLETE_PREFIX, STORE_PARTIAL_PREFIX)
+# The project's own reads sit at fastq/<ACC> (a real folder, not a link): a store link can
+# never replace them, so no fetch is started and the outcome is settled.
+STORE_PROJECT_FOLDER_PREFIX = "project folder exists:"
+SETTLED_PREFIXES = (STORE_INCOMPLETE_PREFIX, STORE_PARTIAL_PREFIX, STORE_PROJECT_FOLDER_PREFIX)
 # The end of the precheck's refusal of an incomplete copy whose refetches are used up: an
 # ``incomplete:`` message that started no download (the other ``incomplete:`` messages follow one).
 STORE_EXHAUSTED_SUFFIX = "use --accept-partial, or --force to fetch again"
@@ -609,6 +612,14 @@ def _store_download(
     from prepare.store.locks import LockWaitStopped, dataset_lock
 
     project_path = Path(project_fastq)
+    own = project_path / accession
+    if own.exists() and not own.is_symlink():
+        # link_dataset would refuse this after the fetch; refusing here starts no fetch, and
+        # the outcome is settled (not retried) because a rerun alone cannot change it.
+        return False, (
+            f"{STORE_PROJECT_FOLDER_PREFIX} {own} holds the project's own reads and is not a store link; "
+            f"run store_adopt to move them into the store, or remove the folder"
+        )
     for directory in (store.sra, store.tmp, store.locks):
         directory.mkdir(parents=True, exist_ok=True)
 

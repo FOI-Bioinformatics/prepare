@@ -121,6 +121,30 @@ class TestDownloadSraStore:
         assert seen == [(True, True)]
         assert (fastq_folder / "SRR1").is_symlink()
 
+    def test_store_download_refuses_a_real_project_folder_before_fetching(self, tmp_path):
+        """The project's own reads under fastq/<ACC> are never replaced by a link, so no fetch starts."""
+        from prepare.data.sra.retry import _split_not_found
+        from prepare.data.sra.run_report import started_download
+
+        paths = self._store(tmp_path)
+        fastq_folder = tmp_path / "project" / "fastq"
+        own = fastq_folder / "SRR1"
+        own.mkdir(parents=True)
+        (own / "SRR1_1.fastq").write_text("@own\nTTTT\n+\nIIII\n")
+        calls = []
+
+        with patch("prepare.data.sra.accession.download_accession", side_effect=self._fake_download(calls)):
+            success, message = store_handoff_mod._store_download("SRR1", fastq_folder, paths, force=True)
+
+        assert success is False
+        assert message.startswith(store_handoff_mod.STORE_PROJECT_FOLDER_PREFIX)
+        assert "store_adopt" in message
+        assert calls == []
+        assert not (paths.sra / "SRR1").exists()
+        assert (own / "SRR1_1.fastq").read_text() == "@own\nTTTT\n+\nIIII\n"
+        assert _split_not_found(["SRR1"], {"SRR1": message}) == ([], ["SRR1"])
+        assert started_download(False, message) is False
+
     def test_a_ready_copy_whose_lock_is_briefly_held_waits_and_then_links(self, tmp_path):
         """A ready copy found without the lock is linked under it; when another run holds the
         lock at that moment the hand-off waits for it instead of failing."""
