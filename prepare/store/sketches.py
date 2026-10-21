@@ -39,8 +39,12 @@ def cached_sketch(
     """The cached signature path and its sidecar block when they still describe ``files``.
 
     None when there is no sidecar path, no readable sidecar, no ``sketch`` block, the block's
-    file snapshot differs from the files now, or the signature file is missing.
+    file snapshot differs from the files now, the block was built with other k sizes or
+    another scaled value than ``sra_sketch`` uses now, or the signature file is missing.
     """
+    # Imported here: the sketch parameters live with the sketching code in prepare.sra.
+    from prepare.sra.sketch import KSIZES, SCALED
+
     if sidecar_path is None:
         return None
     sidecar = read_sidecar(sidecar_path)
@@ -48,6 +52,8 @@ def cached_sketch(
         return None
     block = sidecar.sketch
     if block.get("files") != _file_signature([Path(f) for f in files]):
+        return None
+    if list(block.get("ksizes") or []) != list(KSIZES) or block.get("scaled") != SCALED:
         return None
     path = Path(sidecar_path).parent / str(block.get("file") or "")
     if not block.get("file") or not path.is_file():

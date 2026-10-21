@@ -381,6 +381,24 @@ class TestStoreCache:
         path.unlink()
         assert cached_sketch(acc_dir, sidecar_path, files) is None
 
+    def test_cached_sketch_ignores_a_block_with_other_ksizes(self, tmp_path, monkeypatch):
+        """A signature cached with other k sizes or another scaled value is not reused."""
+        from prepare.store.sidecar import read_sidecar, write_sidecar
+        from prepare.store.sketches import cached_sketch, store_sketch
+
+        _paths, acc_dir, sidecar_path, files = self._store(tmp_path, monkeypatch)
+        store_sketch(sidecar_path, self._signature(tmp_path, files), sketch_summary(sketch_dataset("SRR1", files)))
+        assert cached_sketch(acc_dir, sidecar_path, files) is not None
+
+        sidecar = read_sidecar(sidecar_path)
+        sidecar.sketch = {**sidecar.sketch, "ksizes": [21]}
+        write_sidecar(sidecar_path, sidecar)
+        assert cached_sketch(acc_dir, sidecar_path, files) is None
+
+        sidecar.sketch = {**sidecar.sketch, "ksizes": [21, 31, 51], "scaled": 100}
+        write_sidecar(sidecar_path, sidecar)
+        assert cached_sketch(acc_dir, sidecar_path, files) is None
+
     def test_a_changed_file_invalidates_the_cache(self, tmp_path, monkeypatch):
         import os
 
