@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from prepare.cli.base import BaseCommand, accessions_from_args, anchored_folder, positive_int, resolve_command_store
 from prepare.core import settings
 from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
+from prepare.core.validation import validate_accession
 from prepare.core.optional import require
 from prepare.data import run_log
 from prepare.data.branchwater_search import load_signature, sketch_fasta
@@ -135,7 +136,13 @@ class SRASketchCommand(BaseCommand):
         if named:
             return named
         folder = Path(args.fastq_folder)
-        found = [d.name for d in visible_files(folder, dirs=True) if not is_transient_folder(d.name)]
+        names = [d.name for d in visible_files(folder, dirs=True) if not is_transient_folder(d.name)]
+        found = [name for name in names if validate_accession(name)]
+        skipped = [name for name in names if not validate_accession(name)]
+        if skipped:
+            self.logger.info(
+                "Skipping %d folder(s) under %s that are not accessions: %s", len(skipped), folder, ", ".join(skipped)
+            )
         if not found:
             raise ValidationError(f"No accession folders in {folder}; give --accession or --accessions-file")
         return found

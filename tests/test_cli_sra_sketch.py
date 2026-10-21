@@ -383,6 +383,18 @@ def test_missing_sourmash_raises_configuration_error_before_work(tmp_path, monke
         SRASketchCommand()._run(_args(tmp_path))
 
 
+def test_folders_that_are_not_accessions_are_skipped_with_a_note(tmp_path, caplog):
+    """Without --accession, a folder under fastq/ that is not an accession is skipped, not failed."""
+    _dataset(tmp_path)
+    (tmp_path / "fastq" / "notes").mkdir()
+    (tmp_path / "fastq" / "notes" / "readme.txt").write_text("not reads\n")
+    with caplog.at_level(logging.INFO):
+        assert SRASketchCommand().execute(_args(tmp_path)) == 0
+    assert (tmp_path / "sketches" / "SRR1.sig.gz").is_file()
+    assert set(_registry(tmp_path)) == {"SRR1"}
+    assert any("notes" in r.getMessage() and r.levelno == logging.INFO for r in caplog.records)
+
+
 def test_an_accession_without_fastq_files_fails(tmp_path, caplog):
     _dataset(tmp_path)
     with caplog.at_level(logging.WARNING):
