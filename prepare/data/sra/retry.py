@@ -333,24 +333,37 @@ def _back_off(seconds: float, stop: Optional[threading.Event]) -> None:
         stop.wait(seconds)
 
 
-def _handle_download_failure(fastq_path, failed_accessions):
+def _handle_download_failure(fastq_path, failed_accessions, attempted=()):
     """
-    Handle failed downloads by writing failed accessions to a file.
+    Write the failed accessions to ``failed_accessions.txt``, or remove a list this run made stale.
 
     Args:
         fastq_path: Path to FASTQ directory
         failed_accessions: List of failed accessions
+        attempted: Every accession this run attempted; a clean run removes an earlier list
+            only when it names nothing else, since a list naming other accessions belongs
+            to another run on the same folder
     """
     failed_file = Path(fastq_path) / FAILED_ACCESSIONS_FILE
     if not failed_accessions:
-        # A clean run leaves no stale list from an earlier run behind.
-        if failed_file.exists():
-            failed_file.unlink()
+        _remove_stale_failed_file(failed_file, set(attempted))
         return
 
     # Write failed accessions to file for easier retry; the command logs the retry hint.
     write_text_atomic(failed_file, "".join(f"{acc}\n" for acc in failed_accessions))
     logger.info(f"Failed accessions written to {failed_file}")
+
+
+def _remove_stale_failed_file(failed_file: Path, attempted: Set[str]) -> None:
+    """Remove ``failed_file`` when every accession it lists was attempted by this run."""
+    try:
+        listed = {line.strip() for line in failed_file.read_text().splitlines() if line.strip()}
+    except FileNotFoundError:
+        return
+    if listed <= attempted:
+        failed_file.unlink(missing_ok=True)
+        return
+    logger.debug(f"{failed_file} names accessions this run did not attempt; left for the run that wrote it")
 
 
 def _execute_parallel_downloads(

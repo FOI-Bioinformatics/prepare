@@ -392,12 +392,37 @@ class TestHandleDownloadFailure:
         mock_logger.info.assert_not_called()
 
     def test_clean_run_removes_a_stale_failed_file(self, tmp_path):
+        """A clean run that downloaded the listed accession removes the list it made stale."""
         fastq_path = tmp_path / "downloads"
         fastq_path.mkdir()
         stale = fastq_path / "failed_accessions.txt"
         stale.write_text("SRR999\n")
 
-        _handle_download_failure(fastq_path, [])
+        _handle_download_failure(fastq_path, [], attempted=["SRR999"])
+
+        assert not stale.exists()
+
+    def test_clean_run_leaves_another_runs_failed_file(self, tmp_path):
+        """A list naming accessions this run never attempted belongs to another run and stays."""
+        fastq_path = tmp_path / "downloads"
+        fastq_path.mkdir()
+        other = fastq_path / "failed_accessions.txt"
+        other.write_text("SRR999\n")
+
+        _handle_download_failure(fastq_path, [], attempted=["SRR1"])
+
+        assert other.read_text() == "SRR999\n"
+
+    def test_run_summary_removes_the_stale_file_on_a_clean_run(self, tmp_path):
+        """The summary step reaches the failure handler on a clean run too, so a stale list goes."""
+        from prepare.data.sra.download import _log_download_run_summary
+
+        fastq_path = tmp_path / "downloads"
+        fastq_path.mkdir()
+        stale = fastq_path / "failed_accessions.txt"
+        stale.write_text("SRR999\n")
+
+        _log_download_run_summary(["SRR999"], [], [], 1, 0, {"SRR999": "Downloaded 1 files"}, None, [], fastq_path)
 
         assert not stale.exists()
 
