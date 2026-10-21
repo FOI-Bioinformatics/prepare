@@ -295,20 +295,22 @@ class SRASketchCommand(BaseCommand):
     ) -> Dict[str, Tuple[float, float]]:
         """Write the matches CSV for every accession with a signature on disk; returns the values by accession.
 
-        An accession that failed in this run is left out even when an earlier signature file
-        exists, since that file describes reads that may no longer be on disk, and its row in
-        the matches CSV is removed.
+        An accession that failed while sketching is left out even when an earlier signature
+        file exists, since that file describes reads that may no longer be on disk, and its row
+        in the matches CSV is removed. An accession with no FASTQ files is also left out, but its
+        row (a Branchwater result, as a rule) is kept: nothing was learned about it.
         """
         genome_id, signature = genome
         output_dir = Path(args.output_dir)
         excluded = set(failed)
+        no_files = {p.accession for p in planned if p.action == "failed"}
         paths = {
             p.accession: signature_path(p.accession, output_dir)
             for p in planned
             if p.accession not in excluded and signature_path(p.accession, output_dir).is_file()
         }
         rows = containment_rows(genome_minhash(signature), paths)
-        target = merge_containment_csv(Path(args.matches_folder) / f"{genome_id}.csv", rows, drop=excluded)
+        target = merge_containment_csv(Path(args.matches_folder) / f"{genome_id}.csv", rows, drop=excluded - no_files)
         self.emit(f"Containment of {genome_id} written to {target} ({len(rows)} dataset(s))")
         for accession, value in sorted(rows, key=lambda r: -r[1])[:10]:
             self.emit(f"  {accession}: {value:.4f}")
