@@ -17,6 +17,7 @@ import contextlib
 import gzip
 import io
 import random
+import threading
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 
@@ -175,6 +176,59 @@ def sample_records(
             break
         pos, base = _sample_file(path, wanted, pos, base, out)
     return out
+
+
+def iter_sequence_blocks(path: Union[str, Path], stop: Optional[threading.Event] = None) -> Iterator[Tuple[bytes, int]]:
+    """Yield ``(sequences joined by b"N", record count)`` for each block of the FASTQ file ``path``.
+
+    The file is read in ``CHUNK_SIZE`` blocks (gzip-compressed or plain, through
+    ``_open_binary``); the sequence line of every complete record in a block is sliced out and
+    the slices are joined with a single ``N``, so a sketcher can hash a whole block with one
+    ``add_sequence(block, force=True)`` call: every k-mer that spans a junction contains the
+    ``N`` and is skipped, which leaves exactly the k-mers of the individual reads. The partial
+    record at the end of a block is carried into the next one. A trailing carriage return is
+    removed from each sequence; a file without a final newline is accepted.
+
+    Raises:
+        ValueError: when the file does not start with ``@`` or ends in a cut-short record
+        InterruptedError: when ``stop`` is set before a block is read
+    """
+    file_path = Path(path)
+    carry = b""
+    checked_first = False
+    with _open_binary(file_path) as handle:
+        while True:
+            if stop is not None and stop.is_set():
+                raise InterruptedError(f"Reading {file_path} stopped: the run was interrupted")
+            chunk = handle.read(CHUNK_SIZE)
+            at_eof = not chunk
+            buf = carry + chunk if carry else chunk
+            if at_eof and buf and not buf.endswith(b"\n"):
+                buf += b"\n"
+            if not checked_first and buf:
+                if not buf.startswith(b"@"):
+                    raise ValueError(f"Not a FASTQ file (the first record does not start with '@'): {file_path}")
+                checked_first = True
+            newline_at = np.flatnonzero(np.frombuffer(buf, dtype=np.uint8) == 10)
+            complete = len(newline_at) // 4
+            if complete:
+                yield _joined_sequences(buf, newline_at, complete), complete
+            cut = int(newline_at[4 * complete - 1]) + 1 if complete else 0
+            carry = buf[cut:]
+            if at_eof:
+                if carry.strip():
+                    header = carry.split(b"\n", 1)[0].strip()
+                    raise ValueError(f"Truncated FASTQ record after header: {header!r} in {file_path}")
+                return
+
+
+def _joined_sequences(buf: bytes, newline_at: np.ndarray, complete: int) -> bytes:
+    """The sequence lines of the first ``complete`` records in ``buf``, joined with ``N``."""
+    starts = newline_at[0 : 4 * complete : 4] + 1
+    ends = newline_at[1 : 4 * complete : 4]
+    if ends.size and buf[int(ends[0]) - 1 : int(ends[0])] == b"\r":
+        ends = ends - 1
+    return b"N".join(buf[int(start) : int(end)] for start, end in zip(starts, ends))
 
 
 def _fold_raw_counts(raw: np.ndarray) -> np.ndarray:

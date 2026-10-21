@@ -38,7 +38,7 @@ from prepare.data.sra.fastq import (
     verify_download,
 )
 from prepare.data.sra.spots import expected_spots, merged_verdict, spots_from_xml, verdict_for_count
-from prepare.data.sra.sampling import sample_records
+from prepare.data.sra.sampling import iter_sequence_blocks, sample_records
 from prepare.data.sra.cleanup import is_transient_folder, transient_bytes
 from prepare.data.sra.accession import (
     ALREADY_EXISTS,
@@ -75,6 +75,7 @@ __all__ = [
     "fastq_stem",
     "iter_fastq_records",
     "is_transient_folder",
+    "iter_sequence_blocks",
     "merged_verdict",
     "orphan_fastq",
     "parse_verdict_message",
