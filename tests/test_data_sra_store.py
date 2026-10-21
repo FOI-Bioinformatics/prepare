@@ -343,7 +343,7 @@ class TestDownloadSraStore:
         assert by_accession == {"SRR1": True, "SRR2": False}
 
     def test_store_download_is_unverified_when_verification_is_off(self, tmp_path):
-        """--no-verify-downloads: no spot count from the XML or the sidecar judges the store copy."""
+        """--no-verify-downloads: the XML spot count is kept on file but does not judge the store copy."""
         from prepare.store.sidecar import read_sidecar
 
         paths = self._store(tmp_path)
@@ -370,7 +370,8 @@ class TestDownloadSraStore:
         sidecar = read_sidecar(paths.sra / "SRR1" / "SRR1.json")
         assert sidecar.state == "complete"
         assert sidecar.completeness["verdict"] == "unverified"
-        assert "spots" not in sidecar.ncbi
+        # NCBI's count is a fact about the run and stays on file; only the judgement is off.
+        assert sidecar.ncbi["spots"] == 100
         assert (fastq_folder / "SRR1").is_symlink()
 
     def test_partial_in_store_is_redownloaded_when_resume_partial(self, tmp_path):

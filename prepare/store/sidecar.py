@@ -120,6 +120,7 @@ def build_sidecar(
     compression: str,
     tool: str = "fasterq-dump",
     downloaded: Optional[str] = None,
+    verify: bool = True,
 ) -> Sidecar:
     """Build a sidecar describing the files already downloaded for ``accession`` in ``acc_dir``.
 
@@ -134,7 +135,9 @@ def build_sidecar(
 
     ``tool`` and ``downloaded`` default to a fresh fasterq-dump download happening now;
     adoption passes ``tool="adopted"`` and the files' own age instead, since it did not
-    download them.
+    download them. With ``verify`` off (``--no-verify-downloads``) the files are not judged
+    against ``ncbi["spots"]``: the count stays on file as NCBI's figure, the verdict is
+    ``unverified`` and the state ``complete``.
     """
     acc_path = Path(acc_dir)
     files = fastq_files(acc_path)
@@ -166,17 +169,18 @@ def build_sidecar(
     else:
         primary = primary_fastq(acc_path)
         orphan = orphan_fastq(acc_path)
-        verify = verify_download(
+        expected = ncbi.get("spots") if verify else None
+        verdict = verify_download(
             accession,
             acc_path,
-            ncbi.get("spots"),
+            expected,
             reads_r1=reads_by_path.get(primary, 0) if primary is not None else 0,
             reads_orphan=reads_by_path.get(orphan) if orphan is not None else None,
         )
-        reads_per_mate = verify["reads_r1"]
-        method = "spots" if ncbi.get("spots") else "unverified"
-        completeness = {"method": method, "ratio": verify["ratio"], "verdict": verify["verdict"]}
-        state = "partial" if verify["verdict"] == "truncated" else "complete"
+        reads_per_mate = verdict["reads_r1"]
+        method = "spots" if expected else "unverified"
+        completeness = {"method": method, "ratio": verdict["ratio"], "verdict": verdict["verdict"]}
+        state = "partial" if verdict["verdict"] == "truncated" else "complete"
 
     return Sidecar(
         accession=accession,
