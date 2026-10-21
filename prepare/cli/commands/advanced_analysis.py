@@ -5,6 +5,7 @@ This module provides CLI commands for diversity analysis,
 interactive visualization, and taxonomic validation.
 """
 
+import argparse
 import logging
 from pathlib import Path
 
@@ -131,9 +132,8 @@ class DiversityAnalysisCommand(BaseCommand):
 
         except (ConfigurationError, ValidationError):
             raise
-        except Exception as e:
-            logger.error(f"Diversity analysis failed: {e}")
-            return 1
+        except (PrepareError, OSError, ValueError, KeyError) as e:
+            return self.fail(e, "Diversity analysis failed")
 
 
 class InteractivePlotCommand(BaseCommand):
@@ -162,9 +162,10 @@ class InteractivePlotCommand(BaseCommand):
         )
         parser.add_argument("--color-by", help="Metadata column for coloring points")
         parser.add_argument("--size-by", help="Metadata column for sizing points")
-        parser.add_argument("--output-file", help="HTML file to save interactive plot")
+        parser.add_argument("--output-file", required=True, help="HTML page to write")
         parser.add_argument("--title", help="Plot title")
-        parser.add_argument("--no-show", action="store_true", help="Don't display plot in browser")
+        parser.add_argument("--show", action="store_true", help="Also open the written page in a browser")
+        parser.add_argument("--no-show", action="store_true", help=argparse.SUPPRESS)  # the default since 0.12.0
 
     def execute(self, args):
         require("plotly", "interactive", "An interactive plot")
@@ -188,8 +189,8 @@ class InteractivePlotCommand(BaseCommand):
                 logger.info("Loading metadata...")
                 metadata_df = read_table(args.metadata_file)
 
-            # Create plot based on type
-            show_plot = not args.no_show
+            # The page is always written; a browser is opened only on request.
+            show_plot = bool(getattr(args, "show", False))
 
             if args.plot_type == "pca":
                 logger.info("Creating interactive PCA plot...")
@@ -207,7 +208,6 @@ class InteractivePlotCommand(BaseCommand):
                 logger.info("Creating interactive heatmap...")
                 create_interactive_heatmap(
                     data_df,
-                    sample_metadata=metadata_df,
                     title=args.title or "Interactive Heatmap",
                     output_file=args.output_file,
                     show_plot=show_plot,
@@ -246,9 +246,8 @@ class InteractivePlotCommand(BaseCommand):
 
         except ConfigurationError:
             raise
-        except Exception as e:
-            logger.error(f"Interactive plot creation failed: {e}")
-            return 1
+        except (PrepareError, OSError, ValueError, KeyError) as e:
+            return self.fail(e, "Interactive plot creation failed")
 
 
 class TaxonomyValidationCommand(BaseCommand):
@@ -346,9 +345,8 @@ class TaxonomyValidationCommand(BaseCommand):
             logger.info("Taxonomy validation completed successfully!")
             return 0
 
-        except Exception as e:
-            logger.error(f"Taxonomy validation failed: {e}")
-            return 1
+        except (PrepareError, OSError, ValueError, KeyError) as e:
+            return self.fail(e, "Taxonomy validation failed")
 
 
 class TaxonomicSummaryCommand(BaseCommand):
@@ -425,6 +423,5 @@ class TaxonomicSummaryCommand(BaseCommand):
             logger.info("Taxonomic summaries created successfully!")
             return 0
 
-        except Exception as e:
-            logger.error(f"Taxonomic summary creation failed: {e}")
-            return 1
+        except (PrepareError, OSError, ValueError, KeyError) as e:
+            return self.fail(e, "Taxonomic summary creation failed")
