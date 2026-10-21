@@ -898,6 +898,58 @@ class TestHandleDownloadOutput:
         assert message.startswith("Downloaded 1 files, unverified")
         mock_logger.warning.assert_called()
 
+    def test_handle_download_output_short_gz_after_compression_is_a_failure(self, tmp_path):
+        """A compressed file holding fewer records than the plain one fails the download."""
+        temp_path = tmp_path / "temp"
+        output_path = tmp_path / "output" / "SRR123"
+        temp_path.mkdir()
+        records = "".join(f"@seq{i}\nACGT\n+\nIIII\n" for i in range(4))
+        (temp_path / "SRR123_1.fastq").write_text(records)
+
+        def short_compress(path, threads, stop=None):
+            target = path.with_suffix(path.suffix + ".gz")
+            with gzip.open(target, "wt") as handle:
+                handle.write("".join(f"@seq{i}\nACGT\n+\nIIII\n" for i in range(2)))
+            path.unlink()
+            return target
+
+        with patch("prepare.data.sra.fastq.compress_fastq", side_effect=short_compress):
+            success, message = _handle_download_output(temp_path, output_path, compress=True)
+
+        assert success is False
+        assert message == "compression corrupted SRR123_1.fastq.gz: 2 of 4 reads"
+
+    def test_handle_download_output_unreadable_gz_is_a_failure(self, tmp_path):
+        temp_path = tmp_path / "temp"
+        output_path = tmp_path / "output" / "SRR123"
+        temp_path.mkdir()
+        (temp_path / "SRR123_1.fastq").write_text("@seq1\nACGT\n+\nIIII\n")
+
+        def bad_compress(path, threads, stop=None):
+            target = path.with_suffix(path.suffix + ".gz")
+            target.write_bytes(b"\x1f\x8b\x08\x00garbage")
+            path.unlink()
+            return target
+
+        with patch("prepare.data.sra.fastq.compress_fastq", side_effect=bad_compress):
+            success, message = _handle_download_output(temp_path, output_path, compress=True)
+
+        assert success is False
+        assert message.startswith("compression corrupted SRR123_1.fastq.gz: unreadable")
+
+    def test_handle_download_output_counts_match_after_compression(self, tmp_path):
+        temp_path = tmp_path / "temp"
+        output_path = tmp_path / "output" / "SRR123"
+        temp_path.mkdir()
+        (temp_path / "SRR123_1.fastq").write_text("".join(f"@seq{i}\nACGT\n+\nIIII\n" for i in range(4)))
+
+        with patch("prepare.data.sra.accession.shutil.which", return_value=None):
+            success, message = _handle_download_output(temp_path, output_path, compress=True)
+
+        assert success is True
+        assert message == "Downloaded 1 files, unverified"
+        assert (output_path / "SRR123_1.fastq.gz").exists()
+
 
 class TestDownloadAccession:
     """Test download_accession function."""

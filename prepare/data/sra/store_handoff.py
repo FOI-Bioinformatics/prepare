@@ -447,6 +447,25 @@ def _catalogue_published(store, sidecar) -> bool:
         return False
 
 
+def _sidecar_ncbi(accession: str, store, store_metadata, expected_spots, verify: bool) -> Dict[str, Any]:
+    """The ``ncbi`` block of a fresh store sidecar: the metadata XML's figures, with ``spots`` resolved.
+
+    ``expected_spots`` (the resolved count of ``_resolve_expected_spots``) fills in ``spots``
+    when the XML records none. With ``verify`` off no count is recorded at all: one on file
+    would let ``store_verify`` judge a copy the user asked not to judge.
+    """
+    from prepare.store.sidecar import ncbi_from_metadata_xml
+
+    xml = _metadata_xml(store_metadata, accession) or _metadata_xml(store.metadata, accession)
+    ncbi: Dict[str, Any] = ncbi_from_metadata_xml(xml) if xml is not None else {}
+    expected = spots_mod.positive_int(expected_spots)
+    if not ncbi.get("spots") and expected is not None:
+        ncbi = {**ncbi, "spots": expected}
+    if not verify:
+        return {key: value for key, value in ncbi.items() if key != "spots"}
+    return ncbi
+
+
 def _store_fetch(
     accession: str,
     project_fastq: Path,
@@ -478,7 +497,7 @@ def _store_fetch(
     """
     from prepare.store.layout import lock_path, sra_dir
     from prepare.store.link import link_dataset
-    from prepare.store.sidecar import build_sidecar, ncbi_from_metadata_xml, write_sidecar
+    from prepare.store.sidecar import build_sidecar, write_sidecar
 
     target = sra_dir(store, accession)
     replacing = target.exists()
@@ -519,14 +538,8 @@ def _store_fetch(
 
     files = fastq_mod.fastq_files(staged)
     compression = "gzip" if any(path.name.endswith(".gz") for path in files) else "none"
-    xml = _metadata_xml(store_metadata, accession) or _metadata_xml(store.metadata, accession)
-    ncbi = ncbi_from_metadata_xml(xml) if xml is not None else {}
-    expected = spots_mod.positive_int(download_kwargs.get("expected_spots"))
-    if not ncbi.get("spots") and expected is not None:
-        ncbi = {**ncbi, "spots": expected}
-    if not verify:
-        # No count judges this copy; recording one would let store_verify judge it later.
-        ncbi = {key: value for key, value in ncbi.items() if key != "spots"}
+    ncbi = _sidecar_ncbi(accession, store, store_metadata, download_kwargs.get("expected_spots"), verify)
+    expected = ncbi.get("spots")
 
     previous = _read_store_sidecar(store, accession) if replacing else None
     sidecar = build_sidecar(accession, staged, ncbi, accession_mod.fasterq_dump_version(), compression)

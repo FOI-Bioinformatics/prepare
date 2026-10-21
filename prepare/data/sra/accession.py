@@ -255,7 +255,11 @@ def _handle_download_output(
             return False, message
 
     if compress:
-        compression_failures, compression_skipped = _compress_files(moved, output_path.name, num_threads, stop)
+        compression_failures, compression_skipped, corrupted = _compress_files(
+            moved, output_path.name, num_threads, stop
+        )
+        if corrupted:
+            return False, "compression corrupted " + "; ".join(corrupted)
         if compression_failures:
             # Appended, never prepended, so parse_verdict_message's regex/substring checks
             # on the leading verdict text keep working unchanged.
@@ -276,10 +280,17 @@ def _verdict_message(n_files: int, verdict: Dict[str, Any]) -> str:
 
 def _compress_files(
     moved: List[Path], name: str, num_threads: int, stop: Optional[threading.Event]
-) -> Tuple[List[str], List[str]]:
-    """Compress each file in ``moved``; returns the names that failed and the names skipped on an interrupt."""
+) -> Tuple[List[str], List[str], List[str]]:
+    """Compress each file in ``moved`` and read each result back.
+
+    Returns the names that failed to compress, the names skipped on an interrupt, and a
+    description of each compressed file whose record count differs from the plain file's
+    (``"<name>.gz: n of m reads"``). The read-back costs one gzip pass per file, as the
+    store's sidecar does, and is what makes the verdict hold for the files published.
+    """
     failures: List[str] = []
     skipped: List[str] = []
+    corrupted: List[str] = []
     for index, file in enumerate(moved):
         if stop_requested(stop):
             # The download itself is complete; leave the rest uncompressed rather than
@@ -288,7 +299,8 @@ def _compress_files(
             logger.info(f"Compression of {name} skipped: the run was interrupted")
             break
         try:
-            fastq_mod.compress_fastq(file, num_threads, stop=stop)
+            before = fastq_mod.count_fastq_reads(file)
+            target = fastq_mod.compress_fastq(file, num_threads, stop=stop)
         except fastq_mod._TOOL_ERRORS as e:
             if stop_requested(stop):
                 # pigz terminated with the run's tools, or the Python fallback stopping on
@@ -298,7 +310,24 @@ def _compress_files(
                 break
             logger.warning(f"Could not compress {file}: {e}")
             failures.append(file.name)
-    return failures, skipped
+            continue
+        problem = _read_back_problem(target, before)
+        if problem is not None:
+            logger.error(f"Compressed {target.name} is not the plain file: {problem}")
+            corrupted.append(f"{target.name}: {problem}")
+    return failures, skipped, corrupted
+
+
+def _read_back_problem(target: Path, expected_reads: int) -> Optional[str]:
+    """Why the compressed ``target`` does not hold ``expected_reads`` records, or None when it does."""
+    try:
+        after = fastq_mod.count_fastq_reads(target)
+    except (OSError, EOFError, zlib.error) as e:
+        # A gzip stream that cannot be read back is a corrupt file, whatever its count.
+        return f"unreadable ({e})"
+    if after != expected_reads:
+        return f"{after} of {expected_reads} reads"
+    return None
 
 
 def _fasterq_dump_args(
