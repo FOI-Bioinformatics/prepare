@@ -271,6 +271,53 @@ class TestRetryFailedDownloads:
 
         assert mock_sleep.call_args_list == [call(1), call(2)]
 
+    def test_retry_pass_drops_interrupted_results(self, tmp_path):
+        """A worker stopped by the token is not recorded as a failed attempt; the rest are not tried."""
+        import threading
+
+        stop = threading.Event()
+        attempted = []
+        seen = []
+
+        def downloader(accession, *args, **kwargs):
+            attempted.append(accession)
+            stop.set()
+            return False, "interrupted"
+
+        download_results = {"SRR1": "network: timed out", "SRR2": "network: timed out"}
+        retried, failed, abort = _retry_failed_downloads(
+            ["SRR1", "SRR2"],
+            1,
+            tmp_path,
+            1,
+            None,
+            download_results,
+            on_result=lambda acc, ok, msg: seen.append((acc, ok, msg)),
+            downloader=downloader,
+            stop=stop,
+        )
+
+        assert attempted == ["SRR1"]
+        assert seen == []
+        assert download_results == {"SRR1": "network: timed out", "SRR2": "network: timed out"}
+        assert sorted(failed) == ["SRR1", "SRR2"]
+        assert retried == 0 and abort is None
+
+    def test_retry_backoff_ends_when_the_token_is_set(self, tmp_path):
+        """The wait between rounds ends as soon as the run is stopped."""
+        import threading
+        import time
+
+        stop = threading.Event()
+
+        def downloader(accession, *args, **kwargs):
+            return False, "network: Connection timed out"
+
+        threading.Timer(0.1, stop.set).start()
+        started = time.monotonic()
+        _retry_failed_downloads(["SRR1"], 3, tmp_path, 1, None, {}, downloader=downloader, stop=stop)
+        assert time.monotonic() - started < 1.0
+
     def test_retry_failed_downloads_disk_full_aborts_without_raising(self, tmp_path):
         """A disk-full failure aborts the run but must not raise, so the caller keeps its state."""
         failed_accessions = ["SRR1", "SRR2", "SRR3"]

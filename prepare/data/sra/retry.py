@@ -1,5 +1,6 @@
 """Parallel download of many accessions, tallying of their results, and the retry pass for failures."""
 
+import functools
 import logging
 import subprocess
 import threading
@@ -238,27 +239,31 @@ def _retry_failed_downloads(
                 failed_accessions.extend(retry_batch[index:])
                 break
             retry_count += 1
-            try:
-                success, message = (downloader or accession_mod.download_accession)(
-                    accession,
-                    fastq_path,
-                    num_threads,
-                    force=force,
-                    temp_folder=temp_folder,
-                    expected_spots=expected_spots.get(accession),
-                    redownload_truncated=redownload_truncated,
-                    sra_cache=sra_cache,
-                    use_prefetch=use_prefetch,
-                    keep_sra=keep_sra,
-                    compress=compress,
-                    stop=stop,
-                )
-            except _DOWNLOAD_ERRORS as e:
-                failed_accessions.append(accession)
-                logger.error(f"Error retrying download for {accession}: {e}")
-                download_results[accession] = f"Retry {retry + 1} error: {str(e)}"
-                accession_mod._notify_result(on_result, accession, False, download_results[accession])
+            attempt = functools.partial(
+                downloader or accession_mod.download_accession,
+                accession,
+                fastq_path,
+                num_threads,
+                force=force,
+                temp_folder=temp_folder,
+                expected_spots=expected_spots.get(accession),
+                redownload_truncated=redownload_truncated,
+                sra_cache=sra_cache,
+                use_prefetch=use_prefetch,
+                keep_sra=keep_sra,
+                compress=compress,
+                stop=stop,
+            )
+            outcome = _retry_once(attempt, accession, retry, download_results, failed_accessions, on_result)
+            if outcome is None:
                 continue
+            success, message = outcome
+
+            if message == "interrupted":
+                # Stopped before or while the tool ran: not an attempt, so not recorded or
+                # notified; this and the rest of the batch are reported as not completed.
+                failed_accessions.extend(retry_batch[index:])
+                break
 
             download_results[accession] = f"Retry {retry + 1}: {message}"
 
@@ -274,20 +279,58 @@ def _retry_failed_downloads(
 
             if accession_mod.classify_download_error(message) == "disk-full":
                 abort_reason = "disk-full"
-                logger.error(f"Disk full while downloading {accession}; aborting remaining retries")
-                for not_attempted in retry_batch[index + 1 :]:
-                    download_results[not_attempted] = DISK_FULL_NOT_ATTEMPTED
-                    failed_accessions.append(not_attempted)
-                    accession_mod._notify_result(on_result, not_attempted, False, download_results[not_attempted])
+                _abort_disk_full(accession, retry_batch[index + 1 :], download_results, failed_accessions, on_result)
                 break
 
         if abort_reason:
             break
 
         if failed_accessions and retry < max_retries - 1 and not accession_mod.stop_requested(stop):
-            time.sleep(2**retry)
+            _back_off(2**retry, stop)
 
     return retried_successful, failed_accessions, abort_reason
+
+
+def _retry_once(
+    attempt: Callable[[], Tuple[bool, str]],
+    accession: str,
+    retry: int,
+    download_results: Dict[str, Any],
+    failed_accessions: List[str],
+    on_result: Optional[Callable[[str, bool, str], None]],
+) -> Optional[Tuple[bool, str]]:
+    """Run one retry attempt; None when it raised, which is recorded and notified as a failure here."""
+    try:
+        return attempt()
+    except _DOWNLOAD_ERRORS as e:
+        failed_accessions.append(accession)
+        logger.error(f"Error retrying download for {accession}: {e}")
+        download_results[accession] = f"Retry {retry + 1} error: {str(e)}"
+        accession_mod._notify_result(on_result, accession, False, download_results[accession])
+        return None
+
+
+def _abort_disk_full(
+    accession: str,
+    not_attempted: List[str],
+    download_results: Dict[str, Any],
+    failed_accessions: List[str],
+    on_result: Optional[Callable[[str, bool, str], None]],
+) -> None:
+    """Mark the rest of a retry round as not attempted after ``accession`` filled the disk."""
+    logger.error(f"Disk full while downloading {accession}; aborting remaining retries")
+    for other in not_attempted:
+        download_results[other] = DISK_FULL_NOT_ATTEMPTED
+        failed_accessions.append(other)
+        accession_mod._notify_result(on_result, other, False, download_results[other])
+
+
+def _back_off(seconds: float, stop: Optional[threading.Event]) -> None:
+    """Wait ``seconds`` between retry rounds, ending early once ``stop`` is set."""
+    if stop is None:
+        time.sleep(seconds)
+    else:
+        stop.wait(seconds)
 
 
 def _handle_download_failure(fastq_path, failed_accessions):
