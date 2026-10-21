@@ -1,5 +1,8 @@
 name: Dependency Audit
 
+# A dependency advisory is not a property of a commit, so the audit runs on a schedule
+# rather than in the push/pull-request CI, where it would fail unrelated changes.
+
 on:
   schedule:
     - cron: '0 5 * * 1'  # Run weekly on Monday at 05:00 UTC
@@ -9,6 +12,7 @@ jobs:
   audit:
     name: Audit dependencies for known vulnerabilities
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
