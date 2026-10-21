@@ -390,6 +390,7 @@ def download_sra(
             lock_wait,
             verify=verify_downloads,
             keep_temp=keep_temp,
+            truncated=frozenset(truncated_accessions) if truncated_accessions is not None else None,
         ) or functools.partial(
             accession_mod._project_download,
             lock_wait=lock_wait,

@@ -341,19 +341,16 @@ def _handle_download_failure(fastq_path, failed_accessions):
         fastq_path: Path to FASTQ directory
         failed_accessions: List of failed accessions
     """
+    failed_file = Path(fastq_path) / FAILED_ACCESSIONS_FILE
     if not failed_accessions:
+        # A clean run leaves no stale list from an earlier run behind.
+        if failed_file.exists():
+            failed_file.unlink()
         return
 
-    # Write failed accessions to file for easier retry
-    failed_file = Path(fastq_path) / FAILED_ACCESSIONS_FILE
+    # Write failed accessions to file for easier retry; the command logs the retry hint.
     write_text_atomic(failed_file, "".join(f"{acc}\n" for acc in failed_accessions))
-
     logger.info(f"Failed accessions written to {failed_file}")
-    logger.info(
-        f"To retry only failed accessions: prepare download_sra "
-        f"--accessions-file {failed_file} "
-        f"--fastq-folder {fastq_path}"
-    )
 
 
 def _execute_parallel_downloads(

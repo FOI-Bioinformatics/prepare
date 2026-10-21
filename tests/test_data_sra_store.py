@@ -305,6 +305,26 @@ class TestDownloadSraStore:
         assert sidecar.completeness["verdict"] == "complete"
         assert sidecar.state == "complete"
 
+    def test_store_redownload_truncated_only_for_the_truncated_set(self, tmp_path):
+        """redownload_truncated reaches the store fetch only for accessions the registry calls truncated."""
+        paths = self._store(tmp_path)
+        fastq_folder = tmp_path / "project" / "fastq"
+        calls = []
+
+        with patch("prepare.data.sra.accession.download_accession", side_effect=self._fake_download(calls)):
+            download_sra(
+                fastq_folder,
+                self._accessions(tmp_path, "SRR1", "SRR2"),
+                store=paths,
+                max_retries=0,
+                max_workers=1,
+                redownload_truncated=True,
+                truncated_accessions={"SRR1"},
+            )
+
+        by_accession = {acc: kwargs.get("redownload_truncated") for acc, _folder, kwargs in calls}
+        assert by_accession == {"SRR1": True, "SRR2": False}
+
     def test_store_download_is_unverified_when_verification_is_off(self, tmp_path):
         """--no-verify-downloads: no spot count from the XML or the sidecar judges the store copy."""
         from prepare.store.sidecar import read_sidecar

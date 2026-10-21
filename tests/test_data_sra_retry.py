@@ -374,6 +374,27 @@ class TestHandleDownloadFailure:
         # No logging should occur when there are no failures
         mock_logger.info.assert_not_called()
 
+    def test_clean_run_removes_a_stale_failed_file(self, tmp_path):
+        fastq_path = tmp_path / "downloads"
+        fastq_path.mkdir()
+        stale = fastq_path / "failed_accessions.txt"
+        stale.write_text("SRR999\n")
+
+        _handle_download_failure(fastq_path, [])
+
+        assert not stale.exists()
+
+    def test_retry_hint_is_left_to_the_command(self, tmp_path):
+        """The data layer writes the file; the command logs the one hint naming the user's folder."""
+        fastq_path = tmp_path / "downloads"
+        fastq_path.mkdir()
+
+        with patch("prepare.data.sra.retry.logger") as mock_logger:
+            _handle_download_failure(fastq_path, ["SRR123"])
+
+        messages = [str(c.args[0]) for c in mock_logger.info.call_args_list]
+        assert not any("To retry only failed" in m for m in messages)
+
     def test_handle_download_failure_with_failures(self, tmp_path):
         """Test when failures occurred."""
         fastq_path = tmp_path / "downloads"

@@ -15,7 +15,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import AbstractSet, Any, Dict, List, Optional, Tuple, Union
 
 from prepare.core.exceptions import DataAccessError
 from prepare.data.sra import accession as accession_mod
@@ -683,6 +683,7 @@ def _store_downloader(
     lock_wait: float = 0.0,
     verify: bool = True,
     keep_temp: bool = False,
+    truncated: Optional[AbstractSet[str]] = None,
 ):
     """A ``download_accession``-shaped callable that routes every download through the store.
 
@@ -694,6 +695,9 @@ def _store_downloader(
         return None
 
     def _download(accession, output_folder, num_threads=4, force=False, temp_folder=None, **kwargs):
+        if truncated is not None:
+            # As _project_download: only an accession the registry calls truncated is refetched.
+            kwargs["redownload_truncated"] = accession in truncated
         return _store_download(
             accession,
             output_folder,
