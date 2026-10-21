@@ -117,24 +117,14 @@ def _process_download_results(futures_results, accessions_to_download, download_
     successful_count = 0
     failed_count = 0
 
-    for accession, result in futures_results:
-        try:
-            success, message = result
-            download_results[accession] = message
-
-            if success:
-                successful_count += 1
-            else:
-                failed_count += 1
-                failed_accessions.append(accession)
-                logger.warning(f"Failed to download {accession}: {message}")
-
-        # A worker that raised leaves None here (see _execute_parallel_downloads), which does not unpack.
-        except (TypeError, ValueError) as e:
+    for accession, (success, message) in futures_results:
+        download_results[accession] = message
+        if success:
+            successful_count += 1
+        else:
             failed_count += 1
             failed_accessions.append(accession)
-            logger.error(f"Error processing download result for {accession}: {e}")
-            download_results[accession] = f"Error: {str(e)}"
+            logger.warning(f"Failed to download {accession}: {message}")
 
     logger.info("Downloaded %d of %d (%d failed)", successful_count, len(accessions_to_download), failed_count)
 
@@ -449,14 +439,14 @@ def _collect_result(
 ) -> Tuple[bool, str]:
     """Record one finished download on the main thread: tally entry, callback and progress.
 
-    A worker that raised leaves None in ``futures_results`` (``_process_download_results``
-    counts it as failed) and is reported as ``(False, <error text>)``.
+    A worker that raised is tallied as ``(False, "Error: <text>")``, so the exception's text
+    reaches the report, the failure class and the retry split like any other failure.
     """
     try:
         result = future.result()
     except (*_DOWNLOAD_ERRORS, CancelledError) as e:
         logger.error(f"Download failed for {acc}: {e}")
-        futures_results.append((acc, None))
+        futures_results.append((acc, (False, f"Error: {e}")))
         accession_mod._notify_result(on_result, acc, False, str(e))
         progress.update(ok=False)
         return False, str(e)

@@ -51,27 +51,58 @@ class TestProcessDownloadResults:
         assert download_results == {"SRR123": "Success message", "SRR456": "Error message"}
         assert failed_accessions == ["SRR456"]
 
-    def test_process_download_results_exception(self):
-        """Test handling exceptions in futures."""
-        future1 = Mock()
-        future1.result.return_value = (True, "Success message")
-        future2 = Mock()
-        future2.result.side_effect = Exception("Future failed")
+    def test_collect_result_records_the_raised_error_text(self):
+        """A worker that raised is tallied as (False, "Error: <text>"), never as an unpack error."""
+        from concurrent.futures import Future
 
-        futures_results = [("SRR123", (True, "Success message")), ("SRR456", Exception("Future failed"))]
-        accessions_to_download = ["SRR123", "SRR456"]
+        from prepare.data.sra.retry import _collect_result, _progress_reporter
+
+        future: Future = Future()
+        future.set_exception(OSError("Future failed"))
+        futures_results = []
+        seen = []
+
+        with patch("prepare.data.sra.retry.logger"):
+            outcome = _collect_result(
+                future, "SRR456", futures_results, lambda *a: seen.append(a), _progress_reporter(1)
+            )
+
+        assert outcome == (False, "Future failed")
+        assert futures_results == [("SRR456", (False, "Error: Future failed"))]
+        assert seen == [("SRR456", False, "Future failed")]
+
         download_results = {}
         failed_accessions = []
-
-        with patch("prepare.data.sra.retry.logger") as mock_logger:
-            _process_download_results(futures_results, accessions_to_download, download_results, failed_accessions)
-
-        assert download_results == {
-            "SRR123": "Success message",
-            "SRR456": "Error: cannot unpack non-iterable Exception object",
-        }
+        _process_download_results(futures_results, ["SRR456"], download_results, failed_accessions)
+        assert download_results == {"SRR456": "Error: Future failed"}
         assert failed_accessions == ["SRR456"]
-        mock_logger.error.assert_called()
+
+    def test_raised_network_error_is_classified_network(self, tmp_path, monkeypatch):
+        """The exception text a worker raised is the recorded result, so its class survives."""
+        from prepare.core.exceptions import NetworkError
+        from prepare.data.sra.accession import classify_download_error
+        from prepare.data.sra.retry import _download_with_retries
+
+        def raising_downloader(accession, *args, **kwargs):
+            raise NetworkError("Connection timed out while resolving SRR1")
+
+        seen = []
+        _successful, _failed, failed_accessions, download_results, _abort = _download_with_retries(
+            ["SRR1"],
+            tmp_path,
+            1,
+            1,
+            False,
+            None,
+            0,
+            on_result=lambda acc, ok, msg: seen.append((acc, ok, msg)),
+            downloader=raising_downloader,
+        )
+
+        assert failed_accessions == ["SRR1"]
+        assert download_results["SRR1"] == "Error: Connection timed out while resolving SRR1"
+        assert classify_download_error(download_results["SRR1"]) == "network"
+        assert seen == [("SRR1", False, "Connection timed out while resolving SRR1")]
 
     def test_final_count_logged_once(self, caplog):
         """The final tally is logged exactly once, after the loop, not every fifth success."""
