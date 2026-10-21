@@ -61,12 +61,12 @@ def test_parse_metadata_summary_counts_a_dropped_record(tmp_path, caplog):
     assert "Recorded metadata for 2 accession(s) in the registry; 1 dropped" in caplog.text
 
 
-def test_parse_metadata_command_records_nothing_for_an_empty_table(tmp_path):
-    """An empty folder yields an empty table and no dataset entries."""
+def test_parse_metadata_command_records_nothing_for_an_empty_folder(tmp_path):
+    """An empty folder is an error: exit 1 and no registry written."""
     folder = tmp_path / "metadata"
     folder.mkdir()
-    assert ParseMetadataCommand().execute(_parse_args(tmp_path, folder)) == 0
-    assert json.loads((tmp_path / "prepare_registry.json").read_text()).get("datasets", {}) == {}
+    assert ParseMetadataCommand().execute(_parse_args(tmp_path, folder)) == 1
+    assert not (tmp_path / "prepare_registry.json").exists()
 
 
 def test_download_metadata_command_parses_each_downloaded_file_once(tmp_path):
@@ -199,3 +199,83 @@ def test_download_metadata_does_not_raise_when_a_failure_is_not_a_network_one(tm
     with patch("prepare.data.metadata._download_batch_metadata", side_effect=batches):
         result = metadata_module._download_accessions_metadata(["SRR1", "SRR2"], tmp_path, "a@b.c", 2, batch_size=1)
     assert result == {}
+
+
+def _download_args(tmp_path, **overrides):
+    args = dict(
+        email="a@b.c",
+        matches_folder=str(tmp_path / "matches"),
+        metadata_folder=str(tmp_path / "metadata"),
+        threshold=0.0,
+        dry_run=False,
+        accessions_file=None,
+        api_key=None,
+        batch_size=200,
+        registry=str(tmp_path / "prepare_registry.json"),
+        data_root=None,
+    )
+    args.update(overrides)
+    return argparse.Namespace(**args)
+
+
+def test_download_metadata_exit_1_when_an_accession_has_no_metadata(tmp_path, caplog):
+    """NCBI answering for one of two accessions: the other is named and the exit is 1."""
+    import logging
+
+    accessions = tmp_path / "accessions.txt"
+    accessions.write_text("SRR1000000\nSRR1000001\n")
+    folder = tmp_path / "metadata"
+    (good,) = write_metadata_folder(tmp_path / "fetched", count=1, per_file=4, pool=10)
+    batches = [({"SRR1000000": good}, {"SRR1000001": "not in the NCBI response"})]
+    with (
+        patch("prepare.data.metadata._download_batch_metadata", side_effect=batches),
+        caplog.at_level(logging.ERROR),
+    ):
+        assert DownloadMetadataCommand().execute(_download_args(tmp_path, accessions_file=str(accessions))) == 1
+    assert "SRR1000001" in caplog.text
+    datasets = json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]
+    assert "SRR1000000" in datasets  # the fetched one is still recorded
+    assert folder.is_dir()
+
+
+def test_download_metadata_unreadable_matches_csv_is_exit_1(tmp_path):
+    """A match file in another format stops the run with exit 1."""
+    matches = tmp_path / "matches"
+    matches.mkdir()
+    (matches / "g.csv").write_text("run;score\nSRR1;0.9\n")
+    with patch("prepare.data.metadata._download_batch_metadata") as fetch:
+        assert DownloadMetadataCommand().execute(_download_args(tmp_path)) == 1
+    fetch.assert_not_called()
+
+
+def test_parse_metadata_exit_1_on_a_broken_xml(tmp_path):
+    """One of two XML files fails to parse: the table holds the good one and the exit is 1."""
+    folder = tmp_path / "metadata"
+    write_metadata_folder(folder, count=1, per_file=4, pool=10)
+    (folder / "SRR9_metadata.xml").write_text("<EXPERIMENT_PACKAGE_SET><RUN")
+    args = argparse.Namespace(
+        metadata_folder=str(folder),
+        metadata_table_file=str(tmp_path / "metadata_table.txt"),
+        registry=str(tmp_path / "prepare_registry.json"),
+    )
+    assert ParseMetadataCommand().execute(args) == 1
+    table = pd.read_csv(tmp_path / "metadata_table.txt", sep="\t")
+    assert list(table["Run_ID"]) == ["SRR1000000"]
+
+
+def test_parse_metadata_with_no_xml_writes_no_table_and_exits_1(tmp_path, caplog):
+    """An empty metadata folder leaves an older table as it is and exits 1 with a message."""
+    import logging
+
+    folder = tmp_path / "metadata"
+    folder.mkdir()
+    table = tmp_path / "metadata_table.txt"
+    table.write_text("Run_ID\nSRR_OLD\n")
+    args = argparse.Namespace(
+        metadata_folder=str(folder), metadata_table_file=str(table), registry=str(tmp_path / "prepare_registry.json")
+    )
+    with caplog.at_level(logging.ERROR):
+        assert ParseMetadataCommand().execute(args) == 1
+    assert "No metadata XML in" in caplog.text
+    assert table.read_text() == "Run_ID\nSRR_OLD\n"
+    assert not (tmp_path / "prepare_registry.json").exists()

@@ -7,7 +7,7 @@ import logging
 from functools import partial
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -127,6 +127,7 @@ class DownloadMetadataCommand(BaseCommand):
         try:
             args.matches_folder = str(anchored_folder(args.matches_folder, getattr(args, "registry", None)))
             args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
+            failures: Dict[str, str] = {}
             downloaded = download_metadata(
                 email=email,
                 matches_folder=args.matches_folder,
@@ -136,6 +137,7 @@ class DownloadMetadataCommand(BaseCommand):
                 accessions_file=args.accessions_file,
                 api_key=setting_for(args, "ncbi_api_key"),
                 batch_size=args.batch_size,
+                failures=failures,
             )
             term = getattr(args, "_termination", None)
             if not args.dry_run and downloaded:
@@ -161,6 +163,9 @@ class DownloadMetadataCommand(BaseCommand):
                 self._share_with_store(args, registry, downloaded)
             if term is not None and term.stop.is_set():
                 raise KeyboardInterrupt("download_metadata stopped")
+            if failures:
+                self.logger.error("No metadata for %d accession(s): %s", len(failures), ", ".join(sorted(failures)))
+                return 1
             return 0
         except PrepareError as e:
             return self.fail(e, "Error downloading metadata")
@@ -234,7 +239,8 @@ class ParseMetadataCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         try:
             args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
-            df = parse_metadata(args.metadata_folder, args.metadata_table_file)
+            errors: List[str] = []
+            df = parse_metadata(args.metadata_folder, args.metadata_table_file, errors=errors)
             metadata_folder = Path(args.metadata_folder)
             # Only the columns the registry records, as plain dicts: a wide table (one column per
             # sample attribute) makes a pandas Series per row costly.
@@ -252,6 +258,9 @@ class ParseMetadataCommand(BaseCommand):
             _record_all_metadata(args.registry, parsed)
             if term is not None and term.stop.is_set():
                 raise KeyboardInterrupt("parse_metadata stopped")
+            if errors:
+                self.logger.error("%d metadata file(s) could not be parsed: %s", len(errors), ", ".join(errors))
+                return 1
             return 0
         except PrepareError as e:
             return self.fail(e, "Error parsing metadata")

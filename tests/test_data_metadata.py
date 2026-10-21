@@ -91,11 +91,8 @@ class TestGetUniqueAccessions:
         matches_dir = tmp_path / "matches"
         matches_dir.mkdir()
 
-        with patch("prepare.data.metadata.logger") as mock_logger:
-            result = _get_unique_accessions(matches_dir, threshold=0.0)
-
-        assert result == set()
-        mock_logger.warning.assert_called_once()
+        with pytest.raises(DataAccessError, match="No match CSV in"):
+            _get_unique_accessions(matches_dir, threshold=0.0)
 
     def test_get_unique_accessions_unknown_format(self, tmp_path):
         """Test handling unknown file format."""
@@ -106,11 +103,8 @@ class TestGetUniqueAccessions:
         csv_content = "unknown_col,other_col\nvalue1,value2"
         (matches_dir / "unknown.csv").write_text(csv_content)
 
-        with patch("prepare.data.metadata.logger") as mock_logger:
-            result = _get_unique_accessions(matches_dir, threshold=0.0)
-
-        assert result == set()
-        mock_logger.warning.assert_called()
+        with pytest.raises(DataAccessError, match="no 'acc' or 'SRA accession' column"):
+            _get_unique_accessions(matches_dir, threshold=0.0)
 
     def test_get_unique_accessions_read_error(self, tmp_path):
         """Test handling CSV read errors."""
@@ -121,11 +115,8 @@ class TestGetUniqueAccessions:
         (matches_dir / "malformed.csv").write_text("invalid,csv\ncontent")
 
         with patch("pandas.read_csv", side_effect=pd.errors.ParserError("Read error")):
-            with patch("prepare.data.metadata.logger") as mock_logger:
-                result = _get_unique_accessions(matches_dir, threshold=0.0)
-
-        assert result == set()
-        mock_logger.warning.assert_called()
+            with pytest.raises(DataAccessError, match="malformed.csv: Read error"):
+                _get_unique_accessions(matches_dir, threshold=0.0)
 
 
 class TestDownloadSingleMetadata:
@@ -975,12 +966,9 @@ class TestParseMetadata:
         metadata_dir.mkdir()
         output_file = tmp_path / "parsed_metadata.tsv"
 
-        with patch("prepare.data.metadata.logger") as mock_logger:
-            result = parse_metadata(metadata_dir, output_file)
-
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 0
-        mock_logger.warning.assert_called()
+        with pytest.raises(DataAccessError, match="No metadata XML in"):
+            parse_metadata(metadata_dir, output_file)
+        assert not output_file.exists()
 
     def test_parse_metadata_invalid_xml(self, tmp_path):
         """Test handling invalid XML files."""
@@ -991,11 +979,13 @@ class TestParseMetadata:
         # Create invalid XML
         (metadata_dir / "SRR123_metadata.xml").write_text("invalid xml content")
 
+        errors: list = []
         with patch("prepare.data.metadata.logger") as mock_logger:
-            result = parse_metadata(metadata_dir, output_file)
+            result = parse_metadata(metadata_dir, output_file, errors=errors)
 
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 0
+        assert errors == ["SRR123_metadata.xml"]
         mock_logger.error.assert_called()
 
     def test_parse_metadata_nonexistent_folder(self):
