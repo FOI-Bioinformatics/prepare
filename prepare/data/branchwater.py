@@ -4,6 +4,7 @@ Branchwater data handling module for PREPARE.
 This module provides functions for processing Branchwater containment files.
 """
 
+import filecmp
 import logging
 from collections import defaultdict
 from decimal import ROUND_HALF_UP, Decimal
@@ -121,12 +122,16 @@ def process_branchwater_files(
         output_file = target_path / csv_file.name
         genome_id = csv_file.stem
 
-        # Skip if the output file already exists
         if output_file.exists():
-            logger.info(f"Skipping {csv_file.name} as output file already exists")
-            result_files[genome_id] = output_file
-            processed_count += 1
-            continue
+            if filecmp.cmp(csv_file, output_file, shallow=False):
+                logger.info(f"Skipping {csv_file.name}: the matches folder already holds an identical copy")
+                result_files[genome_id] = output_file
+                processed_count += 1
+                continue
+            logger.warning(
+                f"Replacing {output_file} with {csv_file}: the files differ (a refreshed search or download, "
+                f"or local containment values written by sra_sketch)"
+            )
 
         try:
             # Validate branchwater format

@@ -390,6 +390,27 @@ def test_a_failed_accession_gets_no_containment_from_a_stale_signature(tmp_path)
         assert [r["acc"] for r in csv.DictReader(handle)] == ["SRR1"]
 
 
+def test_an_accession_without_files_keeps_its_branchwater_row(tmp_path):
+    """Only an accession that failed while sketching loses its row; one with no files is unknown, not wrong."""
+    import csv
+
+    _dataset(tmp_path, "SRR1", seed=1)
+    genome = _genome(tmp_path, seed=1)
+    matches = tmp_path / "matches"
+    matches.mkdir()
+    (matches / "genome.csv").write_text(
+        "acc,containment,cANI,biosample\nSRR1,0.5000,0.97,SAMN1\nSRR9,0.4000,0.96,SAMN9\n"
+    )
+
+    code = SRASketchCommand().execute(_args(tmp_path, accession=["SRR1", "SRR9"], genome_fasta=str(genome)))
+
+    assert code == 1
+    with open(matches / "genome.csv", newline="") as handle:
+        rows = {r["acc"]: r for r in csv.DictReader(handle)}
+    assert set(rows) == {"SRR1", "SRR9"}
+    assert rows["SRR9"]["containment"] == "0.4000" and rows["SRR9"]["biosample"] == "SAMN9"
+
+
 def test_missing_sourmash_is_exit_3(tmp_path, monkeypatch, caplog):
     _dataset(tmp_path)
     monkeypatch.setitem(sys.modules, "sourmash", None)

@@ -2,6 +2,29 @@
 
 All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM-DD format.
 
+## [0.11.2] - 2026-10-21
+
+The High findings of `docs/superpowers/audits/2026-10-21-pipeline-gui-audit.md` (P1, P7, G1, G2, G3).
+
+### Fixed
+
+- `sra_sketch` with `--genome-fasta` removed the matches row of every accession it could not
+  sketch, including accessions whose FASTQ files were not downloaded yet, and the file edited is
+  the Branchwater result by default. Only an accession that failed while sketching loses its row
+  now; one with no files keeps it.
+- `use_branchwater` kept any existing `matches/<genome>.csv`, so a refreshed Branchwater CSV never
+  reached the matches folder. An identical copy is still skipped; a differing one is replaced,
+  with a warning that names both files.
+- `sra_report --groups-file` failed with a template error when a group had no accession with
+  readable FASTQ files. Such a group is left out with a warning naming its accessions, and with
+  fewer than two groups left no comparison is made. A skipped statistical test shows its reason
+  instead of "p-value nan".
+- The "Total reads" card of `sra_report` says that both mates are counted and no longer adds
+  the sample size of a dataset that only has sampled figures; the card names how many datasets
+  were left out of the total.
+- The explorer sunburst counted a sample once per genome of a family while its hover said
+  "sample_count"; it now counts hits (one per sample and genome) and says so in its title.
+
 ## [0.11.1] - 2026-10-21
 
 The quick wins of `docs/superpowers/audits/2026-10-21-tech-debt.md`: the review minors deferred
