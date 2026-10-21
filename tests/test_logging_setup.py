@@ -286,7 +286,7 @@ def test_verify_downloads_help_keeps_one_default_note(capsys):
     with pytest.raises(SystemExit):
         main(["download_sra", "--help"])
     text = " ".join(capsys.readouterr().out.split())
-    note = text.split("recorded total spots", 1)[1].split(" --", 1)[0]
+    note = text.split("against NCBI spot counts", 1)[1].split(" --", 1)[0]
     assert note.count("(default") == 1 and "(default: on)" in note
     assert "(default: True)" not in text
 

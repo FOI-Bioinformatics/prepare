@@ -491,9 +491,9 @@ def test_lock_wait_flags_default_to_none_and_resolve_through_settings(monkeypatc
 
     monkeypatch.setenv("PREPARE_LOCK_WAIT", "5")
     options = DownloadSraCommand()._store_options(argparse.Namespace(lock_wait=None), None, Registry())
-    assert options == {"lock_wait": 5.0}
+    assert options == {"lock_wait": 5.0, "accept_partial": False}
     options = DownloadSraCommand()._store_options(argparse.Namespace(lock_wait=2.0), None, Registry())
-    assert options == {"lock_wait": 2.0}
+    assert options == {"lock_wait": 2.0, "accept_partial": False}
 
 
 # --- fix wave: flag values, secrets, TOML line, first active() call -------------

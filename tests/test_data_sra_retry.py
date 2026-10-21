@@ -51,27 +51,58 @@ class TestProcessDownloadResults:
         assert download_results == {"SRR123": "Success message", "SRR456": "Error message"}
         assert failed_accessions == ["SRR456"]
 
-    def test_process_download_results_exception(self):
-        """Test handling exceptions in futures."""
-        future1 = Mock()
-        future1.result.return_value = (True, "Success message")
-        future2 = Mock()
-        future2.result.side_effect = Exception("Future failed")
+    def test_collect_result_records_the_raised_error_text(self):
+        """A worker that raised is tallied as (False, "Error: <text>"), never as an unpack error."""
+        from concurrent.futures import Future
 
-        futures_results = [("SRR123", (True, "Success message")), ("SRR456", Exception("Future failed"))]
-        accessions_to_download = ["SRR123", "SRR456"]
+        from prepare.data.sra.retry import _collect_result, _progress_reporter
+
+        future: Future = Future()
+        future.set_exception(OSError("Future failed"))
+        futures_results = []
+        seen = []
+
+        with patch("prepare.data.sra.retry.logger"):
+            outcome = _collect_result(
+                future, "SRR456", futures_results, lambda *a: seen.append(a), _progress_reporter(1)
+            )
+
+        assert outcome == (False, "Future failed")
+        assert futures_results == [("SRR456", (False, "Error: Future failed"))]
+        assert seen == [("SRR456", False, "Future failed")]
+
         download_results = {}
         failed_accessions = []
-
-        with patch("prepare.data.sra.retry.logger") as mock_logger:
-            _process_download_results(futures_results, accessions_to_download, download_results, failed_accessions)
-
-        assert download_results == {
-            "SRR123": "Success message",
-            "SRR456": "Error: cannot unpack non-iterable Exception object",
-        }
+        _process_download_results(futures_results, ["SRR456"], download_results, failed_accessions)
+        assert download_results == {"SRR456": "Error: Future failed"}
         assert failed_accessions == ["SRR456"]
-        mock_logger.error.assert_called()
+
+    def test_raised_network_error_is_classified_network(self, tmp_path, monkeypatch):
+        """The exception text a worker raised is the recorded result, so its class survives."""
+        from prepare.core.exceptions import NetworkError
+        from prepare.data.sra.accession import classify_download_error
+        from prepare.data.sra.retry import _download_with_retries
+
+        def raising_downloader(accession, *args, **kwargs):
+            raise NetworkError("Connection timed out while resolving SRR1")
+
+        seen = []
+        _successful, _failed, failed_accessions, download_results, _abort = _download_with_retries(
+            ["SRR1"],
+            tmp_path,
+            1,
+            1,
+            False,
+            None,
+            0,
+            on_result=lambda acc, ok, msg: seen.append((acc, ok, msg)),
+            downloader=raising_downloader,
+        )
+
+        assert failed_accessions == ["SRR1"]
+        assert download_results["SRR1"] == "Error: Connection timed out while resolving SRR1"
+        assert classify_download_error(download_results["SRR1"]) == "network"
+        assert seen == [("SRR1", False, "Connection timed out while resolving SRR1")]
 
     def test_final_count_logged_once(self, caplog):
         """The final tally is logged exactly once, after the loop, not every fifth success."""
@@ -240,6 +271,53 @@ class TestRetryFailedDownloads:
 
         assert mock_sleep.call_args_list == [call(1), call(2)]
 
+    def test_retry_pass_drops_interrupted_results(self, tmp_path):
+        """A worker stopped by the token is not recorded as a failed attempt; the rest are not tried."""
+        import threading
+
+        stop = threading.Event()
+        attempted = []
+        seen = []
+
+        def downloader(accession, *args, **kwargs):
+            attempted.append(accession)
+            stop.set()
+            return False, "interrupted"
+
+        download_results = {"SRR1": "network: timed out", "SRR2": "network: timed out"}
+        retried, failed, abort = _retry_failed_downloads(
+            ["SRR1", "SRR2"],
+            1,
+            tmp_path,
+            1,
+            None,
+            download_results,
+            on_result=lambda acc, ok, msg: seen.append((acc, ok, msg)),
+            downloader=downloader,
+            stop=stop,
+        )
+
+        assert attempted == ["SRR1"]
+        assert seen == []
+        assert download_results == {"SRR1": "network: timed out", "SRR2": "network: timed out"}
+        assert sorted(failed) == ["SRR1", "SRR2"]
+        assert retried == 0 and abort is None
+
+    def test_retry_backoff_ends_when_the_token_is_set(self, tmp_path):
+        """The wait between rounds ends as soon as the run is stopped."""
+        import threading
+        import time
+
+        stop = threading.Event()
+
+        def downloader(accession, *args, **kwargs):
+            return False, "network: Connection timed out"
+
+        threading.Timer(0.1, stop.set).start()
+        started = time.monotonic()
+        _retry_failed_downloads(["SRR1"], 3, tmp_path, 1, None, {}, downloader=downloader, stop=stop)
+        assert time.monotonic() - started < 1.0
+
     def test_retry_failed_downloads_disk_full_aborts_without_raising(self, tmp_path):
         """A disk-full failure aborts the run but must not raise, so the caller keeps its state."""
         failed_accessions = ["SRR1", "SRR2", "SRR3"]
@@ -295,6 +373,27 @@ class TestHandleDownloadFailure:
 
         # No logging should occur when there are no failures
         mock_logger.info.assert_not_called()
+
+    def test_clean_run_removes_a_stale_failed_file(self, tmp_path):
+        fastq_path = tmp_path / "downloads"
+        fastq_path.mkdir()
+        stale = fastq_path / "failed_accessions.txt"
+        stale.write_text("SRR999\n")
+
+        _handle_download_failure(fastq_path, [])
+
+        assert not stale.exists()
+
+    def test_retry_hint_is_left_to_the_command(self, tmp_path):
+        """The data layer writes the file; the command logs the one hint naming the user's folder."""
+        fastq_path = tmp_path / "downloads"
+        fastq_path.mkdir()
+
+        with patch("prepare.data.sra.retry.logger") as mock_logger:
+            _handle_download_failure(fastq_path, ["SRR123"])
+
+        messages = [str(c.args[0]) for c in mock_logger.info.call_args_list]
+        assert not any("To retry only failed" in m for m in messages)
 
     def test_handle_download_failure_with_failures(self, tmp_path):
         """Test when failures occurred."""

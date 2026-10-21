@@ -11,6 +11,7 @@ Real ``sleep`` children stand in for prefetch and fasterq-dump, as in
 
 import argparse
 import shutil
+import gzip
 import subprocess
 import threading
 import time
@@ -192,9 +193,8 @@ class TestTokenThroughTheDownloadChain:
         token.set()
         with patch("prepare.data.sra.fastq.compress_fastq") as compress:
             success, message = accession_mod._handle_download_output(temp, tmp_path / "SRR1", compress=True, stop=token)
-        assert success is True
+        assert (success, message) == (False, "interrupted")
         compress.assert_not_called()
-        assert "compression skipped (interrupted)" in message
 
     def test_compression_runs_pigz_under_the_runs_token(self, tmp_path):
         temp = tmp_path / "SRR1_temp"
@@ -205,7 +205,10 @@ class TestTokenThroughTheDownloadChain:
 
         def fake_run(executable, args, **kwargs):
             seen.append((executable, kwargs.get("stop")))
-            (tmp_path / "SRR1" / "SRR1_1.fastq").rename(tmp_path / "SRR1" / "SRR1_1.fastq.gz")
+            plain = tmp_path / "SRR1" / "SRR1_1.fastq"
+            with gzip.open(plain.with_suffix(".fastq.gz"), "wb") as sink:
+                sink.write(plain.read_bytes())
+            plain.unlink()
 
         with patch("prepare.data.sra.fastq.shutil.which", return_value="/usr/bin/pigz"):
             with patch("prepare.data.sra.fastq.SecureSubprocess.run_secure", side_effect=fake_run):
@@ -251,10 +254,7 @@ class TestTokenThroughTheDownloadChain:
                 success, message = accession_mod._handle_download_output(
                     temp, tmp_path / "SRR1", compress=True, stop=token
                 )
-        assert success is True
-        assert "compression skipped (interrupted) for SRR1_1.fastq" in message
-        assert "compression failed" not in message
-        assert (tmp_path / "SRR1" / "SRR1_1.fastq").is_file()
+        assert (success, message) == (False, "interrupted")
 
     def test_project_download_forwards_its_token_to_download_accession(self, tmp_path):
         token = threading.Event()

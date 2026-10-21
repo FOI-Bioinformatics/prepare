@@ -894,9 +894,30 @@ class TestDownloadSraCommand:
 
         args = parser.parse_args(["--accessions-file", "a.txt", "--no-verify-downloads"])
         assert args.verify_downloads is False
+        # The no-op --verify-downloads flag is gone; verification is the default.
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--accessions-file", "a.txt", "--verify-downloads"])
 
         args = parser.parse_args(["--accessions-file", "a.txt", "--redownload-truncated"])
         assert args.redownload_truncated is True
+
+    def test_configure_parser_rejects_zero_threads_and_workers(self):
+        command = DownloadSraCommand()
+        parser = argparse.ArgumentParser()
+        command.configure_parser(parser)
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--accessions-file", "a.txt", "--num-threads", "0"])
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--accessions-file", "a.txt", "--max-workers", "0"])
+
+    def test_explicit_max_workers_is_capped(self, caplog):
+        from prepare.core.constants import MAX_CONCURRENT_DOWNLOADS
+
+        with caplog.at_level(logging.WARNING, logger="prepare"):
+            with patch("prepare.utils.resources.available_cpus", return_value=256):
+                workers = DownloadSraCommand()._resolve_max_workers(argparse.Namespace(num_threads=1, max_workers=64))
+        assert workers == MAX_CONCURRENT_DOWNLOADS
+        assert any("--max-workers 64" in r.getMessage() and "capped" in r.getMessage() for r in caplog.records)
 
     def test_configure_parser_prefetch_and_compress_flags(self):
         """--sra-cache, --keep-sra, --no-prefetch, --no-compress default sensibly and parse."""
@@ -1013,8 +1034,10 @@ class TestDownloadSraCommand:
             "sra_cache": None,
             "use_prefetch": True,
             "keep_sra": False,
+            "keep_temp": False,
             "compress": True,
             "lock_wait": 0.0,
+            "accept_partial": False,
             "run_sizes": {},
             "min_free_gb": 0.0,  # PREPARE_MIN_FREE_GB=0 from conftest
         }
@@ -1490,6 +1513,56 @@ class TestDownloadSraCommand:
         assert datasets["SRR1"]["download"]["started"] == "2026-10-01T10:00:00+00:00"
         assert datasets["SRR1"]["download"]["seconds"] == 12.5
         assert datasets["SRR2"]["download"]["seconds"] == 3.0
+
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
+    def test_failed_redownload_keeps_the_verdict_of_the_folder_on_disk(self, mock_download, _which, tmp_path):
+        """A forced redownload that comes back short leaves the complete folder, and its verdict, in place."""
+        fastq_folder = tmp_path / "fastq"
+        (fastq_folder / "SRR1").mkdir(parents=True)
+        (fastq_folder / "SRR1" / "SRR1_1.fastq").write_text("@r\nA\n+\nI\n")
+        registry_file = tmp_path / "prepare_registry.json"
+        from prepare.data import registry as reg
+
+        registry = reg.load_registry(registry_file)
+        reg.record_download(
+            registry,
+            "SRR1",
+            "downloaded",
+            fastq_folder,
+            complete={"verdict": "complete", "reads_r1": 1000, "expected_spots": 1000, "ratio": 1.0},
+        )
+        reg.save_registry(registry)
+
+        def fake_download_sra(**kwargs):
+            kwargs["on_result"]("SRR1", False, "Downloaded 1 files, truncated (10 of 1000 spots)")
+            kwargs["on_result"]("SRR2", False, "Downloaded 1 files, truncated (10 of 1000 spots)")
+            return {"total": 2, "successful": 0, "failed": 2, "failed_accessions": ["SRR1", "SRR2"], "results": {}}
+
+        mock_download.side_effect = fake_download_sra
+        args = argparse.Namespace(
+            accessions_file=str(tmp_path / "acc.txt"),
+            fastq_folder=str(fastq_folder),
+            max_downloads=None,
+            num_threads=4,
+            max_workers=4,
+            dry_run=False,
+            force=True,
+            max_retries=0,
+            temp_folder=None,
+            blacklist=None,
+            report_file=None,
+            registry=str(registry_file),
+            data_root=None,
+        )
+        DownloadSraCommand().execute(args)
+        datasets = json.loads(registry_file.read_text())["datasets"]
+        # SRR1's complete folder is still on disk: its verdict stands and its files are kept.
+        assert datasets["SRR1"]["download"]["state"] == "failed"
+        assert datasets["SRR1"]["download"]["complete"]["verdict"] == "complete"
+        assert datasets["SRR1"]["download"]["files"]
+        # SRR2 has no folder: the failed attempt's truncated verdict is recorded.
+        assert datasets["SRR2"]["download"]["complete"]["verdict"] == "truncated"
 
     @patch("prepare.cli.commands.sra.require_tools")
     @patch("prepare.cli.commands.sra.download_sra")

@@ -14,7 +14,14 @@ from prepare.data import registry_blocks as rb
 from prepare.data.registry import Registry, record_download, update_linked
 from prepare.data.registry_batch import RegistryBatch
 from prepare.data.registry_timing import set_download_timing
-from prepare.data.sra import ALREADY_EXISTS, SETTLED_PREFIXES, STORE_LINKED_PREFIX, parse_verdict_message, result_body
+from prepare.data.sra import (
+    ALREADY_EXISTS,
+    fastq_files,
+    SETTLED_PREFIXES,
+    STORE_LINKED_PREFIX,
+    parse_verdict_message,
+    result_body,
+)
 from prepare.data.sra.run_report import Timings, attempt_timing
 from prepare.store.layout import StorePaths
 from prepare.store.usage import ensure_project_identity, record_usage_many
@@ -120,7 +127,12 @@ def result_recorder(
         from_store = linked or (bool(success) and body.endswith(STORE_SAVED_SUFFIX))
         if from_store:
             usage_rows.append((accession, "", "linked" if linked else "downloaded", message))
-        complete = parse_verdict_message(message) if success else None
+        # A truncated download fails (unless accepted) but still carries its verdict. When an
+        # earlier folder is still on disk (a failed forced redownload keeps it), the verdict on
+        # file describes those files and the discarded attempt's verdict is not recorded.
+        complete = parse_verdict_message(message)
+        if not success and complete is not None and fastq_files(fastq_dir / accession):
+            complete = None
         # A store link or a store copy kept unlinked (SETTLED_PREFIXES) records its sidecar's verdict
         # (sra_verdicts.store_verdict); the sidecar is read here, outside the flush's lock.
         use_sidecar = complete is None and (from_store or (not success and body.startswith(SETTLED_PREFIXES)))

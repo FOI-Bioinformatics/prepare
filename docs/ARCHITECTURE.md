@@ -648,7 +648,9 @@ A command reports an expected error with `return self.fail(error, "context")` (`
 `main()` does the same for an exception a command lets through. No code 5 or higher is used.
 
 Two commands decide their code from a set of per-item outcomes: `download_sra` returns 4 only when
-every accession that failed was classified `network` by `classify_download_error`, and 1 otherwise.
+every accession that failed was classified `network` by `classify_download_error`, and 1 otherwise
+(a truncated download is a failure unless `--accept-partial` is given, as an incomplete store copy
+already was).
 `download_metadata` logs each accession NCBI did not return and exits 0, unless every failure was a
 network one and nothing was fetched (`NetworkError`, 4); a rerun fetches only the missing ones.
 

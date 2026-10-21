@@ -55,6 +55,16 @@ def isolate_store_discovery(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def forget_probed_tool_versions():
+    """The fasterq-dump version is probed once per process; each test starts without that memory."""
+    from prepare.data.sra.accession import fasterq_dump_version
+
+    fasterq_dump_version.cache_clear()
+    yield
+    fasterq_dump_version.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def close_matplotlib_figures():
     """Close all matplotlib figures after each test to prevent memory leaks."""
     yield

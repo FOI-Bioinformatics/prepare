@@ -73,9 +73,10 @@ A run that reaches the download stage, or that stops in its preflight checks whe
 - `--sra-cache DIR` sets where `prefetch` keeps its `.sra` archives (default `<fastq-folder>/.sra-cache`). `--keep-sra` keeps the archive after conversion. Only the archive of a `complete` or `unverified` download is kept, a `truncated` one is removed, and a redownload (`--force` or `--redownload-truncated`) always fetches the archive again.
 - A project without a shared store takes a per-accession lock (`<fastq-folder>/.locks/<ACCESSION>.lock`) with the same heartbeat and 10-minute takeover as the store, bounded by `--lock-wait`. Two runs on one project therefore download each accession once. A `--sra-cache` folder shared by two projects without a store is not locked.
 - Each download is built, verified and compressed under `<fastq-folder>/.prepare-tmp/` and then moved to `<fastq-folder>/<ACCESSION>` with one rename, so another run never sees a partly written folder. `status` and the download inventory ignore both hidden folders.
+- A failed attempt removes its `<fastq-folder>/.prepare-tmp/<ACCESSION>_temp` build folder. `--keep-temp` keeps it for inspection and logs its path.
 - `--temp-folder DIR` sets where `fasterq-dump` writes its scratch files. Without it, a per-project download uses `<fastq-folder>/.prepare-tmp/<ACCESSION>_fqtmp`, which is removed when the accession finishes, and a download into a shared store uses `<store>/tmp/<ACCESSION>_fqtmp`. The free-space check and `doctor` measure the same location. When the project folder is on a network filesystem, set `--temp-folder` or `PREPARE_TEMP_FOLDER` to local scratch space on the node. `extract_target_reads` accepts the same flag for megahit.
 - `--timeout SECONDS` stops `prefetch` or `fasterq-dump` after that time. The default, 0, means no limit (also `PREPARE_TIMEOUT`, or `timeout` under `[runtime]`). A stopped tool is reported as a network failure, so `download_sra` retries it, and when every failed accession failed for that reason the exit status is 4. A `--version` probe used to record a tool version always has a fixed 30-second limit.
-- `--max-workers N` sets how many accessions download at once. Without it, the number is the CPUs available to the job divided by `--num-threads`, at least 1 and at most 4. The CPU count is the affinity mask, which reflects a SLURM allocation, then `SLURM_CPUS_PER_TASK`, then the machine's CPU count. `PREPARE_MAX_WORKERS_CAP` (or `max_workers_cap` under `[runtime]`) changes the cap of 4.
+- `--max-workers N` sets how many accessions download at once, at most 10. Without it, the number is the CPUs available to the job divided by `--num-threads`, at least 1 and at most 4. The CPU count is the affinity mask, which reflects a SLURM allocation, then `SLURM_CPUS_PER_TASK`, then the machine's CPU count. `PREPARE_MAX_WORKERS_CAP` (or `max_workers_cap` under `[runtime]`) changes the cap of 4.
 
 ### Free space
 
@@ -87,19 +88,19 @@ A disk that fills during a download stops the pass. The downloads not yet starte
 
 ### Completeness verdicts
 
-`--verify-downloads` (on by default; `--no-verify-downloads` turns it off) compares each download's read count with NCBI's recorded spot count and records a verdict in the registry. The check also runs in a project with no store.
+Each download's read count is compared with NCBI's recorded spot count and a verdict is recorded in the registry; `--no-verify-downloads` turns the check off. The check also runs in a project with no store. Compressed files are read back after compression, and a file whose record count differs from the plain file's fails the download.
 
 | Verdict | Meaning |
 | --- | --- |
 | `complete` | The read count per mate is at least 0.99 of the spot count. |
-| `truncated` | Fewer reads than expected. |
+| `truncated` | Fewer reads than expected. The download fails: the staged files and the prefetch archive are discarded, the accession is retried and listed in `failed_accessions.txt`, and a run that NCBI serves short is therefore fetched again on every attempt. `--accept-partial` keeps it as a success instead. |
 | `unverified` | No expected spot count is known, for example because `download_metadata` never ran for the accession. |
 
 A dataset held in the shared store carries the store's own verdict instead: `complete`, `partial` or `unverified` (see [shared_store.md](shared_store.md)).
 
 `--redownload-truncated` fetches an accession whose registry verdict is `truncated` instead of skipping it on a rerun. A recorded verdict is never downgraded to `unverified`. If a redownload keeps coming back `unverified`, run `download_metadata` for the accession so that an expected spot count exists. Otherwise a `truncated` record without a spot count is fetched again on every run.
 
-An accession found on disk without a download record, as a killed run leaves it, is verified against its spot count before it is recorded. It is recorded `unverified` when no count is known, and a truncated one is reported with a pointer to `--redownload-truncated`. `--no-verify-downloads` skips the check of the project's own downloads. A copy in the shared store is always judged against its recorded spot count, and a partial copy is still refused without `--accept-partial`.
+An accession found on disk without a download record, as a killed run leaves it, is verified against its spot count before it is recorded. It is recorded `unverified` when no count is known, and a truncated one is reported with a pointer to `--redownload-truncated`. `--no-verify-downloads` skips the check of the project's own downloads and of a download into the shared store, whose copy is then recorded as unverified. A partial store copy is still refused without `--accept-partial`.
 
 `extract_target_reads` does not extract a sample whose download is known to be incomplete unless `--allow-truncated` is given (see [extraction_assembly.md](extraction_assembly.md)).
 
@@ -122,7 +123,7 @@ Verdict rules that follow from this lookup:
 
 ### Resume and retries
 
-A rerun skips accessions whose FASTQ files exist, so an interrupted run resumes by running the same command again. `--max-retries` sets the number of retry attempts for failed downloads (default 1), and `fastq/failed_accessions.txt` lists the accessions that still failed. A project download that is `truncated` is fetched again only with `--redownload-truncated` or `--force`. For a store copy that is incomplete, `--no-resume-partial` stops the automatic refetch and `--accept-partial` uses the copy as it is (see [shared_store.md](shared_store.md)).
+A rerun skips accessions whose FASTQ files exist, so an interrupted run resumes by running the same command again. An interrupt during compression publishes nothing, so that accession is dumped again from the kept prefetch archive. `--max-retries` sets the number of retry attempts for failed downloads (default 1), and `fastq/failed_accessions.txt` lists the accessions that still failed (a run with no failures removes an earlier file). A project download that was accepted as `truncated` is fetched again only with `--redownload-truncated` or `--force`. For a store copy that is incomplete, `--no-resume-partial` stops the automatic refetch and `--accept-partial` uses the copy as it is (see [shared_store.md](shared_store.md)).
 
 ## sra_validate
 
