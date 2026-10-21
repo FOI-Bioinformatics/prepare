@@ -104,6 +104,23 @@ class TestProcessDownloadResults:
         assert classify_download_error(download_results["SRR1"]) == "network"
         assert seen == [("SRR1", False, "Connection timed out while resolving SRR1")]
 
+    def test_raised_network_error_without_keyword_is_classified_network(self, tmp_path):
+        """A NetworkError whose text names no network symptom still keeps its class."""
+        from prepare.core.exceptions import NetworkError
+        from prepare.data.sra.accession import classify_download_error
+        from prepare.data.sra.retry import _download_with_retries
+
+        def raising_downloader(accession, *args, **kwargs):
+            raise NetworkError("boom")
+
+        _successful, _failed, failed_accessions, download_results, _abort = _download_with_retries(
+            ["SRR1"], tmp_path, 1, 1, False, None, 0, downloader=raising_downloader
+        )
+
+        assert failed_accessions == ["SRR1"]
+        assert download_results["SRR1"].startswith("Error: network: ")
+        assert classify_download_error(download_results["SRR1"]) == "network"
+
     def test_final_count_logged_once(self, caplog):
         """The final tally is logged exactly once, after the loop, not every fifth success."""
         results = [("SRR1", (True, "ok")), ("SRR2", (False, "boom")), ("SRR3", (True, "linked from store, 2 files"))]

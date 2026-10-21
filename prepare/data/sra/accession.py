@@ -244,9 +244,19 @@ def _handle_download_output(
 
     logger.log(active_item_level(), f"Successfully downloaded: {len(found)} files")
 
-    # Compute the verdict on the plain files first: counting reads in an uncompressed
-    # file is cheaper, and the verdict message format must stay stable either way.
-    verdict = fastq_mod.verify_download(output_path.name, output_path, expected_spots=expected_spots)
+    # Count each plain file once: the verdict reads the primary and orphan counts, and the
+    # compression read-back compares every file against its count. Counting an uncompressed
+    # file is cheaper than the gzip pass, and the verdict message format stays the same.
+    counts = {file: fastq_mod.count_fastq_reads(file) for file in moved}
+    primary = fastq_mod.primary_fastq(output_path)
+    orphan = fastq_mod.orphan_fastq(output_path)
+    verdict = fastq_mod.verify_download(
+        output_path.name,
+        output_path,
+        expected_spots=expected_spots,
+        reads_r1=counts[primary] if primary is not None else 0,
+        reads_orphan=counts.get(orphan) if orphan is not None else None,
+    )
     message = _verdict_message(len(found), verdict)
     if verdict["verdict"] == "truncated":
         logger.warning(
@@ -258,7 +268,7 @@ def _handle_download_output(
             return False, f"{message}; rerun with --accept-partial to keep it"
 
     if compress:
-        compression_failures, interrupted, corrupted = _compress_files(moved, output_path.name, num_threads, stop)
+        compression_failures, interrupted, corrupted = _compress_files(counts, output_path.name, num_threads, stop)
         if interrupted:
             # Not published: a folder with some files compressed and some not would be a
             # second layout for every later reader. The next run redoes the dump from the
@@ -283,9 +293,9 @@ def _verdict_message(n_files: int, verdict: Dict[str, Any]) -> str:
 
 
 def _compress_files(
-    moved: List[Path], name: str, num_threads: int, stop: Optional[threading.Event]
+    counts: Dict[Path, int], name: str, num_threads: int, stop: Optional[threading.Event]
 ) -> Tuple[List[str], bool, List[str]]:
-    """Compress each file in ``moved`` and read each result back.
+    """Compress each file in ``counts`` (plain file -> its record count) and read each result back.
 
     Returns the names that failed to compress, whether the run was interrupted before every
     file was compressed, and a description of each compressed file whose record count
@@ -295,12 +305,11 @@ def _compress_files(
     """
     failures: List[str] = []
     corrupted: List[str] = []
-    for file in moved:
+    for file, before in counts.items():
         if stop_requested(stop):
             logger.info(f"Compression of {name} not started: the run was interrupted")
             return failures, True, corrupted
         try:
-            before = fastq_mod.count_fastq_reads(file)
             target = fastq_mod.compress_fastq(file, num_threads, stop=stop)
         except fastq_mod._TOOL_ERRORS as e:
             if stop_requested(stop):

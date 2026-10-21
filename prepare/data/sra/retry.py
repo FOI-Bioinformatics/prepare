@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 
 from prepare.core import settings
 from prepare.core.constants import FAILED_ACCESSIONS_FILE
-from prepare.core.exceptions import PrepareError
+from prepare.core.exceptions import NetworkError, PrepareError
 from prepare.data.file_io import write_text_atomic
 from prepare.data.sra import accession as accession_mod
 from prepare.data.sra.space import INSUFFICIENT_SPACE_PREFIX
@@ -470,6 +470,14 @@ def _execute_parallel_downloads(
     return successful, failed, abort_reason
 
 
+def _classified_text(error: BaseException) -> str:
+    """The exception's text, prefixed with ``network:`` when its class says so but its text does not."""
+    text = str(error)
+    if isinstance(error, NetworkError) and accession_mod.classify_download_error(text) != "network":
+        return f"network: {text}"
+    return text
+
+
 def _collect_result(
     future: Future,
     acc: str,
@@ -480,16 +488,19 @@ def _collect_result(
     """Record one finished download on the main thread: tally entry, callback and progress.
 
     A worker that raised is tallied as ``(False, "Error: <text>")``, so the exception's text
-    reaches the report, the failure class and the retry split like any other failure.
+    reaches the report, the failure class and the retry split like any other failure. A
+    ``NetworkError`` whose text names no network symptom is prefixed with its class, so
+    ``classify_download_error`` still reads it as retryable.
     """
     try:
         result = future.result()
     except (*_DOWNLOAD_ERRORS, CancelledError) as e:
-        logger.error(f"Download failed for {acc}: {e}")
-        futures_results.append((acc, (False, f"Error: {e}")))
-        accession_mod._notify_result(on_result, acc, False, str(e))
+        text = _classified_text(e)
+        logger.error(f"Download failed for {acc}: {text}")
+        futures_results.append((acc, (False, f"Error: {text}")))
+        accession_mod._notify_result(on_result, acc, False, text)
         progress.update(ok=False)
-        return False, str(e)
+        return False, text
 
     futures_results.append((acc, result))
     success, message = result

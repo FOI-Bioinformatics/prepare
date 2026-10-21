@@ -47,6 +47,7 @@ from prepare.data.sra.download import (
     download_sra,
 )
 from prepare.data.sra import accession as accession_mod
+from prepare.data.sra import fastq as fastq_mod
 from prepare.data.sra import retry as retry_mod
 from prepare.data.sra import store_handoff as store_handoff_mod
 from prepare.utils.security import SecureSubprocess
@@ -823,9 +824,8 @@ class TestHandleDownloadOutput:
         (temp_path / "SRR123.fastq").write_text("@seq1\nACGT\n+\nIIII\n")
 
         with patch("shutil.rmtree", side_effect=OSError("Permission denied")):
-            with patch("shutil.move"):
-                with patch("prepare.data.sra.accession.logger") as mock_logger:
-                    success, message = _handle_download_output(temp_path, output_path)
+            with patch("prepare.data.sra.accession.logger") as mock_logger:
+                success, message = _handle_download_output(temp_path, output_path)
 
         assert success is True
         mock_logger.warning.assert_called()
@@ -951,6 +951,31 @@ class TestHandleDownloadOutput:
         assert success is True
         assert message == "Downloaded 1 files, unverified"
         assert (output_path / "SRR123_1.fastq.gz").exists()
+
+    def test_compress_files_counts_each_plain_file_once(self, tmp_path):
+        """The verdict and the compression read-back share one count per plain file."""
+        temp_path = tmp_path / "temp"
+        output_path = tmp_path / "output" / "SRR123"
+        temp_path.mkdir()
+        for name in ("SRR123_1.fastq", "SRR123_2.fastq", "SRR123.fastq"):
+            (temp_path / name).write_text("".join(f"@seq{i}\nACGT\n+\nIIII\n" for i in range(4)))
+        counted = []
+        real_count = fastq_mod.count_fastq_reads
+
+        def counting(path):
+            counted.append(Path(path).name)
+            return real_count(path)
+
+        with (
+            patch("prepare.data.sra.accession.shutil.which", return_value=None),
+            patch("prepare.data.sra.fastq.count_fastq_reads", side_effect=counting),
+        ):
+            success, message = _handle_download_output(temp_path, output_path, expected_spots=8, compress=True)
+
+        assert success is True, message
+        assert message == "Downloaded 3 files, complete (8 of 8 spots)"
+        plain = [name for name in counted if not name.endswith(".gz")]
+        assert sorted(plain) == ["SRR123.fastq", "SRR123_1.fastq", "SRR123_2.fastq"], counted
 
 
 class TestDownloadAccession:
