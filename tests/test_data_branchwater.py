@@ -234,11 +234,7 @@ class TestValidateBranchwaterFile:
         csv_content = "run_id,containment,ksize,scaled\nERR123,0.95,31,1000"
         csv_file.write_text(csv_content)
 
-        with patch("prepare.data.branchwater.logger") as mock_logger:
-            result = _validate_branchwater_file(csv_file)
-
-        assert result is False
-        mock_logger.warning.assert_called_once()
+        assert _validate_branchwater_file(csv_file) is False
 
     def test_validate_branchwater_file_missing_containment(self, tmp_path):
         """Test validation with missing containment column."""
@@ -246,11 +242,7 @@ class TestValidateBranchwaterFile:
         csv_content = "acc,similarity,ksize,scaled\nERR123,0.95,31,1000"
         csv_file.write_text(csv_content)
 
-        with patch("prepare.data.branchwater.logger") as mock_logger:
-            result = _validate_branchwater_file(csv_file)
-
-        assert result is False
-        mock_logger.warning.assert_called_once()
+        assert _validate_branchwater_file(csv_file) is False
 
 
 class TestExtractMetadataFromBranchwater:
@@ -641,6 +633,18 @@ class TestParseContainmentData:
 
         assert "bad_genome.csv" in caplog.text
         assert not output_file.exists()
+
+
+def test_extract_metadata_names_a_file_in_another_format_in_errors(tmp_path):
+    """A CSV without the Branchwater columns is an error, not a silent skip (P18)."""
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "good.csv").write_text("acc,containment,organism\nERR123,0.95,E. coli\n")
+    (source_dir / "other.csv").write_text("run,score\nERR1,0.5\n")
+    errors: list = []
+    result = extract_metadata_from_branchwater(source_dir, tmp_path / "metadata.csv", errors=errors)
+    assert errors == ["other.csv"]
+    assert list(result["Run_ID"]) == ["ERR123"]
 
 
 class TestBranchwaterIntegration:

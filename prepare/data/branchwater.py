@@ -4,6 +4,7 @@ Branchwater data handling module for PREPARE.
 This module provides functions for processing Branchwater containment files.
 """
 
+import csv
 import filecmp
 import logging
 from collections import defaultdict
@@ -198,16 +199,12 @@ def _validate_branchwater_file(csv_file):
     Returns:
         bool: True if file is valid, False otherwise
     """
-    # Read the CSV file directly to check its format
-    with open(csv_file, "r") as f:
-        header_line = f.readline().strip()
-        columns = [col.strip() for col in header_line.split(",")]
+    # Read the header line only, through the CSV module so quoted names are honoured
+    with open(csv_file, "r", newline="") as f:
+        columns = [col.strip() for col in next(csv.reader(f), [])]
 
     # Check if this is a valid Branchwater format file
-    if "acc" not in columns or "containment" not in columns:
-        logger.warning(f"File {csv_file} does not appear to be in Branchwater format. Skipping.")
-        return False
-    return True
+    return "acc" in columns and "containment" in columns
 
 
 def extract_metadata_from_branchwater(
@@ -251,7 +248,7 @@ def extract_metadata_from_branchwater(
 
                 # Validate file format
                 if not _validate_branchwater_file(csv_file):
-                    continue
+                    raise ValueError("not in Branchwater format (no 'acc' and 'containment' columns)")
 
                 # Read the CSV with pandas
                 df = pd.read_csv(csv_file)

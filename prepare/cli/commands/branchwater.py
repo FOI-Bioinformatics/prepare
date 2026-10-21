@@ -8,7 +8,7 @@ from typing import List
 from prepare.cli.base import BaseCommand, anchored_folder
 from pathlib import Path
 
-from prepare.core.exceptions import PrepareError
+from prepare.core.exceptions import DataAccessError, PrepareError
 from prepare.data.branchwater import (
     process_branchwater_files,
     extract_metadata_from_branchwater,
@@ -48,8 +48,7 @@ class UseBranchwaterCommand(BaseCommand):
             errors: List[str] = []
             process_branchwater_files(args.branchwater_folder, args.matches_folder, errors=errors)
             if errors:
-                self.logger.error("%d match file(s) could not be read: %s", len(errors), ", ".join(errors))
-                return 1
+                raise DataAccessError(f"{len(errors)} match file(s) could not be read: {', '.join(errors)}")
             self.logger.info("Next: prepare parse_containment --matches-folder %s", args.matches_folder)
             return 0
         except PrepareError as e:
@@ -93,8 +92,7 @@ class ExtractBranchwaterMetadataCommand(BaseCommand):
             errors: List[str] = []
             extract_metadata_from_branchwater(args.branchwater_folder, output_file, errors=errors)
             if errors:
-                self.logger.error("%d match file(s) could not be read: %s", len(errors), ", ".join(errors))
-                return 1
+                raise DataAccessError(f"{len(errors)} match file(s) could not be read: {', '.join(errors)}")
             return 0
         except PrepareError as e:
             return self.fail(e, "Error extracting metadata")
