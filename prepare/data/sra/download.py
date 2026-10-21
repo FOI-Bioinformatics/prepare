@@ -172,7 +172,7 @@ def _log_download_run_summary(
         logger.error(f"Download run aborted: {abort_reason}")
     if failed_count > 0:
         logger.warning("Some downloads failed. Use --force to retry or --max-retries to enable automatic retry.")
-        retry_mod._handle_download_failure(fastq_path, failed_accessions)
+    retry_mod._handle_download_failure(fastq_path, failed_accessions, attempted=list(download_results))
 
 
 def _space_guard(

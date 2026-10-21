@@ -14,17 +14,15 @@ from typing import List, Optional
 
 from prepare.cli.base import BaseCommand, anchored_folder, refuse_bad_accessions
 from prepare.cli.commands.sra_verdicts import store_sidecar_verdict, store_spot_count, store_verdict
-from prepare.cli.commands.store._shared import _no_store_hint
+from prepare.cli.commands.store._shared import _required_store
 from prepare.core.exceptions import DataAccessError
-from prepare.data import registry_blocks as rb
-from prepare.data.registry import load_registry, record_download
+from prepare.data.registry import record_download
 from prepare.data.registry import registry_transaction, update_linked
 from prepare.data.registry_timing import set_download_timing
 from prepare.data.sra.store_handoff import _reverify_sidecar, _short_unverified
 from prepare.store.layout import StorePaths, sidecar_path, store_paths
 from prepare.store.link import LINK_MODES, link_dataset, unlink_dataset
 from prepare.store.locks import dataset_lock
-from prepare.store.resolve import resolve_store_root
 from prepare.store.sidecar import read_sidecar
 from prepare.store.usage import ensure_project_identity, record_usage_many
 from prepare.utils.lockfile import LockHeld
@@ -128,15 +126,11 @@ class StoreLinkCommand(BaseCommand):
         """Run the command; return the exit code."""
         if (rc := refuse_bad_accessions(self.logger, args.accessions)) is not None:
             return rc
-        try:
-            registry = load_registry(args.registry)
-            root = resolve_store_root(args.data_root, rb.store_block(registry).root)
-        except DataAccessError as e:
-            return self.fail(e, self.name)
-
-        if root is None:
-            _no_store_hint()
-            return 1
+        ctx = _required_store(args, self)
+        if isinstance(ctx, int):
+            return ctx
+        root = ctx.root
+        registry = ctx.registry
 
         paths = store_paths(root)
         fastq = anchored_folder(args.fastq_folder, args.registry)

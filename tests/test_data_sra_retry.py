@@ -104,6 +104,23 @@ class TestProcessDownloadResults:
         assert classify_download_error(download_results["SRR1"]) == "network"
         assert seen == [("SRR1", False, "Connection timed out while resolving SRR1")]
 
+    def test_raised_network_error_without_keyword_is_classified_network(self, tmp_path):
+        """A NetworkError whose text names no network symptom still keeps its class."""
+        from prepare.core.exceptions import NetworkError
+        from prepare.data.sra.accession import classify_download_error
+        from prepare.data.sra.retry import _download_with_retries
+
+        def raising_downloader(accession, *args, **kwargs):
+            raise NetworkError("boom")
+
+        _successful, _failed, failed_accessions, download_results, _abort = _download_with_retries(
+            ["SRR1"], tmp_path, 1, 1, False, None, 0, downloader=raising_downloader
+        )
+
+        assert failed_accessions == ["SRR1"]
+        assert download_results["SRR1"].startswith("Error: network: ")
+        assert classify_download_error(download_results["SRR1"]) == "network"
+
     def test_final_count_logged_once(self, caplog):
         """The final tally is logged exactly once, after the loop, not every fifth success."""
         results = [("SRR1", (True, "ok")), ("SRR2", (False, "boom")), ("SRR3", (True, "linked from store, 2 files"))]
@@ -375,12 +392,37 @@ class TestHandleDownloadFailure:
         mock_logger.info.assert_not_called()
 
     def test_clean_run_removes_a_stale_failed_file(self, tmp_path):
+        """A clean run that downloaded the listed accession removes the list it made stale."""
         fastq_path = tmp_path / "downloads"
         fastq_path.mkdir()
         stale = fastq_path / "failed_accessions.txt"
         stale.write_text("SRR999\n")
 
-        _handle_download_failure(fastq_path, [])
+        _handle_download_failure(fastq_path, [], attempted=["SRR999"])
+
+        assert not stale.exists()
+
+    def test_clean_run_leaves_another_runs_failed_file(self, tmp_path):
+        """A list naming accessions this run never attempted belongs to another run and stays."""
+        fastq_path = tmp_path / "downloads"
+        fastq_path.mkdir()
+        other = fastq_path / "failed_accessions.txt"
+        other.write_text("SRR999\n")
+
+        _handle_download_failure(fastq_path, [], attempted=["SRR1"])
+
+        assert other.read_text() == "SRR999\n"
+
+    def test_run_summary_removes_the_stale_file_on_a_clean_run(self, tmp_path):
+        """The summary step reaches the failure handler on a clean run too, so a stale list goes."""
+        from prepare.data.sra.download import _log_download_run_summary
+
+        fastq_path = tmp_path / "downloads"
+        fastq_path.mkdir()
+        stale = fastq_path / "failed_accessions.txt"
+        stale.write_text("SRR999\n")
+
+        _log_download_run_summary(["SRR999"], [], [], 1, 0, {"SRR999": "Downloaded 1 files"}, None, [], fastq_path)
 
         assert not stale.exists()
 

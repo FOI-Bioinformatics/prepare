@@ -106,6 +106,21 @@ class TestLoadSignature:
         with pytest.raises(DataAccessError, match="not valid JSON"):
             load_signature(path)
 
+    def test_gzipped_file(self, tmp_path):
+        """A ``.sig.gz`` (what ``sourmash sketch -o x.sig.gz`` and ``sra_sketch`` write) loads too."""
+        import gzip
+
+        path = tmp_path / "wmel.sig.gz"
+        with gzip.open(path, "wt") as handle:
+            handle.write(json.dumps([SIG_OBJECT]))
+        assert load_signature(path)["name"] == "wmel"
+
+    def test_binary_junk_is_not_a_signature(self, tmp_path):
+        path = tmp_path / "junk.sig"
+        path.write_bytes(b"\x00\xff\xfe\x01binary")
+        with pytest.raises(DataAccessError, match="not valid JSON"):
+            load_signature(path)
+
     def test_multi_sketch_selects_k21(self, tmp_path):
         k31_sketch = {
             "num": 0,

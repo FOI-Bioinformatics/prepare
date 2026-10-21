@@ -2,10 +2,38 @@
 
 All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM-DD format.
 
-## [Unreleased]
+## [0.11.1] - 2026-10-21
+
+The quick wins of `docs/superpowers/audits/2026-10-21-tech-debt.md`: the review minors deferred
+from 0.10.2 and 0.11.0, one shared store preamble, and three guards that keep measured counts
+from growing.
+
+### Fixed
+
+- `download_sra` counts each plain file once before compression; the verdict and the
+  compression read-back share the counts.
+- A `NetworkError` raised by a download worker whose text names no network symptom is still
+  classified `network` (exit 4, retried), by prefixing its class.
+- `--no-verify-downloads` with a shared store keeps NCBI's spot count from the metadata XML in
+  the sidecar's `ncbi` block; only the verdict of that download is `unverified`. Earlier the count
+  was dropped. Since the count is on file, a later `store_link`, `store_adopt` or
+  `store_verify` judges the copy against it like any other, so a short copy fetched this way
+  is reported `truncated` or `partial` there.
+- `failed_accessions.txt` was never removed by a clean run (the cleanup ran only when something
+  failed). A clean run now removes the list when every accession it names was attempted by that
+  run, and leaves a list that names other accessions, since it belongs to another run on the
+  same folder.
+- `sra_sketch`: a worker that raises an unexpected error fails that accession with its
+  traceback in the log and keeps the records of the accessions that finished (exit 1), instead
+  of discarding them; the wait for a store dataset lock while caching a sketch ends on Ctrl-C;
+  the store cache is only reused when the cached signature has the same k sizes and scaled
+  value; `--signature` accepts a `.sig.gz`; a folder under the FASTQ folder whose name is not an
+  accession is listed once and skipped instead of failing the run.
 
 ### Changed
 
+- The hidden pointers for the commands renamed in 0.5.0 (`sra_stats`, `sra_profile_quality`,
+  `sra_dashboard`, `sra_compare`) name 0.13.0 as the release that removes them.
 - CI trimmed to what gates a commit: the push/pull-request workflow runs the quality gate, the
   test suite on Linux (Python 3.12 and 3.13) and macOS (3.13), and a wheel build with a CLI smoke
   run on the installed wheel. The Codecov upload (rejected for lack of a token), the duplicate
@@ -13,6 +41,16 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   from NCBI, and the weekly `branchwater.yml` (synthetic data covered by the unit tests) are gone.
   Every job has a timeout, and the release workflow runs the test suite with the same perf scale
   as CI.
+
+### Internal
+
+- The seven store commands share one preamble (`_required_store` in
+  `cli/commands/store/_shared.py`) that loads the registry, resolves the store and refuses
+  without one.
+- Three tests pin counts that only go down: package modules exempt from B902 and from
+  D101-D103 in `setup.cfg`, modules outside `prepare/cli/` that import `prepare.cli`, and
+  functions at radon rank C. `docs/superpowers/README.md` indexes the design records with the
+  release each shipped in.
 
 ## [0.11.0] - 2026-10-21
 

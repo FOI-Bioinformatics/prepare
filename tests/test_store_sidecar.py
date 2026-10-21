@@ -209,6 +209,19 @@ def test_build_sidecar_verdict_unverified(tmp_path):
     assert sidecar.completeness["verdict"] == "unverified"
 
 
+def test_build_sidecar_verify_off_keeps_the_count_but_does_not_judge(tmp_path):
+    """With ``verify=False`` the NCBI block keeps ``spots`` and the verdict is ``unverified``."""
+    acc_dir = tmp_path / "SRR1"
+    acc_dir.mkdir()
+    _write_fastq(acc_dir / "SRR1.fastq", 10)
+
+    sidecar = build_sidecar("SRR1", acc_dir, {"spots": 100}, "3.0.0", "none", verify=False)
+
+    assert sidecar.state == "complete"
+    assert sidecar.ncbi["spots"] == 100
+    assert sidecar.completeness == {"method": "unverified", "ratio": None, "verdict": "unverified"}
+
+
 def test_build_sidecar_truncated_gzip_is_failed_state(tmp_path):
     acc_dir = tmp_path / "SRR1"
     acc_dir.mkdir()

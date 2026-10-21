@@ -9,18 +9,16 @@ from pathlib import Path
 from typing import Any, Collection, Dict, List, Optional
 
 from prepare.cli.base import BaseCommand, refuse_bad_accessions
-from prepare.cli.commands.store._shared import _no_store_hint
+from prepare.cli.commands.store._shared import _required_store
 from prepare.core.constants import SRA_ACCESSION_PATTERN
 from prepare.core.exceptions import DataAccessError
-from prepare.data import registry_blocks as rb
 from prepare.data import run_log
 from prepare.data.file_io import visible_files
-from prepare.data.registry import load_registry, project_root
+from prepare.data.registry import project_root
 from prepare.data.sra import count_fastq_reads, fastq_files, orphan_fastq, primary_fastq, verify_download
 from prepare.store.catalog import catalog_write
 from prepare.store.layout import StorePaths, sidecar_path, sra_dir, store_paths
 from prepare.store.locks import LockHeld, dataset_lock
-from prepare.store.resolve import resolve_store_root
 from prepare.store.sidecar import (
     Sidecar,
     build_sidecar,
@@ -531,15 +529,11 @@ class StoreVerifyCommand(BaseCommand):
         """Run the command; return the exit code."""
         if (rc := refuse_bad_accessions(self.logger, args.accessions)) is not None:
             return rc
-        try:
-            registry = load_registry(args.registry)
-            root = resolve_store_root(args.data_root, rb.store_block(registry).root)
-        except DataAccessError as e:
-            return self.fail(e, self.name)
-
-        if root is None:
-            _no_store_hint(args.json)
-            return 1
+        ctx = _required_store(args, self)
+        if isinstance(ctx, int):
+            return ctx
+        root = ctx.root
+        registry = ctx.registry
 
         try:
             paths = store_paths(root)

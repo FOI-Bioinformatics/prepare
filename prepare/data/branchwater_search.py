@@ -10,10 +10,12 @@ PREPARE reads (see ``use_branchwater``). The metadata columns are left empty;
 """
 
 import csv
+import gzip
 import hashlib
 import io
 import json
 import logging
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -91,7 +93,7 @@ def sketch_fasta(fasta_path: Union[str, Path]) -> Dict[str, Any]:
 
 
 def load_signature(sig_path: Union[str, Path]) -> Dict[str, Any]:
-    """Read one sourmash JSON signature (list or single object) and select its k=21, scaled=1000 sketch.
+    """Read one sourmash JSON signature (plain or gzipped) and select its k=21, scaled=1000 sketch.
 
     A signature holding several sketches (for example one file with k=21 and k=31
     sketches) is common when a .sig was built with multiple k-mer sizes; only the
@@ -102,9 +104,13 @@ def load_signature(sig_path: Union[str, Path]) -> Dict[str, Any]:
     if not path.exists():
         raise DataAccessError(f"Signature file not found: {path}")
     try:
-        with open(path) as handle:
-            data = json.load(handle)
-    except json.JSONDecodeError as e:
+        with open(path, "rb") as handle:
+            raw = handle.read()
+        if raw[:2] == b"\x1f\x8b":
+            # A .sig.gz, as sourmash's own -o x.sig.gz and sra_sketch write it.
+            raw = gzip.decompress(raw)
+        data = json.loads(raw.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError, EOFError, zlib.error) as e:
         raise DataAccessError(f"Signature file is not valid JSON: {path} ({e})") from e
 
     signature = data[0] if isinstance(data, list) and data else data

@@ -14,7 +14,7 @@ the sidecar, which every other command reads.
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 from prepare.core.exceptions import DataAccessError
 from prepare.data.file_io import copy_file
@@ -39,31 +39,46 @@ def cached_sketch(
     """The cached signature path and its sidecar block when they still describe ``files``.
 
     None when there is no sidecar path, no readable sidecar, no ``sketch`` block, the block's
-    file snapshot differs from the files now, or the signature file is missing.
+    file snapshot differs from the files now, the block was built with other k sizes or
+    another scaled value than ``sra_sketch`` uses now, or the signature file is missing.
     """
+    # Imported here: the sketch parameters live with the sketching code in prepare.sra.
+    from prepare.sra.sketch import KSIZES, SCALED
+
     if sidecar_path is None:
         return None
     sidecar = read_sidecar(sidecar_path)
-    if sidecar is None or not sidecar.sketch:
+    block = sidecar.sketch if sidecar is not None else None
+    if not block or not block.get("file"):
         return None
-    block = sidecar.sketch
-    if block.get("files") != _file_signature([Path(f) for f in files]):
-        return None
-    path = Path(sidecar_path).parent / str(block.get("file") or "")
-    if not block.get("file") or not path.is_file():
+    path = Path(sidecar_path).parent / str(block["file"])
+    if not _block_describes(block, files, KSIZES, SCALED) or not path.is_file():
         return None
     return path, block
 
 
+def _block_describes(block: Dict[str, Any], files: Sequence[Path], ksizes: Sequence[int], scaled: int) -> bool:
+    """Whether a cached ``sketch`` block was built from ``files`` as they are now, with these parameters."""
+    return (
+        block.get("files") == _file_signature([Path(f) for f in files])
+        and list(block.get("ksizes") or []) == list(ksizes)
+        and block.get("scaled") == scaled
+    )
+
+
 def store_sketch(
-    sidecar_path: Optional[Union[str, Path]], signature_file: Union[str, Path], summary: Dict[str, Any]
+    sidecar_path: Optional[Union[str, Path]],
+    signature_file: Union[str, Path],
+    summary: Dict[str, Any],
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> None:
     """Copy ``signature_file`` beside the sidecar and record ``summary`` as its ``sketch`` block.
 
     A no-op without a sidecar (``sidecar_path`` None or not a file). Inside a store the copy
     and the read-modify-write of the sidecar run under the dataset lock with the statistics
     wait; a lock held by a running download leaves the cache unwritten, with a warning, since
-    the next ``sra_sketch`` run computes the sketch again.
+    the next ``sra_sketch`` run computes the sketch again. ``should_stop`` (the run's stop
+    token) ends that wait early, with the same warning.
     """
     if sidecar_path is None or not Path(sidecar_path).is_file():
         return
@@ -73,7 +88,7 @@ def store_sketch(
         return
     paths, accession = located
     try:
-        with dataset_lock(paths, accession, wait_seconds=STATS_LOCK_WAIT_SECONDS):
+        with dataset_lock(paths, accession, wait_seconds=STATS_LOCK_WAIT_SECONDS, should_stop=should_stop):
             _write_sketch(Path(sidecar_path), Path(signature_file), summary)
     except DataAccessError as e:
         logger.warning("Not caching sketch for %s: %s", accession, e)

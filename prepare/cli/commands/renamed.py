@@ -11,6 +11,9 @@ from typing import Any, List, Sequence, Tuple
 
 from prepare.cli.base import BaseCommand
 
+# The release that drops these pointers; named in every pointer's message and in CHANGELOG.
+REMOVAL_VERSION = "0.13.0"
+
 # old name -> the command that replaced it
 RENAMED_COMMANDS = {
     "sra_stats": "sra_profile",
@@ -69,7 +72,9 @@ class RenamedCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         """Log the new command name and return 2."""
-        self.logger.error("%s was renamed: use prepare %s", self.old, self.new)
+        self.logger.error(
+            "%s was renamed: use prepare %s; this pointer is removed in %s", self.old, self.new, REMOVAL_VERSION
+        )
         return 2
 
 

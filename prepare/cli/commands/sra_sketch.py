@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from prepare.cli.base import BaseCommand, accessions_from_args, anchored_folder, positive_int, resolve_command_store
 from prepare.core import settings
 from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
+from prepare.core.validation import validate_accession
 from prepare.core.optional import require
 from prepare.data import run_log
 from prepare.data.branchwater_search import load_signature, sketch_fasta
@@ -135,7 +136,13 @@ class SRASketchCommand(BaseCommand):
         if named:
             return named
         folder = Path(args.fastq_folder)
-        found = [d.name for d in visible_files(folder, dirs=True) if not is_transient_folder(d.name)]
+        names = [d.name for d in visible_files(folder, dirs=True) if not is_transient_folder(d.name)]
+        found = [name for name in names if validate_accession(name)]
+        skipped = [name for name in names if not validate_accession(name)]
+        if skipped:
+            self.logger.info(
+                "Skipping %d folder(s) under %s that are not accessions: %s", len(skipped), folder, ", ".join(skipped)
+            )
         if not found:
             raise ValidationError(f"No accession folders in {folder}; give --accession or --accessions-file")
         return found
@@ -193,7 +200,9 @@ class SRASketchCommand(BaseCommand):
         summary = sketch_summary(sketch)
         if item.acc_dir is not None:
             try:
-                store_sketch(_resolved_sidecar_path(item.acc_dir), target, summary)
+                store_sketch(
+                    _resolved_sidecar_path(item.acc_dir), target, summary, should_stop=stop.is_set if stop else None
+                )
             except (OSError, DataAccessError) as e:
                 # The project has its signature; the store cache is only a saving for others.
                 self.logger.warning("Not caching the sketch of %s in the store: %s", item.accession, e)
@@ -216,12 +225,9 @@ class SRASketchCommand(BaseCommand):
                 futures[executor.submit(self._sketch_one, item, output_dir, stop)] = item
             for future in as_completed(futures):
                 item = futures[future]
-                outcome = self._collect(future, item, progress)
-                if outcome is None:
-                    failed.append(item.accession)
-                else:
-                    done.append(outcome)
-                if stop is not None and stop.is_set():
+                stopped = stop is not None and stop.is_set()
+                self._tally(self._collect(future, item, progress), item, stopped, done, failed)
+                if stopped:
                     interrupted = True
                     break
         except KeyboardInterrupt:
@@ -239,6 +245,15 @@ class SRASketchCommand(BaseCommand):
                         done.append(outcome)
         return done, failed, interrupted
 
+    @staticmethod
+    def _tally(outcome: Optional[Done], item: Planned, stopped: bool, done: List[Done], failed: List[str]) -> None:
+        """File one collected result: finished, failed, or (after a stop) neither."""
+        if outcome is not None:
+            done.append(outcome)
+        elif not stopped:
+            # A worker stopped on the token is neither sketched nor failed.
+            failed.append(item.accession)
+
     def _collect(self, future: Future, item: Planned, progress: ProgressReporter) -> Optional[Done]:
         """The finished future's result, or None (logged) when the accession could not be sketched."""
         try:
@@ -247,6 +262,10 @@ class SRASketchCommand(BaseCommand):
             if isinstance(e, InterruptedError):
                 return None
             self.logger.warning("Failed to sketch %s: %s", item.accession, e)
+            progress.update(ok=False)
+            return None
+        except Exception as e:  # noqa: B902 - a worker bug fails its accession; the others' records survive
+            self.logger.exception("Failed to sketch %s: %s", item.accession, e)
             progress.update(ok=False)
             return None
         progress.update(ok=True)

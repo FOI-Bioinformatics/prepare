@@ -387,6 +387,27 @@ class TestStoreStatusCommand:
         # Without --json the hint is an error on stderr; stdout carries no result.
         assert capsys.readouterr().out == ""
 
+    def test_required_store_returns_the_context_or_the_refusal(self, tmp_path, monkeypatch, capsys, caplog):
+        """The shared preamble: a StoreContext with a store; the exit code plus the hint without one."""
+        from prepare.cli.commands.store._shared import StoreContext, _required_store
+
+        monkeypatch.chdir(tmp_path)
+        command = StoreStatusCommand()
+        with caplog.at_level(logging.ERROR):
+            ctx = _required_store(_status_args(json=True, registry=str(tmp_path / "prepare_registry.json")), command)
+        assert ctx == 1
+        assert "store_init" in caplog.text
+        assert json.loads(capsys.readouterr().out)["error"].startswith("No store configured")
+
+        paths = init_store(tmp_path / "store")
+        ctx = _required_store(
+            _status_args(data_root=str(paths.root), registry=str(tmp_path / "prepare_registry.json")), command
+        )
+        assert isinstance(ctx, StoreContext) and ctx.root == paths.root and ctx.registry is not None
+
+        (tmp_path / "broken.json").write_text("{not json")
+        assert _required_store(_status_args(registry=str(tmp_path / "broken.json")), command) == 1
+
     def test_no_store_configured_with_json_prints_json_error(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
         rc = StoreStatusCommand().execute(_status_args(json=True, registry=str(tmp_path / "prepare_registry.json")))

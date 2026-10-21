@@ -438,12 +438,13 @@ def _catalogue_published(store, sidecar) -> bool:
         return False
 
 
-def _sidecar_ncbi(accession: str, store, store_metadata, expected_spots, verify: bool) -> Dict[str, Any]:
+def _sidecar_ncbi(accession: str, store, store_metadata, expected_spots) -> Dict[str, Any]:
     """The ``ncbi`` block of a fresh store sidecar: the metadata XML's figures, with ``spots`` resolved.
 
     ``expected_spots`` (the resolved count of ``_resolve_expected_spots``) fills in ``spots``
-    when the XML records none. With ``verify`` off no count is recorded at all: one on file
-    would let ``store_verify`` judge a copy the user asked not to judge.
+    when the XML records none. The XML's own count is kept whether or not the download is
+    verified: it is NCBI's figure for the run, and ``--no-verify-downloads`` turns off the
+    judgement (``build_sidecar(..., verify=False)``), not the record.
     """
     from prepare.store.sidecar import ncbi_from_metadata_xml
 
@@ -452,8 +453,6 @@ def _sidecar_ncbi(accession: str, store, store_metadata, expected_spots, verify:
     expected = spots_mod.positive_int(expected_spots)
     if not ncbi.get("spots") and expected is not None:
         ncbi = {**ncbi, "spots": expected}
-    if not verify:
-        return {key: value for key, value in ncbi.items() if key != "spots"}
     return ncbi
 
 
@@ -529,11 +528,11 @@ def _store_fetch(
 
     files = fastq_mod.fastq_files(staged)
     compression = "gzip" if any(path.name.endswith(".gz") for path in files) else "none"
-    ncbi = _sidecar_ncbi(accession, store, store_metadata, download_kwargs.get("expected_spots"), verify)
-    expected = ncbi.get("spots")
+    ncbi = _sidecar_ncbi(accession, store, store_metadata, download_kwargs.get("expected_spots"))
+    expected = ncbi.get("spots") if verify else None
 
     previous = _read_store_sidecar(store, accession) if replacing else None
-    sidecar = build_sidecar(accession, staged, ncbi, accession_mod.fasterq_dump_version(), compression)
+    sidecar = build_sidecar(accession, staged, ncbi, accession_mod.fasterq_dump_version(), compression, verify=verify)
     sidecar.refetch = _refetch_record(previous, sidecar)
     write_sidecar(staged / f"{accession}.json", sidecar)
     # A holder stalled past the stale window may have lost the lock to another project, which

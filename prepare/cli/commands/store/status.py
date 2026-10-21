@@ -7,13 +7,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from prepare.cli.base import BaseCommand
-from prepare.cli.commands.store._shared import _no_store_hint, _stale_project_row
+from prepare.cli.commands.store._shared import _stale_project_row, _required_store
 from prepare.core.exceptions import DataAccessError
-from prepare.data import registry_blocks as rb
-from prepare.data.registry import load_registry
 from prepare.store.catalog import Catalog
 from prepare.store.layout import read_marker, store_paths
-from prepare.store.resolve import resolve_store_root
 from prepare.store.usage import stale_projects
 
 
@@ -142,15 +139,10 @@ class StoreStatusCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         """Run the command; return the exit code."""
-        try:
-            registry = load_registry(args.registry)
-            root = resolve_store_root(args.data_root, rb.store_block(registry).root)
-        except DataAccessError as e:
-            return self.fail(e, self.name)
-
-        if root is None:
-            _no_store_hint(getattr(args, "json", False))
-            return 1
+        ctx = _required_store(args, self)
+        if isinstance(ctx, int):
+            return ctx
+        root = ctx.root
 
         try:
             report = self._build_report(root, args)

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 
 from prepare.core import settings
 from prepare.core.constants import FAILED_ACCESSIONS_FILE
-from prepare.core.exceptions import PrepareError
+from prepare.core.exceptions import NetworkError, PrepareError
 from prepare.data.file_io import write_text_atomic
 from prepare.data.sra import accession as accession_mod
 from prepare.data.sra.space import INSUFFICIENT_SPACE_PREFIX
@@ -333,24 +333,37 @@ def _back_off(seconds: float, stop: Optional[threading.Event]) -> None:
         stop.wait(seconds)
 
 
-def _handle_download_failure(fastq_path, failed_accessions):
+def _handle_download_failure(fastq_path, failed_accessions, attempted=()):
     """
-    Handle failed downloads by writing failed accessions to a file.
+    Write the failed accessions to ``failed_accessions.txt``, or remove a list this run made stale.
 
     Args:
         fastq_path: Path to FASTQ directory
         failed_accessions: List of failed accessions
+        attempted: Every accession this run attempted; a clean run removes an earlier list
+            only when it names nothing else, since a list naming other accessions belongs
+            to another run on the same folder
     """
     failed_file = Path(fastq_path) / FAILED_ACCESSIONS_FILE
     if not failed_accessions:
-        # A clean run leaves no stale list from an earlier run behind.
-        if failed_file.exists():
-            failed_file.unlink()
+        _remove_stale_failed_file(failed_file, set(attempted))
         return
 
     # Write failed accessions to file for easier retry; the command logs the retry hint.
     write_text_atomic(failed_file, "".join(f"{acc}\n" for acc in failed_accessions))
     logger.info(f"Failed accessions written to {failed_file}")
+
+
+def _remove_stale_failed_file(failed_file: Path, attempted: Set[str]) -> None:
+    """Remove ``failed_file`` when every accession it lists was attempted by this run."""
+    try:
+        listed = {line.strip() for line in failed_file.read_text().splitlines() if line.strip()}
+    except FileNotFoundError:
+        return
+    if listed <= attempted:
+        failed_file.unlink(missing_ok=True)
+        return
+    logger.debug(f"{failed_file} names accessions this run did not attempt; left for the run that wrote it")
 
 
 def _execute_parallel_downloads(
@@ -470,6 +483,14 @@ def _execute_parallel_downloads(
     return successful, failed, abort_reason
 
 
+def _classified_text(error: BaseException) -> str:
+    """The exception's text, prefixed with ``network:`` when its class says so but its text does not."""
+    text = str(error)
+    if isinstance(error, NetworkError) and accession_mod.classify_download_error(text) != "network":
+        return f"network: {text}"
+    return text
+
+
 def _collect_result(
     future: Future,
     acc: str,
@@ -480,16 +501,19 @@ def _collect_result(
     """Record one finished download on the main thread: tally entry, callback and progress.
 
     A worker that raised is tallied as ``(False, "Error: <text>")``, so the exception's text
-    reaches the report, the failure class and the retry split like any other failure.
+    reaches the report, the failure class and the retry split like any other failure. A
+    ``NetworkError`` whose text names no network symptom is prefixed with its class, so
+    ``classify_download_error`` still reads it as retryable.
     """
     try:
         result = future.result()
     except (*_DOWNLOAD_ERRORS, CancelledError) as e:
-        logger.error(f"Download failed for {acc}: {e}")
-        futures_results.append((acc, (False, f"Error: {e}")))
-        accession_mod._notify_result(on_result, acc, False, str(e))
+        text = _classified_text(e)
+        logger.error(f"Download failed for {acc}: {text}")
+        futures_results.append((acc, (False, f"Error: {text}")))
+        accession_mod._notify_result(on_result, acc, False, text)
         progress.update(ok=False)
-        return False, str(e)
+        return False, text
 
     futures_results.append((acc, result))
     success, message = result
