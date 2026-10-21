@@ -34,4 +34,4 @@ the current behaviour is in the user and developer guides listed in [../README.m
 | 2026-10-21 | [plans/2026-10-21-local-sketch.md](plans/2026-10-21-local-sketch.md) | plan | 0.11.0 | done |
 | 2026-10-21 | [audits/2026-10-21-tech-debt.md](audits/2026-10-21-tech-debt.md) | audit | 0.11.1 (quick wins); the medium-term items are not yet planned | open |
 | 2026-10-21 | [plans/2026-10-21-tech-debt-quick-wins.md](plans/2026-10-21-tech-debt-quick-wins.md) | plan | 0.11.1 | done |
-| 2026-10-21 | [audits/2026-10-21-pipeline-gui-audit.md](audits/2026-10-21-pipeline-gui-audit.md) | audit | not yet planned | open |
+| 2026-10-21 | [audits/2026-10-21-pipeline-gui-audit.md](audits/2026-10-21-pipeline-gui-audit.md) | audit | 0.11.2 (High findings); the rest is not yet planned | open |
