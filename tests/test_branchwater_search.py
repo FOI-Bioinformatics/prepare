@@ -37,6 +37,20 @@ def _write_fasta(path, seed=7, length=5000):
 
 
 class TestSketchFasta:
+    def test_sketch_fasta_reads_gzip(self, tmp_path):
+        """A gzipped FASTA gives the same sketch as the plain file, named without both suffixes."""
+        import gzip
+
+        pytest.importorskip("sourmash")
+        plain = tmp_path / "G.fna"
+        _write_fasta(plain)
+        packed = tmp_path / "G.fna.gz"
+        with gzip.open(packed, "wb") as handle:
+            handle.write(plain.read_bytes())
+        signature = sketch_fasta(packed)
+        assert signature["signatures"][0]["mins"] == sketch_fasta(plain)["signatures"][0]["mins"]
+        assert signature["name"] == "G"
+
     def test_builds_k21_scaled1000_signature(self, tmp_path):
         pytest.importorskip("sourmash")
         fasta = tmp_path / "GCF_000000001.1.fna"

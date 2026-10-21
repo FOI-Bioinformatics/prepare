@@ -6,6 +6,7 @@ from pathlib import Path
 from prepare.cli.base import finite_float, BaseCommand, anchored_folder
 from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
 from prepare.core.exceptions import PrepareError
+from prepare.core.validation import genome_name
 from prepare.data.branchwater_search import (
     DEFAULT_SERVER,
     KSIZE,
@@ -72,7 +73,8 @@ class BranchwaterSearchCommand(BaseCommand):
                 source = Path(args.signature)
 
             folder = anchored_folder(args.branchwater_folder, getattr(args, "registry", None))
-            output = Path(args.output) if args.output else folder / f"{source.stem}.csv"
+            genome_id = genome_name(source)
+            output = Path(args.output) if args.output else folder / f"{genome_id}.csv"
             cache_dir = None if args.no_cache else output.parent / ".branchwater-cache"
             matches = search_index(
                 signature,
@@ -91,7 +93,7 @@ class BranchwaterSearchCommand(BaseCommand):
                 self.logger.info(
                     "%d metagenome(s) contain %s at >= %.2f; best containment %.4f (%s)",
                     len(matches),
-                    source.stem,
+                    genome_id,
                     args.threshold,
                     best_containment,
                     best_accession,
@@ -109,9 +111,9 @@ class BranchwaterSearchCommand(BaseCommand):
                 for accession, containment in matches:
                     cani = containment ** (1 / KSIZE) if containment > 0 else 0.0
                     record_screening(
-                        registry, accession, source.stem, containment, cani, "branchwater", args.threshold, output
+                        registry, accession, genome_id, containment, cani, "branchwater", args.threshold, output
                     )
-                cap_screening(registry, source.stem, args.registry_max_screened)
+                cap_screening(registry, genome_id, args.registry_max_screened)
             return 0
         except PrepareError as e:
             return self.fail(e, "Error searching Branchwater")

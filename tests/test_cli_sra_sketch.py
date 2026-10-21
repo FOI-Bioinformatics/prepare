@@ -323,6 +323,18 @@ def test_signature_input_and_genome_id(tmp_path):
     assert (tmp_path / "matches" / "wMel-2026.csv").is_file()
 
 
+def test_genome_id_of_a_gz_fasta_drops_both_suffixes(tmp_path):
+    _dataset(tmp_path)
+    genome = _genome(tmp_path)
+    packed = tmp_path / "G.fna.gz"
+    with gzip.open(packed, "wb") as handle:
+        handle.write(genome.read_bytes())
+
+    assert SRASketchCommand().execute(_args(tmp_path, genome_fasta=str(packed))) == 0
+
+    assert (tmp_path / "matches" / "G.csv").is_file()
+
+
 def test_store_cache_round_trip(tmp_path, monkeypatch):
     from prepare.store.catalog import Catalog
     from prepare.store.layout import init_store, store_paths

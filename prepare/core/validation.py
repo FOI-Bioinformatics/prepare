@@ -42,6 +42,31 @@ def validate_accession(accession: str) -> bool:
     return True
 
 
+#: Suffixes a genome file name carries, longest first; the name before one of them is the genome id.
+GENOME_FILE_SUFFIXES = (
+    ".fna.gz",
+    ".fasta.gz",
+    ".fa.gz",
+    ".sig.gz",
+    ".fna",
+    ".fasta",
+    ".fa",
+    ".sig",
+)
+
+
+def genome_name(path: Union[str, Path]) -> str:
+    """The genome id of a FASTA or signature file: its name without the FASTA suffix and ``.gz``.
+
+    ``G.fna.gz`` and ``G.fna`` both give ``G``; a file with another suffix gives its stem.
+    """
+    name = Path(path).name
+    for suffix in GENOME_FILE_SUFFIXES:
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return Path(path).stem
+
+
 def validate_containment_value(value: Union[str, float]) -> Optional[float]:
     """
     Validate and convert a containment value.

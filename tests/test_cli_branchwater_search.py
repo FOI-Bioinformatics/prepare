@@ -63,6 +63,21 @@ class TestBranchwaterSearchCommand:
     @patch("prepare.cli.commands.branchwater_search.write_branchwater_csv")
     @patch("prepare.cli.commands.branchwater_search.search_index")
     @patch("prepare.cli.commands.branchwater_search.sketch_fasta")
+    def test_genome_id_of_a_gz_fasta_drops_both_suffixes(
+        self, mock_sketch, mock_search, mock_write, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        mock_sketch.return_value = {"signatures": []}
+        mock_search.return_value = [("SRR1", 0.9)]
+        folder = tmp_path.resolve() / "branchwater"
+        assert BranchwaterSearchCommand().execute(_args(tmp_path, genome_fasta="genomes/G.fna.gz")) == 0
+        mock_write.assert_called_once_with([("SRR1", 0.9)], folder / "G.csv")
+        data = json.loads((tmp_path / "prepare_registry.json").read_text())
+        assert "G" in data["datasets"]["SRR1"]["screening"]["genomes"]
+
+    @patch("prepare.cli.commands.branchwater_search.write_branchwater_csv")
+    @patch("prepare.cli.commands.branchwater_search.search_index")
+    @patch("prepare.cli.commands.branchwater_search.sketch_fasta")
     def test_fasta_default_output_path(self, mock_sketch, mock_search, mock_write, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         mock_sketch.return_value = {"signatures": []}

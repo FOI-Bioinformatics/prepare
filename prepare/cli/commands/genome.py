@@ -9,6 +9,7 @@ from prepare.cli.base import BaseCommand
 from prepare.core.constants import GENOME_FASTA_GLOBS
 from prepare.data.accessions import read_accessions_file
 from prepare.core.exceptions import PrepareError
+from prepare.core.validation import genome_name
 from prepare.data.file_io import open_atomic, visible_files, write_text_atomic
 from prepare.data.genome_download import (
     MissingGenomesError,
@@ -22,14 +23,6 @@ from prepare.data.gtdb import (
 )
 from prepare.data.registry import record_genome, registry_transaction, resolve_project_path
 from prepare.utils.tools import require_tools
-
-
-def _genome_name(filename: str) -> str:
-    """Strip the FASTA suffix (and .gz) from a genome file name."""
-    for suffix in (".fna.gz", ".fasta.gz", ".fa.gz", ".fna", ".fasta", ".fa"):
-        if filename.endswith(suffix):
-            return filename[: -len(suffix)]
-    return filename
 
 
 class GenomeSearchCommand(BaseCommand):
@@ -333,7 +326,7 @@ class GenomePrepareCommand(BaseCommand):
             writer = csv.writer(f)
             writer.writerow(["name", "genome_filename", "protein_filename"])
             for gf in genome_files:
-                name = _genome_name(gf.name)
+                name = genome_name(gf)
                 protein = next(
                     (p for p in (gf.with_name(name + ".faa"), gf.with_name(name + ".faa.gz")) if p.exists()),
                     None,
