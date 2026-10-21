@@ -852,9 +852,23 @@ class TestHandleDownloadOutput:
         with patch("prepare.data.sra.accession.logger") as mock_logger:
             success, message = _handle_download_output(temp_path, output_path, expected_spots=48000000)
 
-        assert success is True
+        assert success is False
         assert message == "Downloaded 1 files, truncated (300000 of 48000000 spots)"
         mock_logger.warning.assert_called()
+        # The files stay where they are so an accepted or retried attempt can inspect them.
+        assert (output_path / "SRR123_1.fastq").exists()
+
+    def test_handle_download_output_truncated_is_accepted_with_accept_partial(self, tmp_path, monkeypatch):
+        temp_path = tmp_path / "temp"
+        output_path = tmp_path / "output" / "SRR123"
+        temp_path.mkdir()
+        (temp_path / "SRR123_1.fastq").write_text("@seq1\nACGT\n+\nIIII\n")
+        monkeypatch.setattr("prepare.data.sra.fastq.count_fastq_reads", lambda path: 300000)
+
+        success, message = _handle_download_output(temp_path, output_path, expected_spots=48000000, accept_partial=True)
+
+        assert success is True
+        assert message == "Downloaded 1 files, truncated (300000 of 48000000 spots)"
 
     def test_handle_download_output_unverified_without_expected_spots(self, tmp_path):
         temp_path = tmp_path / "temp"
@@ -1175,7 +1189,7 @@ class TestDownloadAccession:
             with patch("prepare.data.sra.accession.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
                 success, message = download_accession("SRR123", output_folder, compress=False, expected_spots=1000)
 
-        assert success is True, message
+        assert success is False, message
         assert "truncated" in message
         assert not (output_folder / ".sra-cache" / "SRR123").exists()
 
@@ -1843,7 +1857,38 @@ class TestDownloadSra:
             on_result=lambda a, ok, msg: seen.append((a, ok, msg)),
         )
 
+        assert seen[0] == ("SRR1", False, "Downloaded 1 files, truncated (1 of 2 spots)")
+        # The retry pass ran: the second outcome carries the retry prefix.
+        assert len(seen) == 2 and seen[1][2].startswith("Retry 1: ")
+        assert seen[1][1] is False
+
+    def test_truncated_download_is_a_success_with_accept_partial(self, tmp_path, monkeypatch):
+        acc = tmp_path / "acc.txt"
+        acc.write_text("SRR1\n")
+        fastq_folder = tmp_path / "fastq"
+
+        def fake_run_secure(executable, args, **kwargs):
+            out_dir = Path(args[args.index("-O") + 1])
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "SRR1_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+            return Mock(returncode=0, stdout="", stderr="")
+
+        seen = []
+        monkeypatch.setattr("prepare.utils.security.SecureSubprocess.run_secure", fake_run_secure)
+        monkeypatch.setattr("prepare.data.sra.fastq.count_fastq_reads", lambda path: 1)
+
+        stats = download_sra(
+            fastq_folder,
+            acc,
+            expected_spots={"SRR1": 2},
+            compress=False,
+            accept_partial=True,
+            on_result=lambda a, ok, msg: seen.append((a, ok, msg)),
+        )
+
         assert seen == [("SRR1", True, "Downloaded 1 files, truncated (1 of 2 spots)")]
+        assert stats["successful"] == 1
+        assert (fastq_folder / "SRR1" / "SRR1_1.fastq").exists()
 
     def test_truncated_accessions_are_redownloaded_not_skipped(self, tmp_path):
         acc = tmp_path / "acc.txt"
@@ -2655,7 +2700,7 @@ class TestCachedArchiveWithKeepSra:
     def test_keep_sra_does_not_keep_a_truncated_archive(self, tmp_path):
         output_folder = tmp_path / "downloads"
         success, message = self._download(output_folder, keep_sra=True, expected_spots=1000)
-        assert success is True and "truncated" in message, message
+        assert success is False and "truncated" in message, message
         assert not (output_folder / ".sra-cache" / "SRR123").exists()
 
     def test_discard_keeps_on_request_only_a_complete_or_unverified_archive(self, tmp_path):

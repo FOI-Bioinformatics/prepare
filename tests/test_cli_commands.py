@@ -1015,6 +1015,7 @@ class TestDownloadSraCommand:
             "keep_sra": False,
             "compress": True,
             "lock_wait": 0.0,
+            "accept_partial": False,
             "run_sizes": {},
             "min_free_gb": 0.0,  # PREPARE_MIN_FREE_GB=0 from conftest
         }

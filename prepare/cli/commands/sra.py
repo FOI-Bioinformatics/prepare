@@ -216,7 +216,7 @@ class DownloadSraCommand(BaseCommand):
         parser.add_argument(
             "--accept-partial",
             action="store_true",
-            help="Use a store dataset whose download is incomplete instead of refusing it",
+            help="Keep a truncated download, or use an incomplete store dataset, instead of failing it",
         )
         parser.add_argument(
             "--no-resume-partial",
@@ -512,8 +512,12 @@ class DownloadSraCommand(BaseCommand):
         metadata folder is the fallback.
         """
         if store is None:
-            # Without a store, --lock-wait still applies to the project's per-accession lock.
-            return {"lock_wait": setting_for(args, "lock_wait")}
+            # Without a store, --lock-wait still applies to the project's per-accession lock
+            # and --accept-partial decides whether a truncated download is kept.
+            return {
+                "lock_wait": setting_for(args, "lock_wait"),
+                "accept_partial": getattr(args, "accept_partial", False),
+            }
         return {
             "store": store,
             "link_mode": getattr(args, "link_mode", "auto"),

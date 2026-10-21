@@ -287,7 +287,8 @@ def download_sra(
             call
         link_mode: How the project points at the store: ``auto``, ``relative``, ``absolute``
             or ``copy`` (see ``prepare.store.link.link_dataset``)
-        accept_partial: Link a store copy whose download is incomplete instead of refusing
+        accept_partial: Keep a truncated download in a plain project as a success, or
+            link a store copy whose download is incomplete instead of refusing
             it; only consulted when ``resume_partial`` is off
         resume_partial: Download an incomplete store copy again rather than refusing to use
             it
@@ -381,6 +382,7 @@ def download_sra(
             accession_mod._project_download,
             lock_wait=lock_wait,
             truncated=frozenset(truncated_accessions) if truncated_accessions is not None else None,
+            accept_partial=accept_partial,
         )
 
         guard = _space_guard(

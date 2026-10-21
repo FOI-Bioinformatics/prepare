@@ -8,7 +8,7 @@ import subprocess
 import threading
 import zlib
 from pathlib import Path
-from typing import AbstractSet, Callable, List, Optional, Tuple, Union
+from typing import AbstractSet, Any, Callable, Dict, List, Optional, Tuple, Union
 
 from prepare.core.constants import DATASET_LOCK_STALE_SECONDS, LOCK_HEARTBEAT_SECONDS
 from prepare.core import settings
@@ -192,6 +192,7 @@ def _handle_download_output(
     compress: bool = False,
     num_threads: int = 4,
     stop: Optional[threading.Event] = None,
+    accept_partial: bool = False,
 ):
     """
     Move downloaded files from temp path to output path, then verify completeness.
@@ -205,6 +206,10 @@ def _handle_download_output(
         num_threads: Thread count passed to ``compress_fastq`` (for pigz's ``-p``)
         stop: The run's stop token; once it (or ``STOP``) is set, the files not yet
             compressed are left uncompressed
+        accept_partial: Report a truncated download as a success. Without it a
+            truncated verdict is a failure: the files stay in ``output_path`` for
+            inspection, nothing is compressed, and the caller retries or records a failure,
+            the same outcome the shared store gives an incomplete copy
 
     Returns:
         Tuple of (success, message); the message carries the completeness verdict
@@ -240,48 +245,60 @@ def _handle_download_output(
     # Compute the verdict on the plain files first: counting reads in an uncompressed
     # file is cheaper, and the verdict message format must stay stable either way.
     verdict = fastq_mod.verify_download(output_path.name, output_path, expected_spots=expected_spots)
+    message = _verdict_message(len(found), verdict)
+    if verdict["verdict"] == "truncated":
+        logger.warning(
+            f"Truncated download for {output_path.name}: {verdict['reads_r1']} of "
+            f"{verdict['expected_spots']} spots (ratio {verdict['ratio']})"
+        )
+        if not accept_partial:
+            return False, message
 
-    compression_failures = []
-    compression_skipped: List[str] = []
     if compress:
-        for index, file in enumerate(moved):
-            if stop_requested(stop):
-                # The download itself is complete; leave the rest uncompressed rather than
-                # start pigz after an interrupt.
-                compression_skipped = [f.name for f in moved[index:]]
-                logger.info(f"Compression of {output_path.name} skipped: the run was interrupted")
-                break
-            try:
-                fastq_mod.compress_fastq(file, num_threads, stop=stop)
-            except fastq_mod._TOOL_ERRORS as e:
-                if stop_requested(stop):
-                    # pigz terminated with the run's tools, or the Python fallback stopping on
-                    # the token: an interruption, not a compression failure.
-                    compression_skipped = [f.name for f in moved[index:]]
-                    logger.info(f"Compression of {output_path.name} stopped: the run was interrupted")
-                    break
-                logger.warning(f"Could not compress {file}: {e}")
-                compression_failures.append(file.name)
-
-    if verdict["verdict"] == "unverified":
-        message = f"Downloaded {len(found)} files, unverified"
-    else:
-        spots_note = f"({verdict['reads_r1']} of {verdict['expected_spots']} spots)"
-        message = f"Downloaded {len(found)} files, {verdict['verdict']} {spots_note}"
-        if verdict["verdict"] == "truncated":
-            logger.warning(
-                f"Truncated download for {output_path.name}: {verdict['reads_r1']} of "
-                f"{verdict['expected_spots']} spots (ratio {verdict['ratio']})"
-            )
-
-    if compression_failures:
-        # Appended, never prepended, so parse_verdict_message's regex/substring checks
-        # on the leading verdict text keep working unchanged.
-        message += "; compression failed for " + ", ".join(compression_failures)
-    if compression_skipped:
-        message += "; compression skipped (interrupted) for " + ", ".join(compression_skipped)
+        compression_failures, compression_skipped = _compress_files(moved, output_path.name, num_threads, stop)
+        if compression_failures:
+            # Appended, never prepended, so parse_verdict_message's regex/substring checks
+            # on the leading verdict text keep working unchanged.
+            message += "; compression failed for " + ", ".join(compression_failures)
+        if compression_skipped:
+            message += "; compression skipped (interrupted) for " + ", ".join(compression_skipped)
 
     return True, message
+
+
+def _verdict_message(n_files: int, verdict: Dict[str, Any]) -> str:
+    """The result message carrying the completeness verdict, in the format ``parse_verdict_message`` reads."""
+    if verdict["verdict"] == "unverified":
+        return f"Downloaded {n_files} files, unverified"
+    spots_note = f"({verdict['reads_r1']} of {verdict['expected_spots']} spots)"
+    return f"Downloaded {n_files} files, {verdict['verdict']} {spots_note}"
+
+
+def _compress_files(
+    moved: List[Path], name: str, num_threads: int, stop: Optional[threading.Event]
+) -> Tuple[List[str], List[str]]:
+    """Compress each file in ``moved``; returns the names that failed and the names skipped on an interrupt."""
+    failures: List[str] = []
+    skipped: List[str] = []
+    for index, file in enumerate(moved):
+        if stop_requested(stop):
+            # The download itself is complete; leave the rest uncompressed rather than
+            # start pigz after an interrupt.
+            skipped = [f.name for f in moved[index:]]
+            logger.info(f"Compression of {name} skipped: the run was interrupted")
+            break
+        try:
+            fastq_mod.compress_fastq(file, num_threads, stop=stop)
+        except fastq_mod._TOOL_ERRORS as e:
+            if stop_requested(stop):
+                # pigz terminated with the run's tools, or the Python fallback stopping on
+                # the token: an interruption, not a compression failure.
+                skipped = [f.name for f in moved[index:]]
+                logger.info(f"Compression of {name} stopped: the run was interrupted")
+                break
+            logger.warning(f"Could not compress {file}: {e}")
+            failures.append(file.name)
+    return failures, skipped
 
 
 def _fasterq_dump_args(
@@ -376,6 +393,7 @@ def download_accession(
     compress: bool = True,
     staging_folder: Optional[Union[str, Path]] = None,
     stop: Optional[threading.Event] = None,
+    accept_partial: bool = False,
 ) -> Tuple[bool, str]:
     """
     Download a single SRA accession using prefetch + fasterq-dump --split-3.
@@ -407,6 +425,8 @@ def download_accession(
         stop: The run's stop token. Once it (or the process-wide ``STOP``) is set no further
             tool is started and ``(False, "interrupted")`` is returned; the tools that are
             started are recorded under it for ``SecureSubprocess.terminate_children``
+        accept_partial: Report a truncated download as a success rather than a failure
+            (see ``_handle_download_output``)
 
     Returns:
         Tuple of (success, message)
@@ -472,9 +492,12 @@ def download_accession(
             compress=compress,
             num_threads=num_threads,
             stop=stop,
+            accept_partial=accept_partial,
         )
 
-        if success and using_prefetch:
+        # A truncated failure drops the archive too: prefetch would otherwise treat the short
+        # archive as fetched and the retry would dump the same reads again.
+        if using_prefetch and (success or "truncated" in message):
             _discard_cached_archive(cache_path, accession, message, keep=keep_sra)
 
         return success, message

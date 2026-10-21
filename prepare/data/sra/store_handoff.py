@@ -500,8 +500,10 @@ def _store_fetch(
     cleanup_mod._safe_rmtree(staged)
 
     try:
+        # The sidecar states decide what an incomplete copy means in the store, so the
+        # download itself reports a truncated run as done rather than failed here.
         success, message = accession_mod.download_accession(
-            accession, store.tmp, staging_folder=store.tmp, **download_kwargs
+            accession, store.tmp, staging_folder=store.tmp, accept_partial=True, **download_kwargs
         )
     finally:
         if own_scratch is not None:
