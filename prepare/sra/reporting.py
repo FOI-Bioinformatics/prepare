@@ -322,9 +322,12 @@ class SRAReportGenerator:
         if not profiles:
             return {}
 
-        # Aggregate statistics
-        total_reads = sum(p.total_reads for p in profiles.values())
-        total_bases = sum(p.total_bases for p in profiles.values())
+        # Totals come from the datasets with an exact count (both mates counted, as the
+        # statistics record counts them); a profile that only has its sample's figures is
+        # left out and reported as sampled, so a sample size is never added to a total.
+        exact = [p for p in profiles.values() if not getattr(p, "sampled", False)]
+        total_reads = sum(p.total_reads for p in exact)
+        total_bases = sum(p.total_bases for p in exact)
         avg_gc = np.mean([p.gc_percent for p in profiles.values()])
         avg_complexity = np.mean([p.complexity_score for p in profiles.values()])
 
@@ -341,6 +344,7 @@ class SRAReportGenerator:
             "total_datasets": len(profiles),
             "total_reads": total_reads,
             "total_bases": total_bases,
+            "sampled_datasets": len(profiles) - len(exact),
             "average_gc_percent": avg_gc,
             "average_complexity": avg_complexity,
             "quality_grade_distribution": grade_dist,
@@ -386,8 +390,10 @@ _PAGE_TEMPLATE = """
     {% if quality %}{% with summary_stats=quality.summary_stats, anomaly_report=quality.anomaly_report,
         plots=quality.plots %}
         <section class="pre-stats" aria-label="Quality summary">
-            <div class="pre-stat"><p class="k">Total reads</p>
-                <div class="v">{{ "{:,.0f}".format(summary_stats.total_reads) }}</div></div>
+            <div class="pre-stat"><p class="k">Total reads (mates counted)</p>
+                <div class="v">{{ "{:,.0f}".format(summary_stats.total_reads) }}</div>
+                {% if summary_stats.sampled_datasets %}<p class="k">{{ summary_stats.sampled_datasets }}
+                    dataset(s) sampled only, not counted</p>{% endif %}</div>
             <div class="pre-stat"><p class="k">Average GC content</p>
                 <div class="v">{{ "%.1f"|format(summary_stats.average_gc_percent) }}%</div></div>
             <div class="pre-stat"><p class="k">High quality</p>
@@ -439,9 +445,13 @@ _PAGE_TEMPLATE = """
             {% for test_name, test_result in comparison.statistical_tests.items() %}
             <div class="pre-note{% if test_result.significant %} warn{% endif %}">
                 <h3>{{ test_name.replace('_', ' ').title() }}</h3>
+                {% if test_result.p_value is none %}
+                <p>{{ test_result.test }}{% if test_result.note %} &middot; {{ test_result.note }}{% endif %}</p>
+                {% else %}
                 <p>{{ test_result.test }} &middot; p-value
                     <b>{{ "%.4f"|format(test_result.p_value) }}</b> &middot;
                     {{ "significant" if test_result.significant else "not significant" }}</p>
+                {% endif %}
             </div>
             {% endfor %}
         </section>

@@ -190,6 +190,28 @@ class SRAReportCommand(BaseCommand):
         if anomalies.anomalous_datasets:
             self.emit(f"  Datasets flagged for review: {', '.join(anomalies.anomalous_datasets)}")
 
+    def _profiled_groups(
+        self, groups: Dict[str, List[str]], profiles: Dict[str, Any]
+    ) -> Optional[Dict[str, List[str]]]:
+        """The groups restricted to profiled accessions, or None when fewer than two groups have any.
+
+        A group whose accessions all lack readable FASTQ files is left out with a warning
+        naming them, since a comparison of an empty group has no result to show.
+        """
+        kept: Dict[str, List[str]] = {}
+        for name, accs in groups.items():
+            profiled = [a for a in accs if a in profiles]
+            if profiled:
+                kept[name] = profiled
+            else:
+                self.logger.warning(
+                    "Group %s has no profiled accession and is left out of the comparison: %s", name, ", ".join(accs)
+                )
+        if len(kept) < 2:
+            self.logger.warning("Fewer than two groups have profiled accessions; no comparison is made")
+            return None
+        return kept
+
     def _print_comparison(self, comparison: ComparativeAnalysis) -> None:
         """Print per-group means and the statistical tests, marking p < 0.05 with '*'."""
         self.emit("\nComparison of groups:")
@@ -305,9 +327,10 @@ class SRAReportCommand(BaseCommand):
         self._print_quality(profiles, anomalies)
         comparison = None
         if groups is not None:
-            profiled_groups = {name: [a for a in accs if a in profiles] for name, accs in groups.items()}
-            comparison = reporter.analyzer.compare_datasets(profiled_groups, profiles=profiles)
-            self._print_comparison(comparison)
+            profiled_groups = self._profiled_groups(groups, profiles)
+            if profiled_groups is not None:
+                comparison = reporter.analyzer.compare_datasets(profiled_groups, profiles=profiles)
+                self._print_comparison(comparison)
 
         summary = {
             "accessions": len(accessions),

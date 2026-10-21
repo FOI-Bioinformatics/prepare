@@ -7,6 +7,7 @@ profiles feeds the quality section and, with ``--groups-file``, the comparison o
 import argparse
 import json
 import logging
+import re
 from unittest.mock import patch
 
 import numpy as np
@@ -118,6 +119,51 @@ def test_one_report_holds_the_quality_and_the_comparison_sections(tmp_path):
     assert "Average GC content" in html  # quality section
     assert "Statistical tests" in html  # comparison section
     assert sorted(p.name for p in (tmp_path / "reports").iterdir()) == ["sra_report.html", "sra_report.json"]
+
+
+def test_a_group_with_no_profiled_accession_is_dropped_with_a_warning(tmp_path, caplog):
+    """A group whose accessions have no FASTQ files does not crash the report; it is left out and said so."""
+    _datasets(tmp_path, ("SRR1", "SRR2", "SRR3"))
+    groups = _groups_file(tmp_path, {"A": ["SRR1", "SRR2"], "B": ["SRR3"], "C": ["SRR9"]})
+
+    with caplog.at_level(logging.WARNING):
+        assert SRAReportCommand().execute(_args(tmp_path, groups_file=groups)) == 0
+
+    assert (tmp_path / "reports" / "sra_report.html").is_file()
+    assert "C" in caplog.text and "SRR9" in caplog.text
+    html = (tmp_path / "reports" / "sra_report.html").read_text()
+    assert "Statistical tests" in html and "p-value nan" not in html and "p-value <b>nan" not in html
+
+
+def test_a_single_group_left_gives_no_comparison(tmp_path, caplog):
+    _datasets(tmp_path, ("SRR1", "SRR2"))
+    groups = _groups_file(tmp_path, {"A": ["SRR1", "SRR2"], "B": ["SRR9"]})
+
+    with caplog.at_level(logging.WARNING):
+        assert SRAReportCommand().execute(_args(tmp_path, groups_file=groups)) == 0
+
+    html = (tmp_path / "reports" / "sra_report.html").read_text()
+    assert "Statistical tests" not in html
+    assert "Fewer than two groups" in caplog.text
+
+
+def test_total_reads_counts_mates_and_leaves_sampled_profiles_out(tmp_path):
+    """The card sums exact totals only, says mates are counted, and names the sampled datasets."""
+    from prepare.sra.reporting import SRAReportGenerator
+
+    generator = SRAReportGenerator(tmp_path / "reports")
+    full = make_profile("SRR1")
+    sampled = make_profile("SRR2")
+    sampled.sampled = True
+    sampled.total_reads = 10
+    summary = generator._calculate_quality_summary({"SRR1": full, "SRR2": sampled})
+
+    assert summary["total_reads"] == 1000
+    assert summary["sampled_datasets"] == 1
+    html = generator.generate_report({"SRR1": full, "SRR2": sampled})
+    text = html.read_text()
+    assert "mates counted" in text
+    assert re.search(r"1\s+dataset\(s\) sampled only, not counted", text)
 
 
 def test_without_groups_there_is_no_comparison(tmp_path):
