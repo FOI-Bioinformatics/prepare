@@ -200,7 +200,7 @@ Run `make check` and `make test` before every commit. `make check` runs, in orde
 - **Documented commands**: every visible command is mentioned in README.md, and README.md invokes no
   unknown command (`python scripts/check_docs_commands.py`).
 
-`pip-audit --strict` runs in CI (`ci.yml`, `audit.yml`), not in `make check`. `make test` reports
+`pip-audit --strict` runs weekly in CI (`audit.yml`), not in `make check` or on every push. `make test` reports
 coverage but enforces no threshold.
 
 ## Testing

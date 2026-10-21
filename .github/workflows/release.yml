@@ -12,6 +12,7 @@ jobs:
   build:
     name: Build, verify and publish GitHub release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -30,6 +31,9 @@ jobs:
         run: python scripts/check_version.py --tag "${GITHUB_REF_NAME}"
 
       - name: Run the test suite
+        env:
+          # Shared runners are slower than the machine the perf bounds were measured on.
+          PREPARE_PERF_SCALE: "4"
         run: |
           pip install ".[dev]"
           pytest tests/ -q -x

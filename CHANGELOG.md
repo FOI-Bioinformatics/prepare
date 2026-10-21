@@ -2,6 +2,18 @@
 
 All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM-DD format.
 
+## [Unreleased]
+
+### Changed
+
+- CI trimmed to what gates a commit: the push/pull-request workflow runs the quality gate, the
+  test suite on Linux (Python 3.12 and 3.13) and macOS (3.13), and a wheel build with a CLI smoke
+  run on the installed wheel. The Codecov upload (rejected for lack of a token), the duplicate
+  pip-audit step (the weekly `audit.yml` keeps it), the integration job that downloaded a genome
+  from NCBI, and the weekly `branchwater.yml` (synthetic data covered by the unit tests) are gone.
+  Every job has a timeout, and the release workflow runs the test suite with the same perf scale
+  as CI.
+
 ## [0.11.0] - 2026-10-21
 
 ### Added
