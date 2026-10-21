@@ -11,6 +11,17 @@ import threading
 import pytest
 
 from prepare.data.sra.sampling import iter_sequence_blocks
+from prepare.data.branchwater_search import BRANCHWATER_COLUMNS, KSIZE, SCALED, _select_sketch, sketch_fasta
+from prepare.sra.sketch import (
+    KSIZES,
+    load_dataset_minhash,
+    signature_path,
+    sketch_dataset,
+    sketch_is_current,
+    sketch_summary,
+    write_signature,
+)
+from prepare.sra.sketch_containment import containment_rows, genome_minhash, merge_containment_csv
 
 
 def _write_fastq(path, reads, gz=False, crlf=False, final_newline=True):
@@ -93,3 +104,189 @@ class TestIterSequenceBlocks:
         stop.set()
         with pytest.raises(InterruptedError):
             list(iter_sequence_blocks(path, stop=stop))
+
+
+# ------------------------------------------------------------------------------- sketcher and writer
+
+sourmash = pytest.importorskip("sourmash")
+
+
+def _random_reads(seed, count, length=1500):
+    """Long random reads, so that a scaled-1000 sketch keeps some of their k-mers."""
+    import random
+
+    rng = random.Random(seed)
+    return ["".join(rng.choice("ACGT") for _ in range(length)) for _ in range(count)]
+
+
+READS_1 = _random_reads(1, 3)
+READS_1[1] = READS_1[1].lower()
+READS_1[2] = READS_1[2][:700] + "NN" + READS_1[2][702:]
+READS_2 = _random_reads(2, 2)
+ORPHAN = _random_reads(3, 1)
+
+
+def _dataset(tmp_path, gz=False, accession="SRR1"):
+    acc_dir = tmp_path / "fastq" / accession
+    acc_dir.mkdir(parents=True)
+    suffix = ".fastq.gz" if gz else ".fastq"
+    files = [
+        _write_fastq(acc_dir / f"{accession}_1{suffix}", READS_1, gz=gz),
+        _write_fastq(acc_dir / f"{accession}_2{suffix}", READS_2, gz=gz),
+        _write_fastq(acc_dir / f"{accession}{suffix}", ORPHAN, gz=gz),
+    ]
+    return acc_dir, sorted(files)
+
+
+def _reference_minhash(ksize, reads):
+    mh = sourmash.MinHash(n=0, ksize=ksize, scaled=SCALED, track_abundance=True)
+    for read in reads:
+        mh.add_sequence(read, force=True)
+    return mh
+
+
+class TestSketchDataset:
+    @pytest.mark.parametrize("gz", [False, True])
+    def test_sketch_equals_per_read_add_sequence(self, tmp_path, gz):
+        _acc_dir, files = _dataset(tmp_path, gz=gz)
+        sketch = sketch_dataset("SRR1", files)
+        all_reads = ORPHAN + READS_1 + READS_2  # name order: SRR1.fastq, SRR1_1, SRR1_2
+        for k in KSIZES:
+            assert sketch.minhashes[k].hashes == _reference_minhash(k, all_reads).hashes, k
+            assert sketch.hashes[k] == len(sketch.minhashes[k])
+        assert sketch.reads == 6
+        assert sketch.bases == sum(len(r) for r in all_reads)
+        assert set(sketch.signature) == {f.name for f in files}
+
+    def test_sketch_stops_on_the_token(self, tmp_path):
+        _acc_dir, files = _dataset(tmp_path)
+        stop = threading.Event()
+        stop.set()
+        with pytest.raises(InterruptedError):
+            sketch_dataset("SRR1", files, stop=stop)
+
+
+class TestWriteSignature:
+    def test_written_file_is_a_sourmash_sig_gz_with_k21_first(self, tmp_path):
+        _acc_dir, files = _dataset(tmp_path)
+        sketch = sketch_dataset("SRR1", files)
+        path = write_signature(sketch, signature_path("SRR1", tmp_path / "sketches"))
+
+        assert path == tmp_path / "sketches" / "SRR1.sig.gz"
+        assert path.read_bytes()[:2] == b"\x1f\x8b"
+        loaded = list(sourmash.load_file_as_signatures(str(path)))
+        assert [s.minhash.ksize for s in loaded] == list(KSIZES)
+        assert all(s.name == "SRR1" and s.minhash.scaled == SCALED and s.minhash.track_abundance for s in loaded)
+        import json
+
+        document = json.loads(gzip.decompress(path.read_bytes()))
+        assert document[0]["signatures"][0]["ksize"] == KSIZE
+        assert _select_sketch(document[0], path)["ksize"] == KSIZE
+
+    def test_no_file_is_left_when_writing_fails(self, tmp_path, monkeypatch):
+        _acc_dir, files = _dataset(tmp_path)
+        sketch = sketch_dataset("SRR1", files)
+        out_dir = tmp_path / "sketches"
+
+        def boom(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("sourmash.signature.save_signatures_to_json", boom)
+        with pytest.raises(OSError):
+            write_signature(sketch, signature_path("SRR1", out_dir))
+        assert not (out_dir / "SRR1.sig.gz").exists()
+        assert [p.name for p in out_dir.iterdir()] == []
+
+    def test_summary_and_currency(self, tmp_path):
+        _acc_dir, files = _dataset(tmp_path)
+        sketch = sketch_dataset("SRR1", files)
+        path = write_signature(sketch, signature_path("SRR1", tmp_path / "sketches"))
+        summary = sketch_summary(sketch)
+
+        assert set(summary) == {"ksizes", "scaled", "track_abundance", "reads", "bases", "hashes", "files", "source"}
+        assert summary["ksizes"] == [21, 31, 51] and summary["scaled"] == 1000 and summary["source"] == "computed"
+        assert set(summary["hashes"]) == {"21", "31", "51"}
+        assert sketch_is_current(summary, files, path)
+        assert not sketch_is_current(None, files, path)
+        assert not sketch_is_current({**summary, "ksizes": [21]}, files, path)
+        path.unlink()
+        assert not sketch_is_current(summary, files, path)
+
+    def test_load_dataset_minhash_flattens_and_checks_scaled(self, tmp_path):
+        _acc_dir, files = _dataset(tmp_path)
+        sketch = sketch_dataset("SRR1", files)
+        path = write_signature(sketch, signature_path("SRR1", tmp_path / "sketches"))
+
+        loaded = load_dataset_minhash(path)
+        assert loaded.ksize == KSIZE and not loaded.track_abundance
+        assert set(loaded.hashes) == set(sketch.minhashes[KSIZE].hashes)
+
+        other = sourmash.MinHash(n=0, ksize=21, scaled=2000)
+        other.add_sequence("ACGT" * 50, force=True)
+        with open(tmp_path / "wrong.sig", "w") as handle:
+            sourmash.signature.save_signatures_to_json([sourmash.SourmashSignature(other, name="x")], handle)
+        from prepare.core.exceptions import DataAccessError
+
+        with pytest.raises(DataAccessError, match="scaled"):
+            load_dataset_minhash(tmp_path / "wrong.sig")
+
+
+# ----------------------------------------------------------------------------------- containment
+
+
+def _genome(tmp_path):
+    """A genome whose k-mers partly overlap the dataset reads."""
+    import random
+
+    rng = random.Random(4)
+    tail = "".join(rng.choice("ACGT") for _ in range(20000))
+    path = tmp_path / "genome.fasta"
+    path.write_text(">g1\n" + READS_1[0] + tail + "\n>g2\n" + READS_2[0] + "\n")
+    return path
+
+
+class TestContainment:
+    def test_containment_matches_contained_by(self, tmp_path):
+        _acc_dir, files = _dataset(tmp_path)
+        path = write_signature(sketch_dataset("SRR1", files), signature_path("SRR1", tmp_path / "sketches"))
+        genome_mh = genome_minhash(sketch_fasta(_genome(tmp_path)))
+
+        rows = containment_rows(genome_mh, {"SRR1": path, "SRR9": tmp_path / "missing.sig.gz"})
+
+        expected = genome_mh.contained_by(load_dataset_minhash(path))
+        assert rows == [("SRR1", expected)]
+        assert 0 < expected < 1
+
+    def test_merge_keeps_other_rows_and_metadata(self, tmp_path):
+        import csv
+
+        matches = tmp_path / "matches"
+        matches.mkdir()
+        target = matches / "genome.csv"
+        with open(target, "w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=BRANCHWATER_COLUMNS)
+            writer.writeheader()
+            writer.writerow({"acc": "SRR9", "containment": "0.5", "cANI": "0.9675", "organism": "soil metagenome"})
+            writer.writerow({"acc": "SRR1", "containment": "0.9", "cANI": "0.995"})
+
+        merge_containment_csv(target, [("SRR1", 0.25), ("SRR2", 0.75)])
+
+        with open(target, newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        assert [r["acc"] for r in rows] == ["SRR2", "SRR9", "SRR1"]
+        assert rows[1]["organism"] == "soil metagenome"
+        by_acc = {r["acc"]: r for r in rows}
+        assert by_acc["SRR1"]["containment"] == "0.2500"
+        assert by_acc["SRR2"]["cANI"] == str(round(0.75 ** (1 / KSIZE), 4))
+        assert list(rows[0].keys()) == BRANCHWATER_COLUMNS
+
+    def test_merged_csv_round_trips_through_parse_containment_data(self, tmp_path):
+        from prepare.data.branchwater import parse_containment_data
+
+        matches = tmp_path / "matches"
+        matches.mkdir()
+        merge_containment_csv(matches / "wMel.csv", [("SRR1", 0.25), ("SRR2", 0.0)])
+
+        summary = parse_containment_data(matches, tmp_path / "parsed.txt", tmp_path / "top.txt")
+        assert "wMel" in summary.table.columns
+        assert summary.table.loc["SRR1", "wMel"] == pytest.approx(0.25)
