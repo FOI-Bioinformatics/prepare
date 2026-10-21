@@ -2107,10 +2107,29 @@ class TestDownloadInterrupt:
         accession_mod.STOP.set()
         with patch("prepare.data.sra.fastq.compress_fastq") as mock_compress:
             success, message = accession_mod._handle_download_output(temp, tmp_path / "SRR1", compress=True)
-        assert success is True
+        assert (success, message) == (False, "interrupted")
         mock_compress.assert_not_called()
-        assert "compression skipped (interrupted) for SRR1_1.fastq, SRR1_2.fastq" in message
-        assert (tmp_path / "SRR1" / "SRR1_1.fastq").exists()
+
+    def test_interrupt_during_compression_publishes_nothing(self, tmp_path):
+        """The project folder does not appear and the prefetch archive stays for the next run."""
+        fastq = tmp_path / "fastq"
+        token = threading.Event()
+        state = {"reads": 4}
+        archive = fastq / ".sra-cache" / "SRR123" / "SRR123.sra"
+
+        def compress_then_stop(path, threads, stop=None):
+            token.set()
+            raise InterruptedError("stopped")
+
+        with patch("prepare.data.sra.accession.shutil.which", side_effect=lambda tool: f"/usr/bin/{tool}"):
+            with patch("prepare.data.sra.accession.SecureSubprocess.run_secure", side_effect=_fake_tools(state)):
+                with patch("prepare.data.sra.fastq.compress_fastq", side_effect=compress_then_stop):
+                    success, message = accession_mod._project_download("SRR123", fastq, stop=token)
+
+        assert (success, message) == (False, "interrupted")
+        assert not (fastq / "SRR123").exists()
+        assert not (fastq / ".prepare-tmp" / "SRR123").exists()
+        assert archive.exists()
 
     def test_store_download_waiting_on_a_held_lock_returns_interrupted(self, tmp_path):
         from prepare.store.layout import init_store, lock_path

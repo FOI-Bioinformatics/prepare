@@ -204,8 +204,8 @@ def _handle_download_output(
         compress: If True, gzip each downloaded FASTQ file (via ``compress_fastq``)
             after the completeness verdict has been computed on the plain files
         num_threads: Thread count passed to ``compress_fastq`` (for pigz's ``-p``)
-        stop: The run's stop token; once it (or ``STOP``) is set, the files not yet
-            compressed are left uncompressed
+        stop: The run's stop token; once it (or ``STOP``) is set before or during
+            compression the result is ``(False, "interrupted")`` and nothing is published
         accept_partial: Report a truncated download as a success. Without it a
             truncated verdict is a failure: the files stay in ``output_path`` for
             inspection, nothing is compressed, and the caller retries or records a failure,
@@ -255,17 +255,18 @@ def _handle_download_output(
             return False, message
 
     if compress:
-        compression_failures, compression_skipped, corrupted = _compress_files(
-            moved, output_path.name, num_threads, stop
-        )
+        compression_failures, interrupted, corrupted = _compress_files(moved, output_path.name, num_threads, stop)
+        if interrupted:
+            # Not published: a folder with some files compressed and some not would be a
+            # second layout for every later reader. The next run redoes the dump from the
+            # prefetch archive, which is kept.
+            return False, "interrupted"
         if corrupted:
             return False, "compression corrupted " + "; ".join(corrupted)
         if compression_failures:
             # Appended, never prepended, so parse_verdict_message's regex/substring checks
             # on the leading verdict text keep working unchanged.
             message += "; compression failed for " + ", ".join(compression_failures)
-        if compression_skipped:
-            message += "; compression skipped (interrupted) for " + ", ".join(compression_skipped)
 
     return True, message
 
@@ -280,24 +281,21 @@ def _verdict_message(n_files: int, verdict: Dict[str, Any]) -> str:
 
 def _compress_files(
     moved: List[Path], name: str, num_threads: int, stop: Optional[threading.Event]
-) -> Tuple[List[str], List[str], List[str]]:
+) -> Tuple[List[str], bool, List[str]]:
     """Compress each file in ``moved`` and read each result back.
 
-    Returns the names that failed to compress, the names skipped on an interrupt, and a
-    description of each compressed file whose record count differs from the plain file's
-    (``"<name>.gz: n of m reads"``). The read-back costs one gzip pass per file, as the
-    store's sidecar does, and is what makes the verdict hold for the files published.
+    Returns the names that failed to compress, whether the run was interrupted before every
+    file was compressed, and a description of each compressed file whose record count
+    differs from the plain file's (``"<name>.gz: n of m reads"``). The read-back costs one
+    gzip pass per file, as the store's sidecar does, and is what makes the verdict hold for
+    the files published.
     """
     failures: List[str] = []
-    skipped: List[str] = []
     corrupted: List[str] = []
-    for index, file in enumerate(moved):
+    for file in moved:
         if stop_requested(stop):
-            # The download itself is complete; leave the rest uncompressed rather than
-            # start pigz after an interrupt.
-            skipped = [f.name for f in moved[index:]]
-            logger.info(f"Compression of {name} skipped: the run was interrupted")
-            break
+            logger.info(f"Compression of {name} not started: the run was interrupted")
+            return failures, True, corrupted
         try:
             before = fastq_mod.count_fastq_reads(file)
             target = fastq_mod.compress_fastq(file, num_threads, stop=stop)
@@ -305,9 +303,8 @@ def _compress_files(
             if stop_requested(stop):
                 # pigz terminated with the run's tools, or the Python fallback stopping on
                 # the token: an interruption, not a compression failure.
-                skipped = [f.name for f in moved[index:]]
                 logger.info(f"Compression of {name} stopped: the run was interrupted")
-                break
+                return failures, True, corrupted
             logger.warning(f"Could not compress {file}: {e}")
             failures.append(file.name)
             continue
@@ -315,7 +312,7 @@ def _compress_files(
         if problem is not None:
             logger.error(f"Compressed {target.name} is not the plain file: {problem}")
             corrupted.append(f"{target.name}: {problem}")
-    return failures, skipped, corrupted
+    return failures, False, corrupted
 
 
 def _read_back_problem(target: Path, expected_reads: int) -> Optional[str]:
