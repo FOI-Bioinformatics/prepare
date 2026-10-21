@@ -594,6 +594,14 @@ class TestArgumentParsing:
             assert "-O" in call_args
             assert "--threads" in call_args
 
+    def test_zero_threads_is_rejected_for_fasterq_dump(self):
+        with pytest.raises(SecurityError, match="positive integer"):
+            SecureSubprocess._build_validated_command("fasterq-dump", ["--threads", "0", "SRR123"])
+
+    def test_zero_processes_is_rejected_for_pigz(self, tmp_path):
+        with pytest.raises(SecurityError, match="positive integer"):
+            SecureSubprocess._build_validated_command("pigz", ["-p", "0", "-f", str(tmp_path / "a.fastq")])
+
     def test_parse_standalone_argument(self):
         """Test parsing of standalone arguments."""
         with patch("subprocess.Popen", return_value=_fake_proc()) as mock_run:
@@ -725,7 +733,7 @@ class TestFasterqDumpCommandContract:
         assert cmd == ["fasterq-dump", "--threads", "4", "--progress", "SRR2517620", "-O", expected_out]
 
     def test_non_numeric_thread_count_rejected(self):
-        with pytest.raises(SecurityError, match="Invalid integer value for --threads"):
+        with pytest.raises(SecurityError, match="Invalid value for --threads"):
             SecureSubprocess._build_validated_command("fasterq-dump", ["--threads", "four", "SRR000001"])
 
     def test_bad_accession_after_boolean_flag_rejected(self):

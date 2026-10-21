@@ -15,7 +15,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import AbstractSet, Any, Dict, List, Optional, Tuple, Union
 
 from prepare.core.exceptions import DataAccessError
 from prepare.data.sra import accession as accession_mod
@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 # The publish step moved to ``cleanup.publish_folder`` so plain projects share it; the old
 # name stays for callers and tests that use it.
-_publish_store_dataset = cleanup_mod.publish_folder
 
 
 # Sidecar states that mean the store's copy is usable as it stands: verified against NCBI's
@@ -48,7 +47,10 @@ STORE_LINKED_PREFIX = "linked from store"
 # download_sra records the store sidecar's verdict for them.
 STORE_INCOMPLETE_PREFIX = "incomplete:"
 STORE_PARTIAL_PREFIX = "partial in store;"
-SETTLED_PREFIXES = (STORE_INCOMPLETE_PREFIX, STORE_PARTIAL_PREFIX)
+# The project's own reads sit at fastq/<ACC> (a real folder, not a link): a store link can
+# never replace them, so no fetch is started and the outcome is settled.
+STORE_PROJECT_FOLDER_PREFIX = "project folder exists:"
+SETTLED_PREFIXES = (STORE_INCOMPLETE_PREFIX, STORE_PARTIAL_PREFIX, STORE_PROJECT_FOLDER_PREFIX)
 # The end of the precheck's refusal of an incomplete copy whose refetches are used up: an
 # ``incomplete:`` message that started no download (the other ``incomplete:`` messages follow one).
 STORE_EXHAUSTED_SUFFIX = "use --accept-partial, or --force to fetch again"
@@ -81,13 +83,16 @@ def _metadata_xml(folders, accession: str) -> Optional[Path]:
     return None
 
 
-def _resolve_expected_spots(accession: str, store, store_metadata, given) -> Optional[int]:
+def _resolve_expected_spots(accession: str, store, store_metadata, given, verify: bool = True) -> Optional[int]:
     """The spot count a store download of ``accession`` is judged against.
 
     ``given`` is the caller's count (the project registry's ``run_total_spots``); without one,
     ``prepare.data.sra.spots.expected_spots`` looks in the store sidecar and then in the
-    metadata XML folders, the same lookup order every other caller uses.
+    metadata XML folders, the same lookup order every other caller uses. With ``verify``
+    off (``--no-verify-downloads``) no count is used at all, so the copy is ``unverified``.
     """
+    if not verify:
+        return None
     spots = spots_mod.positive_int(given)
     if spots is not None:
         return spots
@@ -191,17 +196,6 @@ def _incomplete_message(accession: str, sidecar) -> str:
     )
 
 
-def _read_count(value: Any) -> Optional[int]:
-    """``value`` as a read count: a whole number of zero or more, else None (unknown)."""
-    if isinstance(value, bool):
-        return None
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number >= 0 else None
-
-
 def _refetch_record(previous, new) -> Optional[Dict[str, Any]]:
     """The ``refetch`` record of the store copy after ``new`` (a refetch) was built over ``previous``.
 
@@ -215,7 +209,7 @@ def _refetch_record(previous, new) -> Optional[Dict[str, Any]]:
     if previous is None or new.state == "complete":
         return None
     prior = previous.refetch or {}
-    counts = (_read_count(previous.reads_per_mate), _read_count(prior.get("reads_per_mate")))
+    counts = (spots_mod.read_count(previous.reads_per_mate), spots_mod.read_count(prior.get("reads_per_mate")))
     known = [n for n in counts if n is not None]
     best = max(known) if known else None
     gained = new.reads_per_mate is not None and (best is None or new.reads_per_mate > best)
@@ -444,6 +438,25 @@ def _catalogue_published(store, sidecar) -> bool:
         return False
 
 
+def _sidecar_ncbi(accession: str, store, store_metadata, expected_spots, verify: bool) -> Dict[str, Any]:
+    """The ``ncbi`` block of a fresh store sidecar: the metadata XML's figures, with ``spots`` resolved.
+
+    ``expected_spots`` (the resolved count of ``_resolve_expected_spots``) fills in ``spots``
+    when the XML records none. With ``verify`` off no count is recorded at all: one on file
+    would let ``store_verify`` judge a copy the user asked not to judge.
+    """
+    from prepare.store.sidecar import ncbi_from_metadata_xml
+
+    xml = _metadata_xml(store_metadata, accession) or _metadata_xml(store.metadata, accession)
+    ncbi: Dict[str, Any] = ncbi_from_metadata_xml(xml) if xml is not None else {}
+    expected = spots_mod.positive_int(expected_spots)
+    if not ncbi.get("spots") and expected is not None:
+        ncbi = {**ncbi, "spots": expected}
+    if not verify:
+        return {key: value for key, value in ncbi.items() if key != "spots"}
+    return ncbi
+
+
 def _store_fetch(
     accession: str,
     project_fastq: Path,
@@ -451,6 +464,7 @@ def _store_fetch(
     link_mode: str,
     store_metadata,
     accept_partial: bool = False,
+    verify: bool = True,
     **download_kwargs,
 ) -> Tuple[bool, str]:
     """Download ``accession`` into the store, describe it, and link the project to it.
@@ -474,7 +488,7 @@ def _store_fetch(
     """
     from prepare.store.layout import lock_path, sra_dir
     from prepare.store.link import link_dataset
-    from prepare.store.sidecar import build_sidecar, ncbi_from_metadata_xml, write_sidecar
+    from prepare.store.sidecar import build_sidecar, write_sidecar
 
     target = sra_dir(store, accession)
     replacing = target.exists()
@@ -500,8 +514,10 @@ def _store_fetch(
     cleanup_mod._safe_rmtree(staged)
 
     try:
+        # The sidecar states decide what an incomplete copy means in the store, so the
+        # download itself reports a truncated run as done rather than failed here.
         success, message = accession_mod.download_accession(
-            accession, store.tmp, staging_folder=store.tmp, **download_kwargs
+            accession, store.tmp, staging_folder=store.tmp, accept_partial=True, **download_kwargs
         )
     finally:
         if own_scratch is not None:
@@ -513,11 +529,8 @@ def _store_fetch(
 
     files = fastq_mod.fastq_files(staged)
     compression = "gzip" if any(path.name.endswith(".gz") for path in files) else "none"
-    xml = _metadata_xml(store_metadata, accession) or _metadata_xml(store.metadata, accession)
-    ncbi = ncbi_from_metadata_xml(xml) if xml is not None else {}
-    expected = spots_mod.positive_int(download_kwargs.get("expected_spots"))
-    if not ncbi.get("spots") and expected is not None:
-        ncbi = {**ncbi, "spots": expected}
+    ncbi = _sidecar_ncbi(accession, store, store_metadata, download_kwargs.get("expected_spots"), verify)
+    expected = ncbi.get("spots")
 
     previous = _read_store_sidecar(store, accession) if replacing else None
     sidecar = build_sidecar(accession, staged, ncbi, accession_mod.fasterq_dump_version(), compression)
@@ -565,6 +578,7 @@ def _store_download(
     force: bool = False,
     lock_wait: float = 0.0,
     stop: Optional[threading.Event] = None,
+    verify: bool = True,
     **download_kwargs,
 ) -> Tuple[bool, str]:
     """Get ``accession`` for this project through the shared store.
@@ -583,16 +597,27 @@ def _store_download(
     lost while the download ran (``verify_held`` just before the publish) ends with
     ``(False, "lock lost: ...")`` and nothing published.
     """
+    from prepare.store.link import _is_store_copy
     from prepare.store.locks import LockWaitStopped, dataset_lock
 
     project_path = Path(project_fastq)
+    own = project_path / accession
+    if own.exists() and not own.is_symlink() and not _is_store_copy(own):
+        # link_dataset would refuse this after the fetch; refusing here starts no fetch, and
+        # the outcome is settled (not retried) because a rerun alone cannot change it.
+        return False, (
+            f"{STORE_PROJECT_FOLDER_PREFIX} {own} holds the project's own reads and is not a store link; "
+            f"run store_adopt to move them into the store, or remove the folder"
+        )
     for directory in (store.sra, store.tmp, store.locks):
         directory.mkdir(parents=True, exist_ok=True)
 
     try:
         # One spot count decides completeness everywhere below: the precheck, the download's
         # own verdict message, and the sidecar of a fresh copy.
-        expected = _resolve_expected_spots(accession, store, store_metadata, download_kwargs.get("expected_spots"))
+        expected = _resolve_expected_spots(
+            accession, store, store_metadata, download_kwargs.get("expected_spots"), verify=verify
+        )
         download_kwargs["expected_spots"] = expected
         precheck = functools.partial(
             _store_precheck,
@@ -622,6 +647,7 @@ def _store_download(
                 link_mode,
                 store_metadata,
                 accept_partial=accept_partial,
+                verify=verify,
                 force=force,
                 stop=stop,
                 **download_kwargs,
@@ -638,7 +664,15 @@ def _store_download(
 
 
 def _store_downloader(
-    store, link_mode: str, accept_partial: bool, resume_partial: bool, store_metadata, lock_wait: float = 0.0
+    store,
+    link_mode: str,
+    accept_partial: bool,
+    resume_partial: bool,
+    store_metadata,
+    lock_wait: float = 0.0,
+    verify: bool = True,
+    keep_temp: bool = False,
+    truncated: Optional[AbstractSet[str]] = None,
 ):
     """A ``download_accession``-shaped callable that routes every download through the store.
 
@@ -650,6 +684,9 @@ def _store_downloader(
         return None
 
     def _download(accession, output_folder, num_threads=4, force=False, temp_folder=None, **kwargs):
+        if truncated is not None:
+            # As _project_download: only an accession the registry calls truncated is refetched.
+            kwargs["redownload_truncated"] = accession in truncated
         return _store_download(
             accession,
             output_folder,
@@ -660,8 +697,10 @@ def _store_downloader(
             store_metadata=store_metadata,
             force=force,
             lock_wait=lock_wait,
+            verify=verify,
             num_threads=num_threads,
             temp_folder=temp_folder,
+            keep_temp=keep_temp,
             **kwargs,
         )
 

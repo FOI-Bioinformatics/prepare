@@ -121,6 +121,47 @@ class TestDownloadSraStore:
         assert seen == [(True, True)]
         assert (fastq_folder / "SRR1").is_symlink()
 
+    def test_store_download_refuses_a_real_project_folder_before_fetching(self, tmp_path):
+        """The project's own reads under fastq/<ACC> are never replaced by a link, so no fetch starts."""
+        from prepare.data.sra.retry import _split_not_found
+        from prepare.data.sra.run_report import started_download
+
+        paths = self._store(tmp_path)
+        fastq_folder = tmp_path / "project" / "fastq"
+        own = fastq_folder / "SRR1"
+        own.mkdir(parents=True)
+        (own / "SRR1_1.fastq").write_text("@own\nTTTT\n+\nIIII\n")
+        calls = []
+
+        with patch("prepare.data.sra.accession.download_accession", side_effect=self._fake_download(calls)):
+            success, message = store_handoff_mod._store_download("SRR1", fastq_folder, paths, force=True)
+
+        assert success is False
+        assert message.startswith(store_handoff_mod.STORE_PROJECT_FOLDER_PREFIX)
+        assert "store_adopt" in message
+        assert calls == []
+        assert not (paths.sra / "SRR1").exists()
+        assert (own / "SRR1_1.fastq").read_text() == "@own\nTTTT\n+\nIIII\n"
+        assert _split_not_found(["SRR1"], {"SRR1": message}) == ([], ["SRR1"])
+        assert started_download(False, message) is False
+
+    def test_store_download_accepts_a_copy_mode_folder(self, tmp_path):
+        """A real folder holding <ACC>.json is an earlier copy-mode link, not the project's own reads."""
+        from prepare.store.sidecar import Sidecar, write_sidecar
+
+        paths = self._store(tmp_path)
+        self._store_dataset(paths)
+        fastq_folder = tmp_path / "project" / "fastq"
+        copy = fastq_folder / "SRR1"
+        copy.mkdir(parents=True)
+        (copy / "SRR1_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        write_sidecar(copy / "SRR1.json", Sidecar(accession="SRR1", state="complete"))
+
+        success, message = store_handoff_mod._store_download("SRR1", fastq_folder, paths, link_mode="copy")
+
+        assert success is True, message
+        assert not message.startswith(store_handoff_mod.STORE_PROJECT_FOLDER_PREFIX)
+
     def test_a_ready_copy_whose_lock_is_briefly_held_waits_and_then_links(self, tmp_path):
         """A ready copy found without the lock is linked under it; when another run holds the
         lock at that moment the hand-off waits for it instead of failing."""
@@ -280,6 +321,57 @@ class TestDownloadSraStore:
         assert sidecar.ncbi["spots"] == 1
         assert sidecar.completeness["verdict"] == "complete"
         assert sidecar.state == "complete"
+
+    def test_store_redownload_truncated_only_for_the_truncated_set(self, tmp_path):
+        """redownload_truncated reaches the store fetch only for accessions the registry calls truncated."""
+        paths = self._store(tmp_path)
+        fastq_folder = tmp_path / "project" / "fastq"
+        calls = []
+
+        with patch("prepare.data.sra.accession.download_accession", side_effect=self._fake_download(calls)):
+            download_sra(
+                fastq_folder,
+                self._accessions(tmp_path, "SRR1", "SRR2"),
+                store=paths,
+                max_retries=0,
+                max_workers=1,
+                redownload_truncated=True,
+                truncated_accessions={"SRR1"},
+            )
+
+        by_accession = {acc: kwargs.get("redownload_truncated") for acc, _folder, kwargs in calls}
+        assert by_accession == {"SRR1": True, "SRR2": False}
+
+    def test_store_download_is_unverified_when_verification_is_off(self, tmp_path):
+        """--no-verify-downloads: no spot count from the XML or the sidecar judges the store copy."""
+        from prepare.store.sidecar import read_sidecar
+
+        paths = self._store(tmp_path)
+        fastq_folder = tmp_path / "project" / "fastq"
+        project_metadata = tmp_path / "project" / "metadata"
+        project_metadata.mkdir(parents=True)
+        (project_metadata / "SRR1_metadata.xml").write_text(
+            '<RunSet><RUN total_spots="100" total_bases="400" size="10"/></RunSet>'
+        )
+        calls = []
+
+        with patch("prepare.data.sra.accession.download_accession", side_effect=self._fake_download(calls)):
+            stats = download_sra(
+                fastq_folder,
+                self._accessions(tmp_path, "SRR1"),
+                store=paths,
+                store_metadata=project_metadata,
+                max_retries=0,
+                verify_downloads=False,
+            )
+
+        assert calls[0][2]["expected_spots"] is None
+        assert stats["successful"] == 1
+        sidecar = read_sidecar(paths.sra / "SRR1" / "SRR1.json")
+        assert sidecar.state == "complete"
+        assert sidecar.completeness["verdict"] == "unverified"
+        assert "spots" not in sidecar.ncbi
+        assert (fastq_folder / "SRR1").is_symlink()
 
     def test_partial_in_store_is_redownloaded_when_resume_partial(self, tmp_path):
         from prepare.store.sidecar import read_sidecar

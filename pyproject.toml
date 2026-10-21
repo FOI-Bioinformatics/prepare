@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "prepare"
-version = "0.10.1"
+version = "0.11.0"
 description = "A toolkit for analyzing metagenomic datasets based on genome containment"
 readme = "README.md"
 license = {text = "GPL-3.0"}

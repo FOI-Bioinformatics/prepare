@@ -191,6 +191,10 @@ each other and each is small enough to test alone:
 - **journal**: append-only JSON-lines copies of the catalogue's project and usage records, which
   `store_reindex` replays into a rebuilt catalogue; `store_gc` prunes the lines of the accessions it
   removed and `store_reindex` keeps the latest line per project.
+- **sketches**: caches the sourmash signature `sra_sketch` built from a store dataset beside the copy
+  (`<ACC>.sig.gz`) and describes it in the sidecar's optional `sketch` block (file snapshot, k-mer
+  sizes, totals), with the same file-snapshot invalidation and bounded lock wait as **stats**; the
+  hashes stay in the signature file, never in the sidecar.
 - **stats**: computes and caches the per-dataset statistics block (streaming exact read and base
   counts, plus a sample for per-read metrics such as GC content), invalidated when the FASTQ file's size
   or modification time changes; used by `sra_profile`, `sra_report` and `sra_validate` (through
@@ -644,7 +648,9 @@ A command reports an expected error with `return self.fail(error, "context")` (`
 `main()` does the same for an exception a command lets through. No code 5 or higher is used.
 
 Two commands decide their code from a set of per-item outcomes: `download_sra` returns 4 only when
-every accession that failed was classified `network` by `classify_download_error`, and 1 otherwise.
+every accession that failed was classified `network` by `classify_download_error`, and 1 otherwise
+(a truncated download is a failure unless `--accept-partial` is given, as an incomplete store copy
+already was).
 `download_metadata` logs each accession NCBI did not return and exits 0, unless every failure was a
 network one and nothing was fetched (`NetworkError`, 4); a rerun fetches only the missing ones.
 

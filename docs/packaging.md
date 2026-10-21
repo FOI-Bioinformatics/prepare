@@ -64,7 +64,7 @@ a recipe ready to submit as-is, and it is not stored anywhere else in this repos
 
 ```yaml
 {% set name = "prepare" %}
-{% set version = "0.10.1" %}
+{% set version = "0.11.0" %}
 
 package:
   name: "{{ name|lower }}"
@@ -73,7 +73,7 @@ package:
 source:
   url: "https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/prepare-{{ version }}.tar.gz"
   sha256: <sha256 of the sdist at that PyPI release; `pip download --no-binary :all: --no-deps
-    prepare==0.10.1` then `sha256sum`, or the value PyPI's "Download files" page shows>
+    prepare==0.11.0` then `sha256sum`, or the value PyPI's "Download files" page shows>
 
 build:
   number: 0

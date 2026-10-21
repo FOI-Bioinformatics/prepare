@@ -226,6 +226,99 @@ def _waiting_logged(proc: subprocess.Popen, accession: str) -> bool:
 # --------------------------------------------------------------------------------------- scenarios
 
 
+def _with_spots(project: Path, accession: str, spots: int) -> None:
+    """Record NCBI's spot count for ``accession`` in the project registry, as download_metadata would."""
+    from prepare.data.registry_blocks import MetadataBlock, set_metadata_block
+
+    registry_update(
+        project / REGISTRY_FILENAME,
+        lambda registry: set_metadata_block(registry, accession, MetadataBlock(run_total_spots=spots)),
+    )
+
+
+def _verified_download(harness: Harness, project: Path, *extra: str, **env: str) -> subprocess.Popen:
+    """``download_sra`` with verification on and the fasterq-dump-only path, plus fake-tool env settings."""
+    args = ["download_sra", "--accessions-file", "accessions.txt", "--no-compress", "--num-threads", "1", *extra]
+    proc = spawn_cli(args, project, {**harness.env, **env})
+    harness.children.append(proc)
+    return proc
+
+
+def test_truncated_download_fails_in_plain_project(harness):
+    """A run short of NCBI's spot count is a failure, recorded with its verdict and listed for retry."""
+    project = harness.project("project", ["SRR1"])
+    _with_spots(project, "SRR1", 100)
+
+    log = harness.finish(_verified_download(harness, project, "--no-prefetch", "--max-retries", "0"), expected=1)
+
+    assert "truncated" in log
+    dataset = _datasets(project)["SRR1"]["download"]
+    assert dataset["state"] == "failed"
+    assert dataset["complete"]["verdict"] == "truncated"
+    assert dataset["complete"]["reads_r1"] == FAKE_READS
+    assert (project / "fastq" / "failed_accessions.txt").read_text() == "SRR1\n"
+    assert not (project / "fastq" / "SRR1").exists()
+    assert _temp_names(project) == []
+
+
+def test_truncated_download_accepted_with_accept_partial(harness):
+    project = harness.project("project", ["SRR1"])
+    _with_spots(project, "SRR1", 100)
+
+    harness.finish(_verified_download(harness, project, "--no-prefetch", "--accept-partial"))
+
+    dataset = _datasets(project)["SRR1"]["download"]
+    assert dataset["state"] == "downloaded"
+    assert dataset["complete"]["verdict"] == "truncated"
+    assert _fastq_names(project / "fastq" / "SRR1") == ["SRR1_1.fastq", "SRR1_2.fastq"]
+    assert not (project / "fastq" / "failed_accessions.txt").exists()
+
+
+def test_tool_failure_then_retry_succeeds(harness):
+    """The first fasterq-dump call fails; the retry pass fetches the run and both attempts are counted."""
+    project = harness.project("project", ["SRR1"])
+
+    log = harness.finish(_verified_download(harness, project, "--no-prefetch", FAKE_FASTERQ_FAIL_ONCE="1"))
+
+    assert "connection reset by peer" in log
+    assert len(started_files(harness.barrier, "SRR1")) == 2
+    dataset = _datasets(project)["SRR1"]["download"]
+    assert dataset["state"] == "downloaded"
+    assert dataset["attempts"] == 2
+    assert dataset["complete"]["verdict"] == "unverified"
+    assert _temp_names(project) == []
+
+
+def test_prefetch_without_archive_is_a_network_failure(harness):
+    """prefetch exiting 0 with nothing written: a network failure (exit 4) before fasterq-dump runs."""
+    project = harness.project("project", ["SRR1"])
+
+    proc = _verified_download(harness, project, "--max-retries", "0", FAKE_PREFETCH_NOOP="1")
+    log = harness.finish(proc, expected=4)
+
+    assert "prefetch wrote no archive for SRR1" in log
+    assert all(text.strip() == "prefetch" for text in _started_tools(harness.barrier, "SRR1"))
+    dataset = _datasets(project)["SRR1"]["download"]
+    assert dataset["state"] == "failed"
+    assert "prefetch wrote no archive" in dataset["message"]
+    assert _temp_names(project) == []
+
+
+def test_unpaired_file_is_recorded_with_the_mates(harness):
+    project = harness.project("project", ["SRR1"])
+
+    harness.finish(_verified_download(harness, project, "--no-prefetch", FAKE_FASTERQ_UNPAIRED="1"))
+
+    assert _fastq_names(project / "fastq" / "SRR1") == ["SRR1.fastq", "SRR1_1.fastq", "SRR1_2.fastq"]
+    files = sorted(entry["path"] for entry in _datasets(project)["SRR1"]["download"]["files"])
+    assert [Path(path).name for path in files] == ["SRR1.fastq", "SRR1_1.fastq", "SRR1_2.fastq"]
+
+
+def _started_tools(barrier: Path, accession: str) -> List[str]:
+    """The tool name each ``<ACC>.<pid>.started`` file records."""
+    return [path.read_text() for path in started_files(barrier, accession)]
+
+
 def test_two_runs_download_one_accession_into_one_project_once(harness):
     """Scenario 1: the second run waits on the project's accession lock and then finds the files."""
     project = harness.project("project", ["SRR1"])

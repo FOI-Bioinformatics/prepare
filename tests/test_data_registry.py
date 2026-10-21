@@ -1,6 +1,7 @@
 """Tests for the per-project dataset registry (prepare.data.registry)."""
 
 import gzip
+import shutil
 import json
 import os
 from pathlib import Path
@@ -413,6 +414,24 @@ class TestRecords:
         reg.record_download(r, "SRR4", "downloaded", tmp_path / "fastq", attempt=False)
         assert r.datasets["SRR4"]["download"]["state"] == "downloaded"
         assert r.datasets["SRR4"]["download"]["attempts"] == 0
+
+    def test_failed_record_keeps_the_files_still_on_disk(self, tmp_path):
+        """A failed forced redownload leaves the earlier folder in place; the record says so."""
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
+        _fastq(tmp_path / "fastq" / "SRR5" / "SRR5_1.fastq")
+        reg.record_download(r, "SRR5", "downloaded", tmp_path / "fastq")
+        files = r.datasets["SRR5"]["download"]["files"]
+        assert files and r.datasets["SRR5"]["download"]["bytes_total"] > 0
+
+        reg.record_download(r, "SRR5", "failed", tmp_path / "fastq", "network: reset")
+        assert r.datasets["SRR5"]["download"]["state"] == "failed"
+        assert r.datasets["SRR5"]["download"]["files"] == files
+        assert r.datasets["SRR5"]["download"]["bytes_total"] > 0
+
+        shutil.rmtree(tmp_path / "fastq" / "SRR5")
+        reg.record_download(r, "SRR5", "failed", tmp_path / "fastq", "network: reset")
+        assert r.datasets["SRR5"]["download"]["files"] == []
+        assert r.datasets["SRR5"]["download"]["bytes_total"] == 0
 
     def test_record_download_stores_and_preserves_the_completeness_verdict(self, tmp_path):
         r = reg.load_registry(tmp_path / "prepare_registry.json")

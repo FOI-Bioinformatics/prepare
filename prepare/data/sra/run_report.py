@@ -35,6 +35,7 @@ from prepare.data.sra.store_handoff import (
     STORE_INCOMPLETE_PREFIX,
     STORE_LINKED_PREFIX,
     STORE_PARTIAL_PREFIX,
+    STORE_PROJECT_FOLDER_PREFIX,
 )
 
 REASONS = ("network", "not-found", "disk-full", "insufficient-space", "locked", "interrupted", "unknown")
@@ -75,15 +76,15 @@ def started_download(success: bool, message: str) -> bool:
     """Whether a result came from an attempt that started a download.
 
     Not one: a disk-full "not attempted" mark, an interruption, a free-space refusal, a wait for
-    a lock that gave up, the store's refusal of a partial copy or of an incomplete copy whose
-    refetches are used up, files found already in place, and a link to a dataset the store
-    already held. A lock lost during the download did start one, and so did every other
-    ``incomplete:`` outcome (it follows a fetch).
+    a lock that gave up, the store's refusal of a partial copy, of an incomplete copy whose
+    refetches are used up or of a project folder that is not a link, files found already in
+    place, and a link to a dataset the store already held. A lock lost during the download
+    did start one, and so did every other ``incomplete:`` outcome (it follows a fetch).
     """
     body = accession_mod.result_body(message)
     if success:
         return body != accession_mod.ALREADY_EXISTS and not body.startswith(STORE_LINKED_PREFIX)
-    if body == DISK_FULL_NOT_ATTEMPTED or body.startswith(STORE_PARTIAL_PREFIX):
+    if body == DISK_FULL_NOT_ATTEMPTED or body.startswith((STORE_PARTIAL_PREFIX, STORE_PROJECT_FOLDER_PREFIX)):
         return False
     if body.startswith(STORE_INCOMPLETE_PREFIX) and body.endswith(STORE_EXHAUSTED_SUFFIX):
         return False

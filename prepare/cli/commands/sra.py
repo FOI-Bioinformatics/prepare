@@ -8,13 +8,13 @@ import time
 from datetime import datetime, timezone
 from typing import Callable, Dict, Optional, Set, Tuple
 
-from prepare.cli.base import finite_float, BaseCommand, anchored_folder
+from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
 from prepare.cli.commands.sra_record import STORE_SAVED_SUFFIX  # noqa: F401 - re-exported
 from prepare.cli.commands.sra_record import record_present, result_recorder, sidecar_completeness
 from prepare.cli.commands.sra_verdicts import present_verdicts, registry_inputs
 from pathlib import Path
 
-from prepare.core.constants import FAILED_ACCESSIONS_FILE
+from prepare.core.constants import FAILED_ACCESSIONS_FILE, MAX_CONCURRENT_DOWNLOADS
 from prepare.core.exceptions import DataAccessError, ExitCode, PrepareError
 from prepare.core.settings import setting_for
 from prepare.data import registry_blocks as rb
@@ -99,13 +99,13 @@ class DownloadSraCommand(BaseCommand):
         )
         parser.add_argument(
             "--num-threads",
-            type=int,
+            type=positive_int,
             default=4,
             help="Number of threads for each fasterq-dump",
         )
         parser.add_argument(
             "--max-workers",
-            type=int,
+            type=positive_int,
             default=None,
             help=(
                 "Number of parallel downloads (default: CPUs available to this job / --num-threads, "
@@ -150,17 +150,11 @@ class DownloadSraCommand(BaseCommand):
         )
         parser.add_argument("--data-root", default=None, help="Shared data store root (overrides discovery)")
         parser.add_argument(
-            "--verify-downloads",
-            dest="verify_downloads",
-            action="store_true",
-            default=True,
-            help="Verify each download's read count against NCBI's recorded total spots (default: on)",
-        )
-        parser.add_argument(
             "--no-verify-downloads",
             dest="verify_downloads",
             action="store_false",
-            help="Skip completeness verification against NCBI spot counts",
+            default=True,
+            help="Skip completeness verification against NCBI spot counts (default: on)",
         )
         parser.add_argument(
             "--redownload-truncated",
@@ -181,6 +175,11 @@ class DownloadSraCommand(BaseCommand):
             action="store_false",
             default=True,
             help="Run fasterq-dump directly against the accession instead of prefetch then fasterq-dump",
+        )
+        parser.add_argument(
+            "--keep-temp",
+            action="store_true",
+            help="Keep fasterq-dump's build folder of a failed attempt for inspection (its path is logged)",
         )
         parser.add_argument(
             "--keep-sra",
@@ -216,7 +215,7 @@ class DownloadSraCommand(BaseCommand):
         parser.add_argument(
             "--accept-partial",
             action="store_true",
-            help="Use a store dataset whose download is incomplete instead of refusing it",
+            help="Keep a truncated download, or use an incomplete store dataset, instead of failing it",
         )
         parser.add_argument(
             "--no-resume-partial",
@@ -422,6 +421,13 @@ class DownloadSraCommand(BaseCommand):
         """
         explicit = args.max_workers is not None
         max_workers = args.max_workers if explicit else default_max_workers(args.num_threads)
+        if explicit and max_workers > MAX_CONCURRENT_DOWNLOADS:
+            self.logger.warning(
+                "--max-workers %d capped at %d, the most parallel downloads one run starts",
+                max_workers,
+                MAX_CONCURRENT_DOWNLOADS,
+            )
+            max_workers = MAX_CONCURRENT_DOWNLOADS
         cpu_count = resources.available_cpus()
         if explicit and max_workers * args.num_threads > cpu_count:
             self.logger.warning(
@@ -512,8 +518,12 @@ class DownloadSraCommand(BaseCommand):
         metadata folder is the fallback.
         """
         if store is None:
-            # Without a store, --lock-wait still applies to the project's per-accession lock.
-            return {"lock_wait": setting_for(args, "lock_wait")}
+            # Without a store, --lock-wait still applies to the project's per-accession lock
+            # and --accept-partial decides whether a truncated download is kept.
+            return {
+                "lock_wait": setting_for(args, "lock_wait"),
+                "accept_partial": getattr(args, "accept_partial", False),
+            }
         return {
             "store": store,
             "link_mode": getattr(args, "link_mode", "auto"),
@@ -521,6 +531,7 @@ class DownloadSraCommand(BaseCommand):
             "resume_partial": getattr(args, "resume_partial", True),
             "store_metadata": [project_root(registry) / "metadata", store.metadata],
             "lock_wait": setting_for(args, "lock_wait"),
+            "verify_downloads": getattr(args, "verify_downloads", True),
         }
 
     def _download_batched(
@@ -582,6 +593,7 @@ class DownloadSraCommand(BaseCommand):
                     sra_cache=getattr(args, "sra_cache", None),
                     use_prefetch=getattr(args, "use_prefetch", True),
                     keep_sra=getattr(args, "keep_sra", False),
+                    keep_temp=getattr(args, "keep_temp", False),
                     compress=getattr(args, "compress", True),
                     stop=term.stop,
                     run_sizes=run_sizes,

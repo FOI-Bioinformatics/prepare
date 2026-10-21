@@ -44,7 +44,7 @@ prepare store_gc --dry-run                                           # candidate
 
 ## Links in a project
 
-Each linked accession appears as `fastq/<ACCESSION>`, a symlink to `<data-root>/sra/<ACCESSION>`. The link is relative when the store and the project share a parent folder and absolute otherwise. `--link-mode` (`auto`, `relative`, `absolute` or `copy`) overrides this choice. `store_init` and `store_adopt` add `fastq/` to the project's `.gitignore` when the project is a git repository.
+Each linked accession appears as `fastq/<ACCESSION>`, a symlink to `<data-root>/sra/<ACCESSION>`. A dataset folder in the store may also hold `<ACCESSION>.sig.gz`, the sourmash signature `sra_sketch` cached for every project that links the dataset; `store_status` counts its bytes with the dataset. The link is relative when the store and the project share a parent folder and absolute otherwise. `--link-mode` (`auto`, `relative`, `absolute` or `copy`) overrides this choice. `store_init` and `store_adopt` add `fastq/` to the project's `.gitignore` when the project is a git repository.
 
 With `--link-mode copy`, linking an accession that already has a copy in the project refreshes it. The new copy is made under a hidden name first, the earlier copy is moved aside only then, and it is put back if the swap does not happen, also on an interrupt. A relink therefore needs room for a second copy on the project's filesystem. The command checks that room first and fails with an error naming the accession when it is missing. A project folder that does not hold the store's `<ACCESSION>.json` is still refused.
 

@@ -32,7 +32,7 @@ Other features need an extra:
 | `analysis` | scikit-learn, scipy | `diversity_analysis`, the PCA, t-SNE, diversity and clustered heatmap plots of `interactive_plot`, group statistics in `sra_report --groups-file` |
 | `interactive` | plotly, jinja2 | `interactive_plot`, `explore_containment`, the `sra_report` HTML report, the `project_report` HTML page |
 | `maps` | cartopy | `plot_map` (geographic sample maps) |
-| `sourmash` | sourmash | sketching a genome in `branchwater_search`, and the `sourmash scripts prepare_*` plugin |
+| `sourmash` | sourmash | sketching a genome in `branchwater_search`, `sra_sketch`, and the `sourmash scripts prepare_*` plugin |
 | `all` | all of the above | everything |
 
 ```bash
@@ -128,6 +128,7 @@ of one command.
 | | `sra_validate` | Validate downloaded SRA datasets |
 | | `sra_profile` | Statistics and a quality profile for each downloaded dataset |
 | | `sra_report` | One HTML report on dataset quality, with an optional group comparison |
+| | `sra_sketch` | Sourmash sketches of downloaded datasets, with local containment of a genome |
 | | `extract_target_reads` | Keep the reads that map to a target genome, optionally assemble them |
 | Store | `store_init` | Create the shared data store and record this project's use of it |
 | | `store_status` | Report dataset counts, bytes and stale projects |

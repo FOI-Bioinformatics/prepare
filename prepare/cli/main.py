@@ -73,6 +73,7 @@ from prepare.cli.commands.runs import RunsCommand
 from prepare.cli.commands.sra_enhanced import SRAInfoCommand, SRAValidateCommand
 from prepare.cli.commands.sra_profile import SRAProfileCommand
 from prepare.cli.commands.sra_report import SRAReportCommand
+from prepare.cli.commands.sra_sketch import SRASketchCommand
 
 
 def register_all_commands() -> None:
@@ -110,6 +111,7 @@ def register_all_commands() -> None:
         SRAValidateCommand(),
         SRAProfileCommand(),
         SRAReportCommand(),
+        SRASketchCommand(),
         ExtractTargetReadsCommand(),
         # Store commands
         StoreInitCommand(),

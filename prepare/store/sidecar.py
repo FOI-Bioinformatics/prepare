@@ -70,12 +70,16 @@ class Sidecar:
     # Optional record of a re-download of this dataset; left out of the JSON while None, so a
     # sidecar written before the field existed is rewritten byte-identical (schema stays 1).
     refetch: Optional[Dict[str, Any]] = None
+    # Optional description of the sourmash signature cached beside the dataset
+    # (``prepare.store.sketches``); left out of the JSON while None, like ``refetch``.
+    sketch: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Plain-dict form suitable for JSON serialization; ``refetch`` is left out while None."""
+        """Plain-dict form suitable for JSON serialization; ``refetch`` and ``sketch`` are left out while None."""
         data = asdict(self)
-        if data.get("refetch") is None:
-            data.pop("refetch", None)
+        for optional in ("refetch", "sketch"):
+            if data.get(optional) is None:
+                data.pop(optional, None)
         return data
 
     @classmethod

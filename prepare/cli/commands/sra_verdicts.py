@@ -29,7 +29,7 @@ from prepare.data import registry_blocks as rb
 from prepare.data.registry import Registry, project_root, query
 from prepare.data.sra.fastq import verify_download
 from prepare.data.sra.spots import expected_spots as lookup_spots
-from prepare.data.sra.spots import merged_verdict, positive_int, verdict_for_count
+from prepare.data.sra.spots import merged_verdict, positive_int, read_count, verdict_for_count
 from prepare.store.layout import StorePaths, sidecar_path
 from prepare.store.sidecar import sidecar_completeness
 
@@ -257,10 +257,7 @@ def linked_verdict(
 
 def _read_count(verdict: Optional[Mapping[str, Any]]) -> Optional[int]:
     """The ``reads_r1`` of ``verdict`` when it is a whole number of zero or more, else None."""
-    reads = verdict.get("reads_r1") if verdict is not None else None
-    if isinstance(reads, bool) or not isinstance(reads, int) or reads < 0:
-        return None
-    return reads
+    return read_count(verdict.get("reads_r1")) if verdict is not None else None
 
 
 def recorded_verdict(
