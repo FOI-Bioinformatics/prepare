@@ -2,7 +2,7 @@
 
 This guide covers `extract_target_reads`, which maps reads to a target genome and optionally assembles the mapped reads of each sample. Return to the [documentation index](README.md).
 
-A targeted assembly uses only the reads relevant to one genome, which gives a small assembly instead of a whole-metagenome assembly. For every sample whose containment for the target genome meets the threshold, the command maps the reads with minimap2, keeps the mapped reads with samtools and writes them to `targeted/<ACC>/`.
+A targeted assembly uses only the reads relevant to one genome, which gives a small assembly instead of a whole-metagenome assembly. For every sample whose containment for the target genome meets the threshold, the command maps the reads with minimap2, keeps the mapped reads with samtools and writes them to `targeted/<ACC>/`. An accession excluded in the registry (`blacklist`) is always skipped. When the registry holds a selection (`select_datasets`), only the selected accessions that meet the threshold are extracted; `--ignore-selection` extracts every sample at the threshold instead. Without a selection, the table alone decides.
 
 ```bash
 prepare extract_target_reads \

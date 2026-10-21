@@ -70,6 +70,26 @@ class TestSelectSamples:
         with pytest.raises(ProcessingError):
             select_samples_for_genome(df, "GCF_missing", 0.1)
 
+    def test_selected_samples_applies_exclusions_and_the_selection(self, tmp_path, caplog):
+        from prepare.data.read_extraction import selected_samples
+        from prepare.data.registry import record_exclusion, record_selection
+
+        table = tmp_path / "parsed_containment.txt"
+        table.write_text("\tGCF_1\nSRR1\t0.9\nSRR2\t0.6\nSRR3\t0.5\nSRR4\t0.3\n")
+        registry = load_registry(tmp_path / "registry.json")
+        record_exclusion(registry, "SRR2", "blacklisted")
+        record_selection(registry, ["SRR2", "SRR3"], {"genome_id": "GCF_1"}, "accessions.txt")
+
+        assert selected_samples(table, "GCF_1", 0.1) == ["SRR1", "SRR2", "SRR3", "SRR4"]
+        with caplog.at_level(logging.INFO):
+            assert selected_samples(table, "GCF_1", 0.1, registry=registry) == ["SRR3"]
+        assert "4 sample(s) in the table" in caplog.text and "1 excluded" in caplog.text
+        assert selected_samples(table, "GCF_1", 0.1, registry=registry, ignore_selection=True) == [
+            "SRR1",
+            "SRR3",
+            "SRR4",
+        ]
+
 
 class TestSampleReads:
     """_sample_reads: which files of an accession folder are handed to minimap2."""

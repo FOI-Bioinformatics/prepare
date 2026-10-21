@@ -15,7 +15,7 @@ import logging
 import platform  # noqa: F401 - tests patch platform.system through this module
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import pandas as pd
 
@@ -59,6 +59,9 @@ from prepare.data.read_extraction_export import (  # noqa: F401 - re-exported; t
 )
 from prepare.data.sra import MATE1_SUFFIXES, fastq_files, fastq_stem, orphan_fastq, primary_fastq
 from prepare.utils.security import SecureSubprocess
+
+if TYPE_CHECKING:
+    from prepare.data.registry import Registry
 
 logger = logging.getLogger(__name__)
 
@@ -181,12 +184,18 @@ def select_samples_for_genome(containment: pd.DataFrame, genome_id: str, thresho
     return [str(acc) for acc in containment.index[values >= threshold]]
 
 
-def selected_samples(parsed_containment: Union[str, Path], genome_id: str, threshold: float) -> List[str]:
-    """Return the sample accessions that meet containment >= threshold for a genome.
+def selected_samples(
+    parsed_containment: Union[str, Path],
+    genome_id: str,
+    threshold: float,
+    registry: Optional["Registry"] = None,
+    ignore_selection: bool = False,
+) -> List[str]:
+    """Return the sample accessions to extract for a genome.
 
-    Reads the parsed containment table and delegates to ``select_samples_for_genome``.
-    Exposed so a caller (the CLI) can learn which samples were selected without
-    duplicating that logic, or re-running the full extraction.
+    The table's samples at containment >= ``threshold``, minus the accessions the registry
+    excludes, and, when the registry holds a selection and ``ignore_selection`` is off, only
+    those the selection names. Without a registry the table alone decides.
 
     Raises:
         DataAccessError: If the table is missing.
@@ -196,7 +205,24 @@ def selected_samples(parsed_containment: Union[str, Path], genome_id: str, thres
     if not table_path.exists():
         raise DataAccessError(f"Parsed containment table not found: {table_path}")
     containment = pd.read_csv(table_path, sep="\t", index_col=0)
-    return select_samples_for_genome(containment, genome_id, threshold)
+    samples = select_samples_for_genome(containment, genome_id, threshold)
+    if registry is None:
+        return samples
+    from prepare.data.registry import query  # registry_scan imports this module
+
+    excluded = set(query(registry, "excluded"))
+    selection = set() if ignore_selection else set(query(registry, "selected"))
+    kept = [acc for acc in samples if acc not in excluded and (not selection or acc in selection)]
+    logger.info(
+        "%d sample(s) in the table at containment >= %.3f for %s; %d excluded; %s; %d to extract",
+        len(samples),
+        threshold,
+        genome_id,
+        sum(acc in excluded for acc in samples),
+        f"{len(selection)} in the recorded selection" if selection else "no recorded selection applied",
+        len(kept),
+    )
+    return kept
 
 
 #: Why a registry extraction record was rejected: the call's own parameters (genome, preset,
@@ -509,6 +535,35 @@ def _extract_one_sample(
     return outcome
 
 
+def _samples_to_extract(
+    table_path: Path,
+    genome_id: str,
+    threshold: float,
+    samples: Optional[List[str]],
+    available: Optional[Set[str]],
+    already_done: Dict[str, Dict[str, Any]],
+    fastq_root: Path,
+) -> List[str]:
+    """The samples ``extract_target_reads`` loops over: the given list or the table's, minus those without FASTQ."""
+    if samples is None:
+        containment = pd.read_csv(table_path, sep="\t", index_col=0)
+        samples = select_samples_for_genome(containment, genome_id, threshold)
+        logger.info("%d sample(s) meet containment >= %.3f for %s", len(samples), threshold, genome_id)
+    if available is None:
+        return samples
+    # A sample already recorded (``already_done``) is kept even when it is not in
+    # ``available``: its FASTQ input may have been removed since a successful
+    # extraction (e.g. by store_gc/store_unlink), and it must still reach the
+    # "already extracted" fast path rather than being counted as missing.
+    known = set(available) | set(already_done.keys())
+    missing = [acc for acc in samples if acc not in known]
+    if missing:
+        logger.info(
+            "%d of the %d selected sample(s) have no FASTQ under %s; skipped", len(missing), len(samples), fastq_root
+        )
+    return [acc for acc in samples if acc in known]
+
+
 def extract_target_reads(
     parsed_containment: Union[str, Path],
     genome_id: str,
@@ -529,6 +584,7 @@ def extract_target_reads(
     truncated_downloads: Optional[Dict[str, Dict[str, Any]]] = None,
     keep_sam: bool = False,
     available: Optional[Set[str]] = None,
+    samples: Optional[List[str]] = None,
 ) -> Dict[str, ExtractionResult]:
     """Extract reads mapping to a target genome for every qualifying sample.
 
@@ -569,6 +625,9 @@ def extract_target_reads(
             out and counted rather than logged individually, so a dry run over many thousands
             of screened-but-not-downloaded samples prints one summary line. ``None`` checks
             each selected sample's FASTQ files individually instead.
+        samples: The accessions to extract, as ``selected_samples`` returns them (the table
+            bounded by the registry's exclusions and selection). ``None`` takes every sample
+            of the table at ``threshold``.
 
     Returns:
         Mapping of accession to an ``ExtractionResult`` (empty files in dry-run).
@@ -588,29 +647,12 @@ def extract_target_reads(
     if not dry_run and not genome_path.exists():
         raise DataAccessError(f"Target genome FASTA not found: {genome_path}")
 
-    containment = pd.read_csv(table_path, sep="\t", index_col=0)
-    samples = select_samples_for_genome(containment, genome_id, threshold)
-    logger.info("%d sample(s) meet containment >= %.3f for %s", len(samples), threshold, genome_id)
-    if available is not None:
-        # A sample already recorded (``already_done``) is kept even when it is not in
-        # ``available``: its FASTQ input may have been removed since a successful
-        # extraction (e.g. by store_gc/store_unlink), and it must still reach the
-        # "already extracted" fast path below rather than being counted as missing.
-        known = set(available) | set((already_done or {}).keys())
-        missing = [acc for acc in samples if acc not in known]
-        samples = [acc for acc in samples if acc in known]
-        if missing:
-            logger.info(
-                "%d of the %d selected sample(s) have no FASTQ under %s; skipped",
-                len(missing),
-                len(missing) + len(samples),
-                fastq_root,
-            )
+    already_done = already_done or {}
+    samples = _samples_to_extract(table_path, genome_id, threshold, samples, available, already_done, fastq_root)
 
     results: Dict[str, ExtractionResult] = {}
     output_root = Path(output_folder)
     SecureSubprocess.add_allowed_root(output_root)
-    already_done = already_done or {}
     mate_counts = mate_counts or {}
     truncated_downloads = truncated_downloads or {}
 

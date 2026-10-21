@@ -17,7 +17,14 @@ from prepare.cli.commands.read_extraction import ExtractTargetReadsCommand
 from prepare.cli.commands.status import StatusCommand
 from prepare.core.exceptions import ProcessingError, SecurityError
 from prepare.data.read_extraction import ExtractionResult
-from prepare.data.registry import load_registry, record_download, record_extraction, save_registry
+from prepare.data.registry import (
+    load_registry,
+    record_download,
+    record_exclusion,
+    record_extraction,
+    record_selection,
+    save_registry,
+)
 from helpers_extraction import _fake_tools, tools_present  # noqa: F401 (autouse fixture)
 from prepare.utils import tools
 
@@ -1846,3 +1853,101 @@ def test_extraction_from_a_subfolder_writes_under_the_project_targeted(mock_run,
     registry = load_registry(root / "prepare_registry.json")
     files = registry.datasets["SRR1"]["extractions"]["GCF_1"]["files"]
     assert files and all(f.startswith("targeted/SRR1/") for f in files)
+
+
+def _project_tree(tmp, values):
+    """A table with one genome column over ``values`` (accession -> containment), FASTQ for each."""
+    root = Path(tmp)
+    table = root / "parsed_containment.txt"
+    table.write_text("\tGCF_1\n" + "".join(f"{acc}\t{value}\n" for acc, value in values.items()))
+    for acc in values:
+        d = root / "fastq" / acc
+        d.mkdir(parents=True)
+        (d / f"{acc}_1.fastq.gz").write_text("x")
+        (d / f"{acc}_2.fastq.gz").write_text("x")
+    genome = root / "GCF_1.fna"
+    genome.write_text(">s\nACGT\n")
+    return root, table, genome
+
+
+def _dry_run_listed(cmd, args, caplog):
+    with caplog.at_level("INFO"):
+        assert cmd.execute(args) == 0
+    return sorted(r.message.strip() for r in caplog.records if r.message.startswith("  SRR"))
+
+
+class TestExtractionFollowsTheProject:
+    """P2: the exclusions and the recorded selection bound what is extracted."""
+
+    def test_excluded_accessions_are_never_extracted(self, tmp_path, caplog):
+        root, table, genome = _project_tree(tmp_path, {"SRR1": 0.9, "SRR2": 0.9})
+        registry = load_registry(root / "registry.json")
+        record_exclusion(registry, "SRR1", "blacklisted")
+        save_registry(registry, root / "registry.json")
+        args = _args(
+            tmp_path, parsed_containment=str(table), genome_fasta=str(genome), fastq_folder=str(root / "fastq")
+        )
+        args.dry_run = True
+        assert _dry_run_listed(ExtractTargetReadsCommand(), args, caplog) == ["SRR2"]
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_a_real_run_skips_the_excluded_accession(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_tools({})
+        root, table, genome = _project_tree(tmp_path, {"SRR1": 0.9, "SRR2": 0.9})
+        registry = load_registry(root / "registry.json")
+        record_exclusion(registry, "SRR1", "blacklisted")
+        save_registry(registry, root / "registry.json")
+        args = _args(
+            tmp_path,
+            parsed_containment=str(table),
+            genome_fasta=str(genome),
+            fastq_folder=str(root / "fastq"),
+            output_folder=str(root / "targeted"),
+        )
+        assert ExtractTargetReadsCommand().execute(args) == 0
+        assert sorted(p.name for p in (root / "targeted").iterdir() if not p.name.startswith(".")) == ["SRR2"]
+
+    def _selection_project(self, tmp_path):
+        root, table, genome = _project_tree(tmp_path, {"SRR1": 0.9, "SRR2": 0.6, "SRR3": 0.5, "SRR4": 0.3})
+        registry = load_registry(root / "registry.json")
+        record_selection(registry, ["SRR2", "SRR3"], {"genome_id": "GCF_1", "threshold": 0.5}, "accessions.txt")
+        save_registry(registry, root / "registry.json")
+        return _args(
+            tmp_path,
+            parsed_containment=str(table),
+            genome_fasta=str(genome),
+            fastq_folder=str(root / "fastq"),
+            threshold=0.1,
+            dry_run=True,
+        )
+
+    def test_a_recorded_selection_bounds_the_extraction(self, tmp_path, caplog):
+        args = self._selection_project(tmp_path)
+        assert _dry_run_listed(ExtractTargetReadsCommand(), args, caplog) == ["SRR2", "SRR3"]
+
+    def test_ignore_selection_uses_the_table(self, tmp_path, caplog):
+        args = self._selection_project(tmp_path)
+        args.ignore_selection = True
+        assert _dry_run_listed(ExtractTargetReadsCommand(), args, caplog) == ["SRR1", "SRR2", "SRR3", "SRR4"]
+
+    def test_the_threshold_still_bounds_a_selection(self, tmp_path, caplog):
+        args = self._selection_project(tmp_path)
+        args.threshold = 0.55
+        assert _dry_run_listed(ExtractTargetReadsCommand(), args, caplog) == ["SRR2"]
+
+    def test_without_a_selection_the_table_decides(self, tmp_path, caplog):
+        root, table, genome = _project_tree(tmp_path, {"SRR1": 0.9, "SRR2": 0.05})
+        args = _args(
+            tmp_path, parsed_containment=str(table), genome_fasta=str(genome), fastq_folder=str(root / "fastq")
+        )
+        args.dry_run = True
+        assert _dry_run_listed(ExtractTargetReadsCommand(), args, caplog) == ["SRR1"]
+
+    def test_ignore_selection_flag_parses(self):
+        parser = argparse.ArgumentParser()
+        ExtractTargetReadsCommand().configure_parser(parser)
+        ns = parser.parse_args(["--parsed-containment", "t", "--genome-id", "G", "--genome-fasta", "G.fna"])
+        assert ns.ignore_selection is False
+        assert parser.parse_args(
+            ["--parsed-containment", "t", "--genome-id", "G", "--genome-fasta", "G.fna", "--ignore-selection"]
+        ).ignore_selection
