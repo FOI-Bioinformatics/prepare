@@ -10,17 +10,22 @@ from prepare.core.exceptions import VisualizationError  # noqa: E402
 from prepare.visualization.interactive import _prepare_matrix, _write_figure  # noqa: E402
 
 
+class _Layout:
+    title = None
+
+
 class _FailingFigure:
-    def write_html(self, path):
-        with open(path, "w") as handle:
-            handle.write("partial")
+    layout = _Layout()
+
+    def to_html(self, **kwargs):
         raise RuntimeError("disk full")
 
 
 class _GoodFigure:
-    def write_html(self, path):
-        with open(path, "w") as handle:
-            handle.write("<html></html>")
+    layout = _Layout()
+
+    def to_html(self, **kwargs):
+        return '<div class="plotly-graph-div"></div>'
 
 
 def test_write_figure_leaves_no_temp_file_on_failure(tmp_path):
@@ -28,13 +33,14 @@ def test_write_figure_leaves_no_temp_file_on_failure(tmp_path):
     with pytest.raises(RuntimeError):
         _write_figure(_FailingFigure(), target)
     assert not target.exists()
-    assert list(target.parent.iterdir()) == []
+    assert not target.parent.exists() or list(target.parent.iterdir()) == []
 
 
 def test_write_figure_replaces_target_and_creates_folder(tmp_path):
     target = tmp_path / "new" / "plot.html"
     assert _write_figure(_GoodFigure(), target) == target
-    assert target.read_text() == "<html></html>"
+    text = target.read_text()
+    assert '<div class="plotly-graph-div"></div>' in text and "<title>plot</title>" in text
     assert [p.name for p in target.parent.iterdir()] == ["plot.html"]
 
 
