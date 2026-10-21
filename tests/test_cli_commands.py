@@ -106,8 +106,8 @@ class TestUseBranchwaterCommand:
         args = argparse.Namespace(branchwater_folder=str(source), matches_folder=str(tmp_path / "m"))
         with caplog.at_level(logging.ERROR):
             assert UseBranchwaterCommand().execute(args) == 1
-        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-        assert len(errors) == 1 and errors[0].exc_info is not None
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR and r.exc_info is not None]
+        assert len(errors) == 1  # the one line of fail; the data layer's per-file line carries no traceback
         assert "bad.csv" in errors[0].getMessage()
 
     def test_extract_branchwater_metadata_unreadable_file_is_an_error(self, tmp_path, caplog):
