@@ -14,7 +14,7 @@ every command are in `prepare <command> --help`.
 | 1. Screen | `branchwater_search`, `use_branchwater`, `parse_containment` | `matches/*.csv`, `parsed_containment.txt` | containment and cANI per accession and genome |
 | 2. Select | `select_datasets`, `blacklist` | `accessions.txt`, `blacklist.txt` | selection criteria and date; exclusions with reasons |
 | 3. Download | `download_sra` | `fastq/<accession>/` | outcome per accession: downloaded, failed, skipped |
-| 4. Analyse | `sra_validate`, `sra_profile`, `sra_report` | CSV, JSON and HTML reports | one analysis entry per accession |
+| 4. Analyse | `sra_validate`, `sra_profile`, `sra_report`, `sra_sketch` | CSV, JSON and HTML reports, sourmash signatures | one analysis entry per accession |
 | 5. Extract | `extract_target_reads` | `targeted/<accession>/<genome>_*.fastq.gz` | mapped read count, parameters, files |
 | 6. Assemble | `extract_target_reads --assemble` | `targeted/<accession>/<genome>_assembly/final.contigs.fa` | contig count, total length, N50, megahit version |
 
@@ -153,8 +153,11 @@ it compares each file's checksum with the recorded value. `sra_profile` writes o
 (`sra_statistics.csv`: read and base totals, read lengths, GC content in percent, mean base quality,
 grade) and one profile JSON per accession into `sra_quality_profiles/`. `sra_report` writes one HTML
 report and, with `--groups-file`, a comparison of the groups with t-test or ANOVA results. Each command
-records one analysis entry per accession in the registry (`validate`, `profile`, `report`). The sampling
-rules, the statistics cache in the store sidecar and the report contents are in [reads.md](reads.md).
+records one analysis entry per accession in the registry (`validate`, `profile`, `report`). `sra_sketch`
+(`sourmash` extra) writes one sourmash signature per dataset into `sketches/` and, given a genome, the
+containment of the genome in each dataset into `matches/<genome_id>.csv`, which `parse_containment`
+and `select_datasets` read like a Branchwater result; it records a `sketch` entry. The sampling rules,
+the statistics and sketch caches in the store sidecar and the report contents are in [reads.md](reads.md).
 
 ## 5. Extract
 

@@ -191,6 +191,10 @@ each other and each is small enough to test alone:
 - **journal**: append-only JSON-lines copies of the catalogue's project and usage records, which
   `store_reindex` replays into a rebuilt catalogue; `store_gc` prunes the lines of the accessions it
   removed and `store_reindex` keeps the latest line per project.
+- **sketches**: caches the sourmash signature `sra_sketch` built from a store dataset beside the copy
+  (`<ACC>.sig.gz`) and describes it in the sidecar's optional `sketch` block (file snapshot, k-mer
+  sizes, totals), with the same file-snapshot invalidation and bounded lock wait as **stats**; the
+  hashes stay in the signature file, never in the sidecar.
 - **stats**: computes and caches the per-dataset statistics block (streaming exact read and base
   counts, plus a sample for per-read metrics such as GC content), invalidated when the FASTQ file's size
   or modification time changes; used by `sra_profile`, `sra_report` and `sra_validate` (through

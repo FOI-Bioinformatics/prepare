@@ -78,8 +78,8 @@ What each setting does:
   stopped. A stopped download is classified as a network failure and retried. A `--version` probe
   always uses a fixed 30 s limit.
 - `max_workers_cap`: the upper bound on the default number of parallel downloads, which is the CPUs
-  available to the job divided by `--num-threads` (never more than 10, whatever the cap). An explicit
-  `--max-workers` is used as given.
+  available to the job divided by `--num-threads` (never more than 10, whatever the cap), and on the
+  default number of datasets `sra_sketch` sketches at once. An explicit `--max-workers` is used as given.
 - `lock_wait`: how long `download_sra` and `store_adopt` wait for another run's lock on the same
   accession before giving up on that accession.
 - `registry_lock_wait`, `registry_lock_stale`: how long a command waits for the project registry lock,

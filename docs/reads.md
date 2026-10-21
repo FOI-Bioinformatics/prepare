@@ -158,6 +158,26 @@ The command writes three things:
 
 GC content is given in percent (0 to 100) under `gc_percent` in all three, and the profile JSON carries the complexity score under `complexity_score`. Printed read totals are labelled "(mates counted)". A paired-end run's two mate files are counted separately, so the figure is twice the spot count NCBI reports for the run. The command exits with status 1 when any accession has no readable FASTQ files. The other accessions are still profiled and written.
 
+## sra_sketch
+
+`sra_sketch` builds one sourmash signature per downloaded dataset and, when a genome is given, writes the containment of the genome in each dataset to the matches folder. It needs the `sourmash` extra and no external tool.
+
+```bash
+# Every accession folder under fastq/
+prepare sra_sketch --fastq-folder fastq
+
+# Selected accessions, compared with a genome; the result goes to matches/wMel.csv
+prepare sra_sketch --accession SRR11011981 --genome-fasta wMel.fasta --genome-id wMel
+```
+
+Every record of every mate and orphan file of an accession is read once and hashed into three FracMinHash sketches, at k = 21, 31 and 51, scaled 1000, with abundance tracked. The three are written as `<output-dir>/<ACCESSION>.sig.gz` (default `sketches/`), the gzip JSON format `sourmash sketch -o x.sig.gz` writes, named by the accession and with the k = 21 sketch first. The k = 21 sketch is built exactly as `branchwater_search` builds its query, so `sourmash search`, `gather` and `compare` work on the files directly. An accession whose files have not changed in size or modification time since the recorded sketch is skipped; `--force` sketches it again. When the accession folder is a link into a shared store, a signature cached beside the store copy (`<store>/sra/<ACCESSION>/<ACCESSION>.sig.gz`, described in the sidecar) is copied into the project instead of recomputed, and a fresh sketch is cached there for the next project. A project linked with `--link-mode copy` gets no cache.
+
+With `--genome-fasta` the genome is sketched at k = 21, scaled 1000; `--signature` takes a plain JSON `.sig` of the genome instead (a `.sig.gz` written by this command is a dataset signature, not a genome). The containment of the genome in each dataset is the fraction of the genome's hashes present in the dataset sketch. The rows `acc`, `containment` and `cANI` are merged into `<matches-folder>/<genome_id>.csv` (default `matches/`, the genome id defaulting to the input file's stem): rows of other accessions and their metadata columns are kept, rows of the accessions sketched or already present in this run are replaced, and the file is sorted by containment. `parse_containment` and `select_datasets` read it unchanged.
+
+Accessions are sketched in parallel on `--max-workers` threads, by default the CPUs available to the job bounded by the `max_workers_cap` setting. Each worker holds three abundance sketches of its dataset in memory, a few hundred megabytes for a deep metagenome. A 10 GB gzip file takes minutes, since the whole run is read. `--dry-run` lists what would be sketched, reused or skipped and writes nothing.
+
+The command records a `sketch` analysis per accession in the project registry (k-mer sizes, scaled, read and base totals, hashes per k, the file snapshot, and whether the sketch was computed or reused from the store) and one run-log row per accession, with the containment when a genome was given. It exits with status 1 when any accession has no readable FASTQ files or cannot be read; the other accessions are still written. An interrupt records the accessions finished so far and exits with status 130; the accession being sketched leaves no partial file.
+
 ## sra_report
 
 `sra_report` writes one HTML report, `sra_report.html` in `--output-dir` (default `sra_reports`), with the figures behind it in `sra_report.json`. Without groups, the report covers the quality of the datasets named by `--accessions-file`. With `--groups-file`, it adds a comparison of the groups and their statistical tests: a t-test for two groups and one-way ANOVA for more.

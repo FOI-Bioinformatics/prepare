@@ -2,6 +2,21 @@
 
 All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM-DD format.
 
+## [0.11.0] - 2026-10-21
+
+### Added
+
+- `sra_sketch` (Reads group, `sourmash` extra): one sourmash signature per downloaded dataset
+  (k = 21, 31, 51, scaled 1000, abundance tracked) written as `sketches/<ACCESSION>.sig.gz`, skipped
+  while the dataset's files are unchanged and cached beside a shared-store copy for other projects.
+  With `--genome-fasta` or `--signature` the containment of the genome in each dataset is merged
+  into `matches/<genome_id>.csv` in Branchwater's layout, so `parse_containment` and
+  `select_datasets` read it unchanged. A `sketch` analysis is recorded per accession.
+- The store sidecar has an optional `sketch` block describing the cached signature; the schema is
+  unchanged and older readers ignore it.
+- `prepare.data.sra.iter_sequence_blocks`: a block reader that yields the sequences of a FASTQ file
+  joined with `N`, so a sketch of a whole block equals one of the individual reads.
+
 ## [0.10.1] - 2026-10-15
 
 This release fixes the findings of the code audit of 2026-10-12 (H1-H5, M1-M16, L1-L11 and the
