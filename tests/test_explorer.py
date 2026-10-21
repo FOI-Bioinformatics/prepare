@@ -18,6 +18,7 @@ from prepare.visualization.explorer import (  # noqa: E402
     _build_long_dataframe,
     _build_summary_data,
     _build_table_html,
+    _sunburst_figure,
 )
 
 
@@ -239,3 +240,23 @@ class TestExplorerScaling:
             {"sample": samples, "family": "F", "containment": 0.5, "genus": "G", "species": "s", "genome": "g"}
         )
         assert '"height":2000' in _build_heatmap(long_df).replace(" ", "")
+
+
+def test_sunburst_counts_hits_so_the_hierarchy_adds_up():
+    """A sample holding two genomes of one family is two hits, and the chart says hits, not samples."""
+    long_df = pd.DataFrame(
+        {
+            "sample": ["S1", "S1", "S2", "S2"],
+            "genome": ["g1", "g2", "g1", "g2"],
+            "containment": [0.5, 0.7, 0.6, 0.8],
+            "family": ["F"] * 4,
+            "genus": ["G"] * 4,
+            "species": ["s1", "s2", "s1", "s2"],
+        }
+    )
+    fig = _sunburst_figure(long_df)
+    trace = fig.data[0]
+    values = dict(zip(trace.labels, trace.values))
+    assert values["F"] == 4 and values["s1"] == 2
+    assert "hits" in fig.layout.title.text.lower()
+    assert "sample_count" not in fig.to_json()

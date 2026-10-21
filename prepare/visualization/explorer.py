@@ -185,24 +185,36 @@ def _build_summary_data(
     }
 
 
-def _build_sunburst(long_df: pd.DataFrame) -> str:
-    """Build taxonomy sunburst chart. Returns Plotly HTML fragment."""
+def _sunburst_figure(long_df: pd.DataFrame):
+    """The taxonomy sunburst: one hit per sample and genome, summed up the hierarchy.
+
+    A sunburst adds its children into each parent, so the value must be additive. The number
+    of distinct samples is not (a sample holding two genomes of one family is one sample but
+    two hits), which is why the chart counts hits and says so; the "top families by sample
+    count" card beside it counts samples.
+    """
     px = require("plotly.express", "interactive", _PURPOSE)
     sunburst_df = (
         long_df.groupby(["family", "genus", "species"])
-        .agg(sample_count=("sample", "nunique"), mean_containment=("containment", "mean"))
+        .agg(hits=("sample", "size"), mean_containment=("containment", "mean"))
         .reset_index()
     )
     fig = px.sunburst(
         sunburst_df,
         path=["family", "genus", "species"],
-        values="sample_count",
+        values="hits",
         color="mean_containment",
         color_continuous_scale=CONTAINMENT_SCALE,
-        title="Mean containment by taxon",
+        labels={"hits": "Hits", "mean_containment": "Mean containment"},
+        title="Hits by taxon (one per sample and genome; colour: mean containment)",
     )
     fig.update_layout(**plotly_layout(height=500, margin=dict(t=46, l=6, r=6, b=6)))
-    return fig.to_html(full_html=False, include_plotlyjs=False)
+    return fig
+
+
+def _build_sunburst(long_df: pd.DataFrame) -> str:
+    """Build taxonomy sunburst chart. Returns Plotly HTML fragment."""
+    return _sunburst_figure(long_df).to_html(full_html=False, include_plotlyjs=False)
 
 
 def _build_heatmap(long_df: pd.DataFrame) -> str:
