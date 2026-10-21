@@ -242,6 +242,7 @@ def download_sra(
     resume_partial: bool = True,
     store_metadata: Optional[Union[str, Path, Sequence[Union[str, Path]]]] = None,
     lock_wait: float = 0.0,
+    verify_downloads: bool = True,
     stop: Optional[threading.Event] = None,
     run_sizes: Optional[Mapping[str, Any]] = None,
     min_free_gb: Optional[float] = None,
@@ -299,6 +300,8 @@ def download_sra(
             lock, or without a store the project's ``<fastq>/.locks/<ACC>.lock``) before giving
             up on that accession; zero (the default) waits for as long as the other run keeps
             working, since a download legitimately takes hours
+        verify_downloads: Judge each download against NCBI's spot count (off with
+            ``--no-verify-downloads``: the store copy is recorded as unverified)
         stop: This run's stop token; a new one is made when None. It reaches every worker,
             ``download_accession`` and each prefetch, fasterq-dump or pigz child. Setting it
             prevents this run from starting further tools and ends its lock waits, but a tool
@@ -377,7 +380,7 @@ def download_sra(
         # and the project gets a link to it. Without one, each accession is downloaded under
         # the project's own per-accession lock and published with one rename.
         downloader = store_handoff_mod._store_downloader(
-            store, link_mode, accept_partial, resume_partial, store_metadata, lock_wait
+            store, link_mode, accept_partial, resume_partial, store_metadata, lock_wait, verify=verify_downloads
         ) or functools.partial(
             accession_mod._project_download,
             lock_wait=lock_wait,

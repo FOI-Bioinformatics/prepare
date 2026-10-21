@@ -81,13 +81,16 @@ def _metadata_xml(folders, accession: str) -> Optional[Path]:
     return None
 
 
-def _resolve_expected_spots(accession: str, store, store_metadata, given) -> Optional[int]:
+def _resolve_expected_spots(accession: str, store, store_metadata, given, verify: bool = True) -> Optional[int]:
     """The spot count a store download of ``accession`` is judged against.
 
     ``given`` is the caller's count (the project registry's ``run_total_spots``); without one,
     ``prepare.data.sra.spots.expected_spots`` looks in the store sidecar and then in the
-    metadata XML folders, the same lookup order every other caller uses.
+    metadata XML folders, the same lookup order every other caller uses. With ``verify``
+    off (``--no-verify-downloads``) no count is used at all, so the copy is ``unverified``.
     """
+    if not verify:
+        return None
     spots = spots_mod.positive_int(given)
     if spots is not None:
         return spots
@@ -451,6 +454,7 @@ def _store_fetch(
     link_mode: str,
     store_metadata,
     accept_partial: bool = False,
+    verify: bool = True,
     **download_kwargs,
 ) -> Tuple[bool, str]:
     """Download ``accession`` into the store, describe it, and link the project to it.
@@ -520,6 +524,9 @@ def _store_fetch(
     expected = spots_mod.positive_int(download_kwargs.get("expected_spots"))
     if not ncbi.get("spots") and expected is not None:
         ncbi = {**ncbi, "spots": expected}
+    if not verify:
+        # No count judges this copy; recording one would let store_verify judge it later.
+        ncbi = {key: value for key, value in ncbi.items() if key != "spots"}
 
     previous = _read_store_sidecar(store, accession) if replacing else None
     sidecar = build_sidecar(accession, staged, ncbi, accession_mod.fasterq_dump_version(), compression)
@@ -567,6 +574,7 @@ def _store_download(
     force: bool = False,
     lock_wait: float = 0.0,
     stop: Optional[threading.Event] = None,
+    verify: bool = True,
     **download_kwargs,
 ) -> Tuple[bool, str]:
     """Get ``accession`` for this project through the shared store.
@@ -594,7 +602,9 @@ def _store_download(
     try:
         # One spot count decides completeness everywhere below: the precheck, the download's
         # own verdict message, and the sidecar of a fresh copy.
-        expected = _resolve_expected_spots(accession, store, store_metadata, download_kwargs.get("expected_spots"))
+        expected = _resolve_expected_spots(
+            accession, store, store_metadata, download_kwargs.get("expected_spots"), verify=verify
+        )
         download_kwargs["expected_spots"] = expected
         precheck = functools.partial(
             _store_precheck,
@@ -624,6 +634,7 @@ def _store_download(
                 link_mode,
                 store_metadata,
                 accept_partial=accept_partial,
+                verify=verify,
                 force=force,
                 stop=stop,
                 **download_kwargs,
@@ -640,7 +651,13 @@ def _store_download(
 
 
 def _store_downloader(
-    store, link_mode: str, accept_partial: bool, resume_partial: bool, store_metadata, lock_wait: float = 0.0
+    store,
+    link_mode: str,
+    accept_partial: bool,
+    resume_partial: bool,
+    store_metadata,
+    lock_wait: float = 0.0,
+    verify: bool = True,
 ):
     """A ``download_accession``-shaped callable that routes every download through the store.
 
@@ -662,6 +679,7 @@ def _store_downloader(
             store_metadata=store_metadata,
             force=force,
             lock_wait=lock_wait,
+            verify=verify,
             num_threads=num_threads,
             temp_folder=temp_folder,
             **kwargs,

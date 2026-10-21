@@ -525,6 +525,7 @@ class DownloadSraCommand(BaseCommand):
             "resume_partial": getattr(args, "resume_partial", True),
             "store_metadata": [project_root(registry) / "metadata", store.metadata],
             "lock_wait": setting_for(args, "lock_wait"),
+            "verify_downloads": getattr(args, "verify_downloads", True),
         }
 
     def _download_batched(

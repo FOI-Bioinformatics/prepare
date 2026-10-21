@@ -281,6 +281,37 @@ class TestDownloadSraStore:
         assert sidecar.completeness["verdict"] == "complete"
         assert sidecar.state == "complete"
 
+    def test_store_download_is_unverified_when_verification_is_off(self, tmp_path):
+        """--no-verify-downloads: no spot count from the XML or the sidecar judges the store copy."""
+        from prepare.store.sidecar import read_sidecar
+
+        paths = self._store(tmp_path)
+        fastq_folder = tmp_path / "project" / "fastq"
+        project_metadata = tmp_path / "project" / "metadata"
+        project_metadata.mkdir(parents=True)
+        (project_metadata / "SRR1_metadata.xml").write_text(
+            '<RunSet><RUN total_spots="100" total_bases="400" size="10"/></RunSet>'
+        )
+        calls = []
+
+        with patch("prepare.data.sra.accession.download_accession", side_effect=self._fake_download(calls)):
+            stats = download_sra(
+                fastq_folder,
+                self._accessions(tmp_path, "SRR1"),
+                store=paths,
+                store_metadata=project_metadata,
+                max_retries=0,
+                verify_downloads=False,
+            )
+
+        assert calls[0][2]["expected_spots"] is None
+        assert stats["successful"] == 1
+        sidecar = read_sidecar(paths.sra / "SRR1" / "SRR1.json")
+        assert sidecar.state == "complete"
+        assert sidecar.completeness["verdict"] == "unverified"
+        assert "spots" not in sidecar.ncbi
+        assert (fastq_folder / "SRR1").is_symlink()
+
     def test_partial_in_store_is_redownloaded_when_resume_partial(self, tmp_path):
         from prepare.store.sidecar import read_sidecar
 
