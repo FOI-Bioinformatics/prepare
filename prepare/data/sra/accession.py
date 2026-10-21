@@ -244,7 +244,7 @@ def _handle_download_output(
 
     logger.log(active_item_level(), f"Successfully downloaded: {len(found)} files")
 
-    counts, verdict = _plain_verdict(moved, output_path, expected_spots)
+    counts, verdict = _plain_verdict(moved, output_path, expected_spots, compress)
     message = _verdict_message(len(found), verdict)
     if verdict["verdict"] == "truncated":
         logger.warning(
@@ -273,22 +273,24 @@ def _handle_download_output(
 
 
 def _plain_verdict(
-    moved: List[Path], output_path: Path, expected_spots: Optional[int]
+    moved: List[Path], output_path: Path, expected_spots: Optional[int], compress: bool
 ) -> Tuple[Dict[Path, int], Dict[str, Any]]:
     """Count each plain file once and judge the download; returns the counts and the verdict.
 
-    The verdict reads the primary and orphan counts, and the compression read-back compares
-    every file against its count. Counting an uncompressed file is cheaper than the gzip pass,
-    and the verdict message format is the same either way.
+    With ``compress`` every moved file is counted here, once, since the compression read-back
+    compares each against its count. Without it the counts stay empty and ``verify_download``
+    counts only the primary and orphan files it needs, so nothing else is read. Counting an
+    uncompressed file is cheaper than the gzip pass, and the verdict message format is the same
+    either way.
     """
-    counts = {file: fastq_mod.count_fastq_reads(file) for file in moved}
+    counts = {file: fastq_mod.count_fastq_reads(file) for file in (moved if compress else [])}
     primary = fastq_mod.primary_fastq(output_path)
     orphan = fastq_mod.orphan_fastq(output_path)
     verdict = fastq_mod.verify_download(
         output_path.name,
         output_path,
         expected_spots=expected_spots,
-        reads_r1=counts[primary] if primary is not None else 0,
+        reads_r1=counts.get(primary) if primary is not None else 0,
         reads_orphan=counts.get(orphan) if orphan is not None else None,
     )
     return counts, verdict

@@ -977,6 +977,39 @@ class TestHandleDownloadOutput:
         plain = [name for name in counted if not name.endswith(".gz")]
         assert sorted(plain) == ["SRR123.fastq", "SRR123_1.fastq", "SRR123_2.fastq"], counted
 
+    def test_no_compress_counts_only_the_primary_and_orphan_files(self, tmp_path):
+        """Without compression the mate-2 file is not read: only the verdict's files are counted."""
+        temp_path = tmp_path / "temp"
+        output_path = tmp_path / "output" / "SRR123"
+        temp_path.mkdir()
+        for name in ("SRR123_1.fastq", "SRR123_2.fastq"):
+            (temp_path / name).write_text("".join(f"@seq{i}\nACGT\n+\nIIII\n" for i in range(4)))
+        counted = []
+        real_count = fastq_mod.count_fastq_reads
+
+        def counting(path):
+            counted.append(Path(path).name)
+            return real_count(path)
+
+        with patch("prepare.data.sra.fastq.count_fastq_reads", side_effect=counting):
+            success, message = _handle_download_output(temp_path, output_path, expected_spots=4, compress=False)
+
+        assert success is True and message == "Downloaded 2 files, complete (4 of 4 spots)"
+        assert counted == ["SRR123_1.fastq"]
+
+    def test_a_stale_file_in_the_output_folder_does_not_break_the_count(self, tmp_path):
+        """A primary file left in the folder by an earlier attempt is counted, not a KeyError."""
+        temp_path = tmp_path / "temp"
+        output_path = tmp_path / "output" / "SRR123"
+        temp_path.mkdir()
+        output_path.mkdir(parents=True)
+        (output_path / "SRR123_1.fastq").write_text("@old\nACGT\n+\nIIII\n")
+        (temp_path / "SRR123.fastq").write_text("".join(f"@seq{i}\nACGT\n+\nIIII\n" for i in range(4)))
+
+        success, message = _handle_download_output(temp_path, output_path, expected_spots=None, compress=False)
+
+        assert success is True and message == "Downloaded 1 files, unverified"
+
 
 class TestDownloadAccession:
     """Test download_accession function."""

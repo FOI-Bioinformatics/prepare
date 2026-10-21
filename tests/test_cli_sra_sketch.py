@@ -203,7 +203,7 @@ def test_interrupt_records_finished_and_exits_130(tmp_path):
 
 
 def test_interrupt_counts_the_stopped_accession_as_neither(tmp_path, caplog):
-    """The accession stopped mid-sketch is not a failure, and the stop is reported once."""
+    """The accession stopped mid-sketch is neither sketched nor failed, and the stop is reported once."""
     from prepare.sra import sketch as sketch_module
 
     _dataset(tmp_path, "SRR1")
@@ -214,6 +214,8 @@ def test_interrupt_counts_the_stopped_accession_as_neither(tmp_path, caplog):
 
     def stop_during_second(accession, files, stop=None):
         if accession == "SRR2":
+            # A stop set by a worker, with no KeyboardInterrupt on the main thread: the
+            # result is collected inside the loop, the path a signal handler never takes.
             args._termination.stop.set()
             raise InterruptedError("stopped")
         return real(accession, files, stop=stop)
@@ -231,7 +233,30 @@ def test_interrupt_counts_the_stopped_accession_as_neither(tmp_path, caplog):
     assert summaries[0]["sketched"] == 1 and summaries[0]["failed"] == 0
     assert set(_registry(tmp_path)) == {"SRR1"}
     warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
-    assert warnings == ["Interrupted (stop requested)"] or len(warnings) == 1, warnings
+    assert len(warnings) == 1 and warnings[0].startswith("Interrupted"), warnings
+
+
+def test_a_single_accession_stopped_in_the_loop_is_not_a_failure(tmp_path):
+    """One accession whose worker sets the stop and raises: exit 130, failed 0, nothing recorded."""
+    _dataset(tmp_path, "SRR1")
+    args = _args(tmp_path, max_workers=1)
+    summaries = []
+
+    def stop_at_once(accession, files, stop=None):
+        args._termination.stop.set()
+        raise InterruptedError("stopped")
+
+    with (
+        patch("prepare.cli.commands.sra_sketch.sketch_dataset", side_effect=stop_at_once),
+        patch(
+            "prepare.cli.commands.sra_sketch.run_log.note_run", side_effect=lambda a, summary: summaries.append(summary)
+        ),
+    ):
+        code = SRASketchCommand().run(args)
+
+    assert code == 130
+    assert summaries[0]["failed"] == 0 and summaries[0]["sketched"] == 0
+    assert not (tmp_path / "sketches").exists() or list((tmp_path / "sketches").iterdir()) == []
 
 
 def test_worker_error_keeps_the_finished_records(tmp_path, caplog):

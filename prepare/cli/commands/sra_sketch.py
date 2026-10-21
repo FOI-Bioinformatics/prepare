@@ -225,12 +225,9 @@ class SRASketchCommand(BaseCommand):
                 futures[executor.submit(self._sketch_one, item, output_dir, stop)] = item
             for future in as_completed(futures):
                 item = futures[future]
-                outcome = self._collect(future, item, progress)
-                if outcome is None:
-                    failed.append(item.accession)
-                else:
-                    done.append(outcome)
-                if stop is not None and stop.is_set():
+                stopped = stop is not None and stop.is_set()
+                self._tally(self._collect(future, item, progress), item, stopped, done, failed)
+                if stopped:
                     interrupted = True
                     break
         except KeyboardInterrupt:
@@ -247,6 +244,15 @@ class SRASketchCommand(BaseCommand):
                     if outcome is not None:
                         done.append(outcome)
         return done, failed, interrupted
+
+    @staticmethod
+    def _tally(outcome: Optional[Done], item: Planned, stopped: bool, done: List[Done], failed: List[str]) -> None:
+        """File one collected result: finished, failed, or (after a stop) neither."""
+        if outcome is not None:
+            done.append(outcome)
+        elif not stopped:
+            # A worker stopped on the token is neither sketched nor failed.
+            failed.append(item.accession)
 
     def _collect(self, future: Future, item: Planned, progress: ProgressReporter) -> Optional[Done]:
         """The finished future's result, or None (logged) when the accession could not be sketched."""

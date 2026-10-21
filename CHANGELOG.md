@@ -15,7 +15,10 @@ from growing.
 - A `NetworkError` raised by a download worker whose text names no network symptom is still
   classified `network` (exit 4, retried), by prefixing its class.
 - `--no-verify-downloads` with a shared store keeps NCBI's spot count from the metadata XML in
-  the sidecar's `ncbi` block; only the verdict is `unverified`. Earlier the count was dropped.
+  the sidecar's `ncbi` block; only the verdict of that download is `unverified`. Earlier the count
+  was dropped. Since the count is on file, a later `store_link`, `store_adopt` or
+  `store_verify` judges the copy against it like any other, so a short copy fetched this way
+  is reported `truncated` or `partial` there.
 - `failed_accessions.txt` was never removed by a clean run (the cleanup ran only when something
   failed). A clean run now removes the list when every accession it names was attempted by that
   run, and leaves a list that names other accessions, since it belongs to another run on the
