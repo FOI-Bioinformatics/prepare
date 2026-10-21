@@ -19,7 +19,7 @@ from typing import Dict, Optional, Tuple, Union
 
 import pandas as pd
 
-from prepare.core.constants import EXPLORER_TABLE_ROWS, EXPLORER_HEATMAP_MAX_HEIGHT
+from prepare.core.constants import EXPLORER_GENUS_BARS, EXPLORER_HEATMAP_MAX_HEIGHT, EXPLORER_TABLE_ROWS
 from prepare.core.models import TaxonomyInfo
 from prepare.core.optional import require
 from prepare.core.utils import get_genome_columns
@@ -106,6 +106,10 @@ _DATE_COLUMNS = ("collection_date_sam", "collection_date")
 _LONG_COLUMNS = ["sample", "genome", "containment", "family", "genus", "species", "location", "date"]
 
 
+#: Strings NCBI sample metadata uses for "no value"; rendered as an empty cell (compared in lower case).
+_PLACEHOLDERS = frozenset({"np", "uncalculated", "not provided", "missing", "not applicable", "unknown", "na", "n/a"})
+
+
 def _metadata_text(metadata: pd.DataFrame, columns: Tuple[str, ...]) -> pd.Series:
     """Return the first present metadata column as text indexed by sample, a missing value as an empty string."""
     present = [metadata[c] for c in columns if c in metadata.columns]
@@ -115,6 +119,7 @@ def _metadata_text(metadata: pd.DataFrame, columns: Tuple[str, ...]) -> pd.Serie
     for other in present[1:]:
         merged = merged.combine_first(other)
     merged = merged.astype(object).where(merged.notna(), "").astype(str)
+    merged = merged.where(~merged.str.strip().str.lower().isin(_PLACEHOLDERS), "")
     merged.index = merged.index.astype(str)
     return merged
 
@@ -236,7 +241,7 @@ def _build_heatmap(long_df: pd.DataFrame) -> str:
         pivot,
         color_continuous_scale=CONTAINMENT_SCALE,
         labels=dict(x="Family", y="Sample", color="Containment"),
-        title="Sample-by-family containment",
+        title="Sample-by-family containment (maximum over the family's genomes)",
         aspect="auto",
     )
     fig.update_layout(**plotly_layout(height=min(EXPLORER_HEATMAP_MAX_HEIGHT, max(320, 22 * len(pivot.index) + 110))))
@@ -259,12 +264,15 @@ def _build_distributions(long_df: pd.DataFrame) -> tuple:
 
     genus_counts = long_df.groupby("genus")["sample"].nunique().reset_index()
     genus_counts.columns = ["genus", "sample_count"]
-    genus_counts = genus_counts.sort_values("sample_count", ascending=False).head(30)
+    total_genera = len(genus_counts)
+    genus_counts = genus_counts.sort_values("sample_count", ascending=False).head(EXPLORER_GENUS_BARS)
+    shown = len(genus_counts)
+    cut = f"top {shown} of {total_genera}" if total_genera > shown else f"{shown} genera"
     bar_fig = px.bar(
         genus_counts,
         x="genus",
         y="sample_count",
-        title="Samples per genus",
+        title=f"Samples per genus ({cut})",
         labels={"genus": "Genus", "sample_count": "Samples"},
     )
     bar_fig.update_layout(**plotly_layout(height=450, xaxis_tickangle=-30))
