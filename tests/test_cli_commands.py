@@ -1516,6 +1516,56 @@ class TestDownloadSraCommand:
 
     @patch("prepare.cli.commands.sra.require_tools")
     @patch("prepare.cli.commands.sra.download_sra")
+    def test_failed_redownload_keeps_the_verdict_of_the_folder_on_disk(self, mock_download, _which, tmp_path):
+        """A forced redownload that comes back short leaves the complete folder, and its verdict, in place."""
+        fastq_folder = tmp_path / "fastq"
+        (fastq_folder / "SRR1").mkdir(parents=True)
+        (fastq_folder / "SRR1" / "SRR1_1.fastq").write_text("@r\nA\n+\nI\n")
+        registry_file = tmp_path / "prepare_registry.json"
+        from prepare.data import registry as reg
+
+        registry = reg.load_registry(registry_file)
+        reg.record_download(
+            registry,
+            "SRR1",
+            "downloaded",
+            fastq_folder,
+            complete={"verdict": "complete", "reads_r1": 1000, "expected_spots": 1000, "ratio": 1.0},
+        )
+        reg.save_registry(registry)
+
+        def fake_download_sra(**kwargs):
+            kwargs["on_result"]("SRR1", False, "Downloaded 1 files, truncated (10 of 1000 spots)")
+            kwargs["on_result"]("SRR2", False, "Downloaded 1 files, truncated (10 of 1000 spots)")
+            return {"total": 2, "successful": 0, "failed": 2, "failed_accessions": ["SRR1", "SRR2"], "results": {}}
+
+        mock_download.side_effect = fake_download_sra
+        args = argparse.Namespace(
+            accessions_file=str(tmp_path / "acc.txt"),
+            fastq_folder=str(fastq_folder),
+            max_downloads=None,
+            num_threads=4,
+            max_workers=4,
+            dry_run=False,
+            force=True,
+            max_retries=0,
+            temp_folder=None,
+            blacklist=None,
+            report_file=None,
+            registry=str(registry_file),
+            data_root=None,
+        )
+        DownloadSraCommand().execute(args)
+        datasets = json.loads(registry_file.read_text())["datasets"]
+        # SRR1's complete folder is still on disk: its verdict stands and its files are kept.
+        assert datasets["SRR1"]["download"]["state"] == "failed"
+        assert datasets["SRR1"]["download"]["complete"]["verdict"] == "complete"
+        assert datasets["SRR1"]["download"]["files"]
+        # SRR2 has no folder: the failed attempt's truncated verdict is recorded.
+        assert datasets["SRR2"]["download"]["complete"]["verdict"] == "truncated"
+
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
     def test_recorder_clears_download_timing_for_a_store_link(self, mock_download, _which, tmp_path):
         """A dataset linked from the store was not downloaded by this run, so an earlier time is removed."""
         from prepare.store.layout import init_store

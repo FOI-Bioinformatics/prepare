@@ -93,7 +93,7 @@ Each download's read count is compared with NCBI's recorded spot count and a ver
 | Verdict | Meaning |
 | --- | --- |
 | `complete` | The read count per mate is at least 0.99 of the spot count. |
-| `truncated` | Fewer reads than expected. The download fails, is retried and is listed in `failed_accessions.txt`; the files stay in `fastq/<ACCESSION>` for inspection. `--accept-partial` keeps it as a success instead. |
+| `truncated` | Fewer reads than expected. The download fails: the staged files and the prefetch archive are discarded, the accession is retried and listed in `failed_accessions.txt`, and a run that NCBI serves short is therefore fetched again on every attempt. `--accept-partial` keeps it as a success instead. |
 | `unverified` | No expected spot count is known, for example because `download_metadata` never ran for the accession. |
 
 A dataset held in the shared store carries the store's own verdict instead: `complete`, `partial` or `unverified` (see [shared_store.md](shared_store.md)).

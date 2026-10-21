@@ -9,11 +9,12 @@ This release fixes the findings of the audit of the SRA download path of 2026-10
 
 ### Changed
 
-- A truncated download in a project without a store is a failure: the files stay in place for
-  inspection, the accession is retried and listed in `failed_accessions.txt`, the registry records
-  `failed` with the `truncated` verdict, and the exit code is 1. `--accept-partial` keeps the earlier
-  behaviour (the folder is published and recorded as downloaded). The shared store already treated
-  the same data as incomplete, so both paths now agree (H1).
+- A truncated download in a project without a store is a failure: the staged files and the prefetch
+  archive are discarded, the accession is retried and listed in `failed_accessions.txt`, the registry
+  records `failed` with the `truncated` verdict (unless an earlier complete folder is still on disk,
+  whose verdict stands), the message names `--accept-partial`, and the exit code is 1.
+  `--accept-partial` keeps the earlier behaviour (the folder is published and recorded as downloaded).
+  The shared store already treated the same data as incomplete, so both paths now agree (H1).
 - Each compressed FASTQ file is read back after compression; a file with a different record count,
   or one that cannot be read, fails the download instead of being published (H4).
 - An interrupt during compression leaves nothing published; the next run redoes the dump from the

@@ -854,10 +854,11 @@ class TestHandleDownloadOutput:
             success, message = _handle_download_output(temp_path, output_path, expected_spots=48000000)
 
         assert success is False
-        assert message == "Downloaded 1 files, truncated (300000 of 48000000 spots)"
+        assert message == (
+            "Downloaded 1 files, truncated (300000 of 48000000 spots); rerun with --accept-partial to keep it"
+        )
+        assert parse_verdict_message(message)["verdict"] == "truncated"
         mock_logger.warning.assert_called()
-        # The files stay where they are so an accepted or retried attempt can inspect them.
-        assert (output_path / "SRR123_1.fastq").exists()
 
     def test_handle_download_output_truncated_is_accepted_with_accept_partial(self, tmp_path, monkeypatch):
         temp_path = tmp_path / "temp"
@@ -1983,7 +1984,9 @@ class TestDownloadSra:
             on_result=lambda a, ok, msg: seen.append((a, ok, msg)),
         )
 
-        assert seen[0] == ("SRR1", False, "Downloaded 1 files, truncated (1 of 2 spots)")
+        assert seen[0][:2] == ("SRR1", False)
+        assert seen[0][2].startswith("Downloaded 1 files, truncated (1 of 2 spots)")
+        assert "--accept-partial" in seen[0][2]
         # The retry pass ran: the second outcome carries the retry prefix.
         assert len(seen) == 2 and seen[1][2].startswith("Retry 1: ")
         assert seen[1][1] is False

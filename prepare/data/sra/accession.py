@@ -209,9 +209,9 @@ def _handle_download_output(
         stop: The run's stop token; once it (or ``STOP``) is set before or during
             compression the result is ``(False, "interrupted")`` and nothing is published
         accept_partial: Report a truncated download as a success. Without it a
-            truncated verdict is a failure: the files stay in ``output_path`` for
-            inspection, nothing is compressed, and the caller retries or records a failure,
-            the same outcome the shared store gives an incomplete copy
+            truncated verdict is a failure, the same outcome the shared store gives an
+            incomplete copy: nothing is compressed, the caller discards the staged files and
+            the prefetch archive, and the run is fetched again on a retry or a rerun
 
     Returns:
         Tuple of (success, message); the message carries the completeness verdict
@@ -254,7 +254,8 @@ def _handle_download_output(
             f"{verdict['expected_spots']} spots (ratio {verdict['ratio']})"
         )
         if not accept_partial:
-            return False, message
+            # Appended after the verdict text, which parse_verdict_message still reads.
+            return False, f"{message}; rerun with --accept-partial to keep it"
 
     if compress:
         compression_failures, interrupted, corrupted = _compress_files(moved, output_path.name, num_threads, stop)
