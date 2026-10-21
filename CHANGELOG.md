@@ -2,6 +2,63 @@
 
 All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM-DD format.
 
+## [0.10.2] - 2026-10-21
+
+This release fixes the findings of the audit of the SRA download path of 2026-10-21
+(`docs/superpowers/audits/2026-10-21-sra-download-audit.md`, H1-H4, M1-M8, L1-L7).
+
+### Changed
+
+- A truncated download in a project without a store is a failure: the files stay in place for
+  inspection, the accession is retried and listed in `failed_accessions.txt`, the registry records
+  `failed` with the `truncated` verdict, and the exit code is 1. `--accept-partial` keeps the earlier
+  behaviour (the folder is published and recorded as downloaded). The shared store already treated
+  the same data as incomplete, so both paths now agree (H1).
+- Each compressed FASTQ file is read back after compression; a file with a different record count,
+  or one that cannot be read, fails the download instead of being published (H4).
+- An interrupt during compression leaves nothing published; the next run redoes the dump from the
+  kept prefetch archive (M1).
+- `--no-verify-downloads` also applies to a download into the shared store, whose copy is then
+  recorded as unverified instead of being judged against the sidecar or the metadata XML (H3).
+- A failed attempt removes its `<ACC>_temp` build folder; `--keep-temp` keeps it and logs its path (M5).
+- An explicit `--max-workers` is capped at 10 with a warning; `--num-threads` and `--max-workers`
+  must be positive, and so must fasterq-dump's `--threads` and pigz's `-p` in the subprocess
+  allowlist (M8).
+
+### Added
+
+- `download_sra --keep-temp`.
+
+### Removed
+
+- `download_sra --verify-downloads`, which did nothing (verification is the default; use
+  `--no-verify-downloads` to turn it off) (L3).
+- The unused `DEFAULT_MAX_RETRIES`, `MAX_SUBPROCESS_TIMEOUT`, `FASTERQ_DUMP_BOOLEAN_FLAGS` and
+  `FASTERQ_DUMP_INTEGER_FLAGS` constants (L5).
+
+### Fixed
+
+- A download worker that raised was reported as "cannot unpack non-iterable NoneType object"; the
+  exception text is now the result, so its class (network or not), the exit code and the retry
+  split are right (H2).
+- The retry pass records no attempt for a worker stopped by an interrupt, and its back-off between
+  rounds ends as soon as the run is stopped (M4).
+- A project folder `fastq/<ACC>` that is not a store link made a store download fail only after the
+  fetch, and the failure was retried; it is now refused before the fetch with a message naming
+  `store_adopt` (M7).
+- A prefetch leftover (`.sra.lock`, `.sra.prf`, `.sra.tmp`) beside a `.sralite` archive was handed to
+  fasterq-dump, and a prefetch that exited 0 without an archive was reported as a fasterq-dump
+  failure; both are handled (M2, M3).
+- A failed forced redownload no longer records an empty file list while the earlier folder is still
+  on disk (M6).
+- A clean run removes an earlier `failed_accessions.txt`; the retry hint is logged once; with a store,
+  `--redownload-truncated` refetches only the accessions the registry calls truncated (L1, L2, L4).
+- The fasterq-dump version is probed once per process, and one `read_count` serves the store
+  hand-off and the verdict merge (L6, L7).
+- The fake `fasterq-dump` and `prefetch` of the process tests gained failure modes, and five
+  process tests cover a truncated run, a tool failure fixed by the retry pass, an empty prefetch and
+  an unpaired `--split-3` file.
+
 ## [0.10.1] - 2026-10-15
 
 This release fixes the findings of the code audit of 2026-10-12 (H1-H5, M1-M16, L1-L11 and the
