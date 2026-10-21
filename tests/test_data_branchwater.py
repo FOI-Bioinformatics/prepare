@@ -63,15 +63,34 @@ class TestProcessBranchwaterFiles:
         csv_content = "acc,containment,ksize,scaled\nERR123,0.95,31,1000"
         (source_dir / "genome1.csv").write_text(csv_content)
 
-        # Create existing target file
-        (target_dir / "genome1.csv").write_text("existing content")
+        # An identical copy is already there: nothing to do.
+        (target_dir / "genome1.csv").write_text(csv_content)
 
         result = process_branchwater_files(source_dir, target_dir)
 
         assert len(result) == 1
         assert "genome1" in result
-        # Should keep existing file content
-        assert (target_dir / "genome1.csv").read_text() == "existing content"
+        assert (target_dir / "genome1.csv").read_text() == csv_content
+
+    def test_process_branchwater_files_refreshes_a_changed_source(self, tmp_path, caplog):
+        """A matches file that differs from its Branchwater source is replaced, with a warning."""
+        import logging
+
+        source_dir = tmp_path / "source"
+        target_dir = tmp_path / "target"
+        source_dir.mkdir()
+        target_dir.mkdir()
+        (source_dir / "genome1.csv").write_text(
+            "acc,containment,ksize,scaled\nERR123,0.95,31,1000\nERR124,0.5,31,1000\n"
+        )
+        (target_dir / "genome1.csv").write_text("acc,containment,ksize,scaled\nERR123,0.95,31,1000\n")
+
+        with caplog.at_level(logging.WARNING):
+            result = process_branchwater_files(source_dir, target_dir)
+
+        assert "genome1" in result
+        assert (target_dir / "genome1.csv").read_text() == (source_dir / "genome1.csv").read_text()
+        assert "genome1.csv" in caplog.text and "Replacing" in caplog.text
 
     def test_process_branchwater_files_no_csv_files(self, tmp_path):
         """Test with no CSV files in source directory."""

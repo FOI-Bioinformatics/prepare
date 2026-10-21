@@ -66,7 +66,7 @@ parameters and server URL, so a repeated search reads the cache. `--no-cache` ne
 it, `--refresh` queries again and updates it, and `--max-cache-age-days N` treats an entry older than N
 days as absent. Without these options a cache entry is reused until the cache file is deleted.
 
-`use_branchwater` and `parse_containment` read CSVs from the Branchwater web site
+`use_branchwater` copies each CSV into `matches/`; a copy already there is kept when it is identical and replaced, with a warning, when the two differ (a refreshed search or download, or local values written by `sra_sketch`). `use_branchwater` and `parse_containment` read CSVs from the Branchwater web site
 (<https://branchwater.sourmash.bio/>) and from `branchwater_search`. A CSV needs only the columns `acc`
 and `containment`. An unreadable file makes `use_branchwater`, `parse_containment` and
 `extract_branchwater_metadata` exit with status 1 instead of skipping it.
