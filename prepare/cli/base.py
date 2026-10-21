@@ -121,6 +121,14 @@ def _non_negative_count(text: str) -> int:
     return value
 
 
+def positive_int(value: str) -> int:
+    """argparse type for a count that must be at least one (threads, workers)."""
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {value!r}")
+    return parsed
+
+
 def finite_float(text: str) -> float:
     """An argparse type: a finite number (``nan`` and ``inf`` are refused)."""
     try:

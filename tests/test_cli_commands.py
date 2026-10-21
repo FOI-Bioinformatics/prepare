@@ -894,9 +894,30 @@ class TestDownloadSraCommand:
 
         args = parser.parse_args(["--accessions-file", "a.txt", "--no-verify-downloads"])
         assert args.verify_downloads is False
+        # The no-op --verify-downloads flag is gone; verification is the default.
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--accessions-file", "a.txt", "--verify-downloads"])
 
         args = parser.parse_args(["--accessions-file", "a.txt", "--redownload-truncated"])
         assert args.redownload_truncated is True
+
+    def test_configure_parser_rejects_zero_threads_and_workers(self):
+        command = DownloadSraCommand()
+        parser = argparse.ArgumentParser()
+        command.configure_parser(parser)
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--accessions-file", "a.txt", "--num-threads", "0"])
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--accessions-file", "a.txt", "--max-workers", "0"])
+
+    def test_explicit_max_workers_is_capped(self, caplog):
+        from prepare.core.constants import MAX_CONCURRENT_DOWNLOADS
+
+        with caplog.at_level(logging.WARNING, logger="prepare"):
+            with patch("prepare.utils.resources.available_cpus", return_value=256):
+                workers = DownloadSraCommand()._resolve_max_workers(argparse.Namespace(num_threads=1, max_workers=64))
+        assert workers == MAX_CONCURRENT_DOWNLOADS
+        assert any("--max-workers 64" in r.getMessage() and "capped" in r.getMessage() for r in caplog.records)
 
     def test_configure_parser_prefetch_and_compress_flags(self):
         """--sra-cache, --keep-sra, --no-prefetch, --no-compress default sensibly and parse."""

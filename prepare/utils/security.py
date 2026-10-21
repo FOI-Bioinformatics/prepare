@@ -55,8 +55,10 @@ BOOLEAN_FLAGS: Dict[str, FrozenSet[str]] = {
 }
 # Kept for backward compatibility with any caller importing the old name.
 FASTERQ_DUMP_BOOLEAN_FLAGS = BOOLEAN_FLAGS["fasterq-dump"]
-# fasterq-dump flags whose value must be a non-negative integer.
-FASTERQ_DUMP_INTEGER_FLAGS = frozenset({"--threads"})
+# Per-tool flags whose value must be a positive integer (a thread or process count).
+POSITIVE_INTEGER_FLAGS = {"fasterq-dump": frozenset({"--threads"}), "pigz": frozenset({"-p"})}
+# Kept for callers importing the old name.
+FASTERQ_DUMP_INTEGER_FLAGS = POSITIVE_INTEGER_FLAGS["fasterq-dump"]
 # Flags (any tool) whose value is a filesystem path and must pass validate_path.
 PATH_VALUE_FLAGS = frozenset({"-O", "-o", "-d", "--out-dir", "--temp", "--tmp-dir", "-1", "-2", "-0", "-s"})
 # Tools whose positional argument is either an SRA accession or a .sra file path.
@@ -327,9 +329,9 @@ class SecureSubprocess:
                     value = args[i]
                     if arg in PATH_VALUE_FLAGS:
                         value = str(cls.validate_path(value))
-                    elif executable == "fasterq-dump" and arg in FASTERQ_DUMP_INTEGER_FLAGS:
-                        if not value.isdigit():
-                            raise SecurityError(f"Invalid integer value for {arg}: {value}")
+                    elif arg in POSITIVE_INTEGER_FLAGS.get(executable, frozenset()):
+                        if not value.isdigit() or int(value) < 1:
+                            raise SecurityError(f"Invalid value for {arg}: {value} (must be a positive integer)")
                     cmd.append(value)
             else:
                 # Positional argument: for fasterq-dump and prefetch this is either the SRA
