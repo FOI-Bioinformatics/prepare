@@ -226,8 +226,8 @@ def selected_samples(
 
 
 #: Why a registry extraction record was rejected: the call's own parameters (genome, preset,
-#: threshold, min_mapq) changed since the record was written, versus the parameters still
-#: matching but one of the recorded output files being gone from disk.
+#: min_mapq) changed since the record was written, versus the parameters still matching but
+#: one of the recorded output files being gone from disk.
 _PARAMETERS_DIFFER = "recorded parameters differ from this call"
 _OUTPUT_FILE_MISSING = "recorded output file missing"
 
@@ -237,20 +237,19 @@ def _record_mismatch_reason(
 ) -> Optional[str]:
     """Why a registry extraction record does not match the current call, or None when it does.
 
-    A parameter that is absent or None is a wildcard. Records rebuilt from disk by
-    ``status --init`` carry no parameters at all, and rejecting them would remap every
-    sample of an already extracted project. Distinguishes a parameter mismatch from a
-    recorded output file that has since been removed from disk, so a caller can log which
-    one triggered the redo instead of always blaming the parameters.
+    The identity of an extraction is the genome FASTA, the minimap2 preset and the mapping
+    quality floor; the containment threshold only decides which samples are tried, so it is
+    recorded for information and never compared. A parameter that is absent or None is a
+    wildcard. Records rebuilt from disk by ``status --init`` carry no parameters at all, and
+    rejecting them would remap every sample of an already extracted project. Distinguishes a
+    parameter mismatch from a recorded output file that has since been removed from disk, so
+    a caller can log which one triggered the redo instead of always blaming the parameters.
     """
     recorded_fasta = record.get("genome_fasta")
     if recorded_fasta is not None and Path(recorded_fasta).resolve() != genome_path.resolve():
         return _PARAMETERS_DIFFER
     recorded_preset = record.get("preset")
     if recorded_preset is not None and recorded_preset != preset:
-        return _PARAMETERS_DIFFER
-    recorded_threshold = record.get("threshold")
-    if recorded_threshold is not None and float(recorded_threshold) != float(threshold):
         return _PARAMETERS_DIFFER
     recorded_mapq = record.get("min_mapq")
     if recorded_mapq is not None and int(recorded_mapq) != int(min_mapq):
@@ -267,9 +266,8 @@ def _record_matches(
 ) -> bool:
     """True when a registry extraction record matches the current call and its files are still usable.
 
-    A parameter that is absent or None is a wildcard. Records rebuilt from disk by
-    ``status --init`` carry no parameters at all, and rejecting them would remap every
-    sample of an already extracted project.
+    The key is the genome FASTA, preset and ``min_mapq``; ``threshold`` is accepted for the
+    call signature and ignored (see ``_record_mismatch_reason``).
     """
     return _record_mismatch_reason(record, genome_path, preset, threshold, min_mapq=min_mapq) is None
 
@@ -604,8 +602,8 @@ def extract_target_reads(
         dry_run: If True, report the qualifying samples without running any tool.
         force: If True, redo extraction even for a sample already recorded in ``already_done``.
         already_done: Accession -> the registry's extraction record for this genome; skipped
-            (unless ``force``) when its genome FASTA, preset and threshold still match this
-            call and its files are still on disk (or it mapped 0).
+            (unless ``force``) when its genome FASTA, preset and mapping quality floor still
+            match this call and its files are still on disk (or it mapped 0).
         on_result: Called on the main thread with (accession, result) after each real-run
             sample, skipped ones included, so the caller can checkpoint as it lands. A raising
             callback is logged, not fatal. Dry runs never call it.

@@ -81,7 +81,7 @@ The extraction and assembly figures cover only the pairs that reached the stage 
 
 `status --export-tsv registry` writes `registry_datasets.tsv` and `registry_extractions.tsv`. The extraction table has the timing columns followed by `coverage_tsv`, `n90`, `largest` and `assembly_dir`.
 
-`extract_target_reads` skips samples already extracted or assembled with the same genome, preset and threshold, and `--force` redoes them (see [extraction_assembly.md](extraction_assembly.md)).
+`extract_target_reads` skips samples already extracted or assembled with the same genome, preset and `--min-mapq`, and `--force` redoes them (see [extraction_assembly.md](extraction_assembly.md)).
 
 ## results_table
 

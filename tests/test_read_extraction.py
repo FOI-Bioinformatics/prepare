@@ -684,6 +684,24 @@ class TestMateCountMismatch:
 
 
 class TestRecordMatches:
+    def test_a_different_threshold_does_not_remap(self, tmp_path):
+        """P3: the threshold decides which samples are tried, not what one sample's extraction is."""
+        record = {
+            "genome_fasta": str(tmp_path / "g.fna"),
+            "preset": "sr",
+            "threshold": 0.5,
+            "min_mapq": 0,
+            "mapped_reads": 0,
+        }
+        (tmp_path / "g.fna").write_text(">a\nA\n")
+        assert _record_matches(record, tmp_path / "g.fna", "sr", 0.1, min_mapq=0)
+
+    def test_a_different_mapq_still_remaps(self, tmp_path):
+        record = {"genome_fasta": str(tmp_path / "g.fna"), "preset": "sr", "min_mapq": 20, "mapped_reads": 0}
+        (tmp_path / "g.fna").write_text(">a\nA\n")
+        assert not _record_matches(record, tmp_path / "g.fna", "sr", 0.1, min_mapq=0)
+        assert not _record_matches(record, tmp_path / "g.fna", "map-ont", 0.1, min_mapq=20)
+
     def test_record_matches_compares_min_mapq(self, tmp_path):
         """A record's min_mapq is compared like every other extraction parameter: a
         mismatch means the sample must be redone rather than skipped."""
