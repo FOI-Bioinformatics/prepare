@@ -33,7 +33,9 @@ _PREFETCH_FALLBACK_LOGGED = threading.Event()
 # whole run on disk-full.
 # "could not resolve host" rather than a bare "resolve": prefetch reports a missing accession
 # as "failed to resolve accession ... no data ( 404 )", which is a not-found, not a network error.
-_NETWORK_ERROR_RE = re.compile(r"timeout|timed out|connection|could not resolve host|network|curl|ssl", re.IGNORECASE)
+_NETWORK_ERROR_RE = re.compile(
+    r"timeout|timed out|connection|could not resolve host|network|curl|ssl|prefetch wrote no archive", re.IGNORECASE
+)
 # "storage exhausted" and "disk-limit exeeded" (sic) are fasterq-dump's own out-of-space messages.
 _DISK_FULL_ERROR_RE = re.compile(r"no space left|enospc|disk[ -]full|storage exhausted|disk-limit", re.IGNORECASE)
 _NOT_FOUND_ERROR_RE = re.compile(
@@ -350,18 +352,18 @@ def _fasterq_dump_args(
     return args + tail
 
 
-def _cached_sra_archive(acc_cache_dir: Path, accession: str) -> Path:
-    """The archive prefetch wrote for ``accession``, preferring ``.sra`` over ``.sralite``.
+def _cached_sra_archive(acc_cache_dir: Path, accession: str) -> Optional[Path]:
+    """The archive prefetch wrote for ``accession``, preferring ``.sra`` over ``.sralite``, or None.
 
     NCBI serves some runs only in the smaller ``.sralite`` format, which fasterq-dump reads
-    just as well. When the folder holds neither, the ``.sra`` path is returned so
-    fasterq-dump reports the missing file itself.
+    just as well. Only these two exact names count: prefetch's own leftovers (``.sra.lock``,
+    ``.sra.prf``, ``.sra.tmp``) sit beside the archive and are not it.
     """
-    expected = acc_cache_dir / f"{accession}.sra"
-    if expected.is_file():
-        return expected
-    candidates = sorted(p for p in acc_cache_dir.glob(f"{accession}.sra*") if p.is_file())
-    return candidates[0] if candidates else expected
+    for suffix in (".sra", ".sralite"):
+        candidate = acc_cache_dir / f"{accession}{suffix}"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _discard_cached_archive(cache_path: Path, accession: str, message: str, keep: bool = False) -> None:
@@ -420,6 +422,7 @@ def download_accession(
     staging_folder: Optional[Union[str, Path]] = None,
     stop: Optional[threading.Event] = None,
     accept_partial: bool = False,
+    keep_temp: bool = False,
 ) -> Tuple[bool, str]:
     """
     Download a single SRA accession using prefetch + fasterq-dump --split-3.
@@ -453,6 +456,9 @@ def download_accession(
             started are recorded under it for ``SecureSubprocess.terminate_children``
         accept_partial: Report a truncated download as a success rather than a failure
             (see ``_handle_download_output``)
+        keep_temp: Keep the ``<accession>_temp`` build folder of a failed attempt for
+            inspection (its path is logged); by default it is removed, since a new attempt
+            starts clean anyway
 
     Returns:
         Tuple of (success, message)
@@ -499,7 +505,12 @@ def download_accession(
                 ["-O", str(cache_path), "--max-size", settings.active().prefetch_max_size, "--progress", accession],
                 stop,
             )
-            source = str(_cached_sra_archive(cache_path / accession, accession))
+            archive = _cached_sra_archive(cache_path / accession, accession)
+            if archive is None:
+                # Classified as a network failure (and so retried): prefetch reported success
+                # but fetched nothing, which a rerun may well fix.
+                raise DataAccessError(f"prefetch wrote no archive for {accession} in {cache_path / accession}")
+            source = str(archive)
         else:
             # Direct call against the accession, without going through prefetch's
             # on-disk .sra archive: used when use_prefetch is False, or prefetch is
@@ -534,20 +545,19 @@ def download_accession(
 
     except subprocess.CalledProcessError as e:
         logger.error(f"Error downloading {accession}: {e.stderr}")
-        # <acc>_temp is kept for inspection; a new attempt starts clean (the _safe_rmtree
-        # above always wipes it before the next fasterq-dump run, so this is not a resume).
+        _settle_temp_folder(temp_path, keep_temp)
         message = f"Download failed: {e.stderr}"
         return False, f"{classify_download_error(message)}: {message}"
 
     except SecurityError as e:
         logger.error(f"Security error downloading {accession}: {e}")
-        # <acc>_temp is kept for inspection; a new attempt starts clean.
+        _settle_temp_folder(temp_path, keep_temp)
         message = f"Security error: {e}"
         return False, f"{classify_download_error(message)}: {message}"
 
     except (OSError, EOFError, ValueError, zlib.error, subprocess.TimeoutExpired, DataAccessError) as e:
         logger.error(f"Error downloading {accession}: {e}")
-        # <acc>_temp is kept for inspection; a new attempt starts clean.
+        _settle_temp_folder(temp_path, keep_temp)
         message = f"Download failed: {str(e)}"
         return False, f"{classify_download_error(message)}: {message}"
 
@@ -555,6 +565,14 @@ def download_accession(
         # Clean up auto-created temp directory (from tempfile.mkdtemp)
         if temp_folder_path and not temp_folder:
             cleanup_mod._safe_rmtree(temp_folder_path)
+
+
+def _settle_temp_folder(temp_path: Path, keep: bool) -> None:
+    """Remove a failed attempt's build folder, or with ``keep`` log where it was left."""
+    if keep:
+        logger.info(f"Build folder of the failed attempt kept for inspection: {temp_path}")
+        return
+    cleanup_mod._safe_rmtree(temp_path)
 
 
 def project_lock_path(fastq_folder: Union[str, Path], accession: str) -> Path:

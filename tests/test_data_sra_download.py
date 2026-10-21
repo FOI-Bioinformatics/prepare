@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import threading
 import time
 import pytest
@@ -740,9 +741,9 @@ class TestCachedSraArchive:
 
         assert _cached_sra_archive(acc_dir, "SRR1") == acc_dir / "SRR1.sralite"
 
-    def test_falls_back_to_the_expected_name_when_nothing_was_written(self, tmp_path):
-        """An empty cache folder yields the .sra path, so fasterq-dump reports the missing file."""
-        assert _cached_sra_archive(tmp_path / "SRR1", "SRR1") == tmp_path / "SRR1" / "SRR1.sra"
+    def test_none_when_nothing_was_written(self, tmp_path):
+        """An empty cache folder yields None, which download_accession reports as a network failure."""
+        assert _cached_sra_archive(tmp_path / "SRR1", "SRR1") is None
 
 
 class TestParseVerdictMessage:
@@ -976,11 +977,12 @@ class TestDownloadAccession:
         with patch("prepare.data.sra.cleanup._prepare_temp_folder") as mock_prep:
             with patch("prepare.utils.security.SecureSubprocess.run_secure") as mock_run:
                 with patch("prepare.data.sra.accession._handle_download_output") as mock_handle:
-                    mock_prep.return_value = tmp_path / "temp"
-                    mock_run.return_value = Mock(returncode=0, stdout="success", stderr="")
-                    mock_handle.return_value = (True, "Downloaded 1 files")
+                    with patch("prepare.data.sra.accession.shutil.which", return_value=None):
+                        mock_prep.return_value = tmp_path / "temp"
+                        mock_run.return_value = Mock(returncode=0, stdout="success", stderr="")
+                        mock_handle.return_value = (True, "Downloaded 1 files")
 
-                    success, message = download_accession("SRR123", output_folder, force=True)
+                        success, message = download_accession("SRR123", output_folder, force=True)
 
         assert "Downloaded 1 files" in message
 
@@ -1089,11 +1091,12 @@ class TestDownloadAccession:
         with patch("prepare.data.sra.cleanup._prepare_temp_folder") as mock_prep:
             with patch("prepare.utils.security.SecureSubprocess.run_secure") as mock_run:
                 with patch("prepare.data.sra.accession._handle_download_output") as mock_handle:
-                    mock_prep.return_value = tmp_path / "temp"
-                    mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
-                    mock_handle.return_value = (True, "Downloaded 1 files, complete (10 of 10 spots)")
+                    with patch("prepare.data.sra.accession.shutil.which", return_value=None):
+                        mock_prep.return_value = tmp_path / "temp"
+                        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
+                        mock_handle.return_value = (True, "Downloaded 1 files, complete (10 of 10 spots)")
 
-                    download_accession("SRR123", output_folder, expected_spots=10)
+                        download_accession("SRR123", output_folder, expected_spots=10)
 
         mock_handle.assert_called_once()
         assert mock_handle.call_args.kwargs.get("expected_spots") == 10 or 10 in mock_handle.call_args.args
@@ -1120,8 +1123,8 @@ class TestDownloadAccession:
         assert "already exists" not in message
         mock_run.assert_called_once()
 
-    def test_download_accession_failure_keeps_temp_folder_for_resume(self, tmp_path):
-        """A failed download must not wipe <acc>_temp; a later attempt resumes into it."""
+    def test_download_accession_failure_removes_temp_folder(self, tmp_path):
+        """A failed download removes <acc>_temp; a later attempt starts clean anyway."""
         import subprocess
 
         output_folder = tmp_path / "downloads"
@@ -1135,7 +1138,7 @@ class TestDownloadAccession:
 
         assert success is False
         temp_path = output_folder / "SRR123_temp"
-        assert temp_path.exists()
+        assert not temp_path.exists()
 
     def test_download_accession_command_failure_classifies_network_error(self, tmp_path):
         import subprocess
@@ -1152,7 +1155,7 @@ class TestDownloadAccession:
         assert success is False
         assert message.startswith("network:")
 
-    def test_download_accession_security_error_keeps_temp_folder(self, tmp_path):
+    def test_download_accession_security_error_removes_temp_folder(self, tmp_path):
         output_folder = tmp_path / "downloads"
 
         with patch("prepare.data.sra.cleanup._prepare_temp_folder") as mock_prep:
@@ -1164,7 +1167,7 @@ class TestDownloadAccession:
 
         assert success is False
         temp_path = output_folder / "SRR123_temp"
-        assert temp_path.exists()
+        assert not temp_path.exists()
         assert message.startswith("unknown:")
 
     def test_download_accession_prefetch_then_fasterq_dump_sequence(self, tmp_path):
@@ -1244,6 +1247,76 @@ class TestDownloadAccession:
         assert success is False, message
         assert "truncated" in message
         assert not (output_folder / ".sra-cache" / "SRR123").exists()
+
+    def test_cached_archive_ignores_prefetch_leftovers(self, tmp_path):
+        """A .sra.lock, .sra.prf or .sra.tmp beside a .sralite is never taken for the archive."""
+        from prepare.data.sra.accession import _cached_sra_archive
+
+        acc_dir = tmp_path / "cache" / "SRR123"
+        acc_dir.mkdir(parents=True)
+        for leftover in ("SRR123.sra.lock", "SRR123.sra.prf", "SRR123.sra.tmp"):
+            (acc_dir / leftover).write_bytes(b"")
+        (acc_dir / "SRR123.sralite").write_bytes(b"")
+
+        assert _cached_sra_archive(acc_dir, "SRR123") == acc_dir / "SRR123.sralite"
+        (acc_dir / "SRR123.sralite").unlink()
+        assert _cached_sra_archive(acc_dir, "SRR123") is None
+
+    def test_prefetch_without_archive_is_a_network_failure(self, tmp_path):
+        """prefetch exiting 0 without writing an archive fails before fasterq-dump is run."""
+        output_folder = tmp_path / "downloads"
+        state = {"reads": 4}
+        real = _fake_tools(state)
+
+        def tools(executable, args, **kwargs):
+            if executable == "prefetch":
+                return Mock(returncode=0, stdout="", stderr="")
+            return real(executable, args, **kwargs)
+
+        with patch("prepare.data.sra.accession.shutil.which", side_effect=lambda tool: f"/usr/bin/{tool}"):
+            with patch("prepare.data.sra.accession.SecureSubprocess.run_secure", side_effect=tools):
+                success, message = download_accession("SRR123", output_folder, compress=False)
+
+        assert success is False
+        assert message.startswith("network: ")
+        assert "prefetch wrote no archive for SRR123" in message
+        assert [c[0] for c in state.get("calls", [])] == []
+
+    def test_failed_attempt_removes_its_temp_folder(self, tmp_path):
+        output_folder = tmp_path / "downloads"
+
+        def failing(executable, args, **kwargs):
+            if executable == "fasterq-dump":
+                out_dir = Path(args[args.index("-O") + 1])
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "SRR123_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+                raise subprocess.CalledProcessError(1, ["fasterq-dump"], stderr="err: connection reset")
+            return Mock(returncode=0, stdout="", stderr="")
+
+        with patch("prepare.data.sra.accession.shutil.which", return_value=None):
+            with patch("prepare.data.sra.accession.SecureSubprocess.run_secure", side_effect=failing):
+                success, _ = download_accession("SRR123", output_folder, compress=False)
+
+        assert success is False
+        assert not (output_folder / "SRR123_temp").exists()
+
+    def test_keep_temp_keeps_the_temp_folder_and_logs_its_path(self, tmp_path, caplog):
+        output_folder = tmp_path / "downloads"
+
+        def failing(executable, args, **kwargs):
+            out_dir = Path(args[args.index("-O") + 1])
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "SRR123_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+            raise subprocess.CalledProcessError(1, ["fasterq-dump"], stderr="err: connection reset")
+
+        with caplog.at_level(logging.INFO, logger="prepare.data.sra"):
+            with patch("prepare.data.sra.accession.shutil.which", return_value=None):
+                with patch("prepare.data.sra.accession.SecureSubprocess.run_secure", side_effect=failing):
+                    success, _ = download_accession("SRR123", output_folder, compress=False, keep_temp=True)
+
+        assert success is False
+        assert (output_folder / "SRR123_temp" / "SRR123_1.fastq").exists()
+        assert any(str(output_folder / "SRR123_temp") in r.getMessage() for r in caplog.records)
 
     def test_download_accession_falls_back_without_prefetch_binary(self, tmp_path):
         """shutil.which('prefetch') is None: fall back to the direct fasterq-dump call."""
@@ -1900,6 +1973,7 @@ class TestDownloadSra:
 
         seen = []
         monkeypatch.setattr("prepare.utils.security.SecureSubprocess.run_secure", fake_run_secure)
+        monkeypatch.setattr("prepare.data.sra.accession.shutil.which", lambda tool: None)
         monkeypatch.setattr("prepare.data.sra.fastq.count_fastq_reads", lambda path: 1)
 
         download_sra(
@@ -1927,6 +2001,7 @@ class TestDownloadSra:
 
         seen = []
         monkeypatch.setattr("prepare.utils.security.SecureSubprocess.run_secure", fake_run_secure)
+        monkeypatch.setattr("prepare.data.sra.accession.shutil.which", lambda tool: None)
         monkeypatch.setattr("prepare.data.sra.fastq.count_fastq_reads", lambda path: 1)
 
         stats = download_sra(
