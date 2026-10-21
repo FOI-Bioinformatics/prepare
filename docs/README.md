@@ -19,3 +19,4 @@ Index of the documentation in this folder. The project overview, installation an
 - [packaging.md](packaging.md): building, releasing and distributing the package.
 - [../CONTRIBUTING.md](../CONTRIBUTING.md): development workflow and quality checks.
 - [../CHANGELOG.md](../CHANGELOG.md): release history.
+- [superpowers/README.md](superpowers/README.md): design records, the specifications, plans and audits of each round of work, with their status.

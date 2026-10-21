@@ -77,6 +77,19 @@ class TestRegisterAllCommands:
         action = next(a for a in parser._subparsers._group_actions if getattr(a, "choices", None))
         return set(action.choices)
 
+    def test_renamed_commands_name_their_removal_version(self, caplog):
+        """Each pointer says which release removes it, so the old names do not live forever."""
+        import argparse
+        import logging
+
+        from prepare.cli.commands.renamed import REMOVAL_VERSION, renamed_commands
+
+        assert REMOVAL_VERSION == "0.13.0"
+        command = renamed_commands()[0]
+        with caplog.at_level(logging.ERROR):
+            assert command.execute(argparse.Namespace()) == 2
+        assert caplog.records[-1].getMessage().endswith(f"; this pointer is removed in {REMOVAL_VERSION}")
+
     def test_renamed_commands_parse_but_are_hidden(self):
         # sra_profile_quality, sra_dashboard and sra_compare (and their dash aliases) were
         # renamed in 0.5.0; the old names still parse, to point at the new command.
