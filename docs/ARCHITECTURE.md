@@ -523,7 +523,7 @@ itself if it wants that further run's own tools to start.
 
 - **plots**: Functions for generating various types of plots
 - **project_report** (`visualization/project_report.py`): `render_html(report)`, the HTML page of
-  `project_report`, one `<section>` per report section, with a funnel figure and a per-genome figure;
+  `project_report`, one `<section>` per report section, with a datasets-per-stage bar chart (the stages are not nested, so not a funnel) and a per-genome figure;
   plotly and jinja2 are imported through `optional.require` (the `interactive` extra), and plotly.js is
   embedded in the page
 
