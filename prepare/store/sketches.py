@@ -48,17 +48,22 @@ def cached_sketch(
     if sidecar_path is None:
         return None
     sidecar = read_sidecar(sidecar_path)
-    if sidecar is None or not sidecar.sketch:
+    block = sidecar.sketch if sidecar is not None else None
+    if not block or not block.get("file"):
         return None
-    block = sidecar.sketch
-    if block.get("files") != _file_signature([Path(f) for f in files]):
-        return None
-    if list(block.get("ksizes") or []) != list(KSIZES) or block.get("scaled") != SCALED:
-        return None
-    path = Path(sidecar_path).parent / str(block.get("file") or "")
-    if not block.get("file") or not path.is_file():
+    path = Path(sidecar_path).parent / str(block["file"])
+    if not _block_describes(block, files, KSIZES, SCALED) or not path.is_file():
         return None
     return path, block
+
+
+def _block_describes(block: Dict[str, Any], files: Sequence[Path], ksizes: Sequence[int], scaled: int) -> bool:
+    """Whether a cached ``sketch`` block was built from ``files`` as they are now, with these parameters."""
+    return (
+        block.get("files") == _file_signature([Path(f) for f in files])
+        and list(block.get("ksizes") or []) == list(ksizes)
+        and block.get("scaled") == scaled
+    )
 
 
 def store_sketch(

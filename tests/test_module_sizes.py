@@ -13,11 +13,15 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+from radon.complexity import cc_visit
 from radon.metrics import mi_visit
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent / "prepare"
 MAX_LINES = 800
 MIN_MAINTAINABILITY = 20.0
+# Functions at radon rank C (complexity 11-20) sit just under the rank D gate of ``make check``.
+# Their number, measured on 2026-10-21, only goes down.
+MAX_RANK_C = 105
 
 # path relative to the repository -> (line ceiling, maintainability floor). Empty: every module meets the ceilings.
 KNOWN_EXCEPTIONS: Dict[str, Tuple[int, float]] = {}
@@ -100,6 +104,28 @@ def test_known_exceptions_still_exist_and_are_still_needed():
         assert path.is_file(), f"{relative} no longer exists; remove it from KNOWN_EXCEPTIONS"
         within = _line_count(path) <= MAX_LINES and _maintainability(path) >= MIN_MAINTAINABILITY
         assert not within, f"{relative} now meets the ceilings; remove it from KNOWN_EXCEPTIONS"
+
+
+def rank_c_blocks() -> List[str]:
+    """Every function, method or class at complexity 11-20, as ``path:name``."""
+    found = []
+    for path in _modules():
+        for block in cc_visit(path.read_text(encoding="utf-8")):
+            if 11 <= block.complexity <= 20:
+                found.append(f"{_relative(path)}:{block.name}")
+    return found
+
+
+def test_rank_c_count_does_not_grow():
+    blocks = rank_c_blocks()
+    assert len(blocks) <= MAX_RANK_C, f"{len(blocks)} blocks at rank C; the budget is {MAX_RANK_C}:\n" + "\n".join(
+        blocks
+    )
+
+
+def test_the_rank_c_budget_is_current():
+    """A budget above the count hides progress; lower it when a function leaves rank C."""
+    assert len(rank_c_blocks()) == MAX_RANK_C
 
 
 def test_trivial_code_is_maintainable():

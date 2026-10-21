@@ -194,6 +194,11 @@ Run `make check` and `make test` before every commit. `make check` runs, in orde
 - **Complexity**: no function at radon rank D or worse (`python -m radon cc prepare -n D -s`).
 - **Module size**: at most 800 lines and a maintainability index of at least 20 per module under
   `prepare/` (`python tests/test_module_sizes.py --check`). Its `KNOWN_EXCEPTIONS` list only shrinks.
+- **Budgets that only shrink** (`make test`): the number of functions at radon rank C
+  (`MAX_RANK_C` in `tests/test_module_sizes.py`), the number of package modules exempt from B902
+  and from D101-D103 in `setup.cfg` (`tests/test_lint_exemptions.py`), and the modules outside
+  `prepare/cli/` that import `prepare.cli` (`tests/test_layer_boundaries.py`). Each test pins the
+  measured value; lower the constant when the count drops, never raise it.
 - **ASCII only** in `prepare/`, `tests/`, `scripts/`, `Makefile`, `setup.cfg` and `pyproject.toml`, except
   single lines marked `# ascii-ok` with a reason (`scripts/check_ascii.sh`).
 - **Atomic writes** (`scripts/check_atomic_writes.sh`, see "Concurrency rules").
