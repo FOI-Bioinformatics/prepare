@@ -11,8 +11,6 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
-from prepare.core.constants import GENOME_FASTA_GLOBS
-from prepare.core.validation import genome_name
 from prepare.data import registry_blocks as rb
 from prepare.data.file_io import visible_files
 from prepare.data.read_extraction import coverage_table_path, summarise_contigs, summarise_coverage_table
@@ -81,10 +79,13 @@ def scan_metadata(metadata_folder: Path) -> Set[str]:
 
 
 def _genome_ids_on_disk(paths: "ProjectPaths", registry: Optional["Registry"]) -> Set[str]:
+    """The project's genome ids: recorded ones, match CSVs and extraction folders.
+
+    A FASTA under ``genomes/`` alone is a file, not a project genome: it is listed only when
+    its id also appears in the matches folder, the targeted folder or a registry record.
+    """
     _r = _registry_module()
     ids: Set[str] = set(_r.known_genome_ids(registry)) if registry else set()
-    for pattern in GENOME_FASTA_GLOBS:
-        ids.update(genome_name(p) for p in visible_files(paths.genomes, pattern))
     ids.update(p.stem for p in visible_files(paths.matches, "*.csv"))
     for acc_dir in visible_files(paths.targeted, dirs=True):
         for asm in visible_files(acc_dir, f"*{_ASSEMBLY_SUFFIX}", dirs=True):

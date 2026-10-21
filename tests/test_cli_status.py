@@ -1791,3 +1791,31 @@ class TestNextStepsAreRunnableAndRelevant:
         assert tokens[tokens.index("--genome-id") + 1] == "L crispatus"
         assert tokens[tokens.index("--parsed-containment") + 1] == "my tables/parsed.txt"
         assert tokens[tokens.index("--genome-fasta") + 1] == str(tmp_path / "genomes" / "L crispatus.fna")
+
+
+class TestInitRegistersGenomesWithEvidence:
+    """P13: a FASTA under genomes/ alone is a file; a genome needs screening or extraction evidence."""
+
+    def _init(self, root):
+        (root / "fastq").mkdir(exist_ok=True)
+        assert StatusCommand().execute(_status_args(root, init=True)) == 0
+        return json.loads((root / "prepare_registry.json").read_text())
+
+    def test_a_fasta_alone_is_not_a_project_genome(self, tmp_path):
+        alone = tmp_path / "alone"
+        (alone / "genomes").mkdir(parents=True)
+        (alone / "genomes" / "X.fna").write_text(">s\nACGT\n")
+        assert "X" not in self._init(alone).get("genomes", {})
+
+        screened = tmp_path / "screened"
+        (screened / "genomes").mkdir(parents=True)
+        (screened / "genomes" / "X.fna").write_text(">s\nACGT\n")
+        (screened / "matches").mkdir()
+        (screened / "matches" / "X.csv").write_text("acc,containment\nSRR1,0.9\n")
+        assert "X" in self._init(screened)["genomes"]
+
+    def test_extraction_folders_still_name_their_genome(self, tmp_path):
+        root = tmp_path / "extracted"
+        (root / "targeted" / "SRR1").mkdir(parents=True)
+        (root / "targeted" / "SRR1" / "Y_assembly").mkdir()
+        assert "Y" in self._init(root)["genomes"]
