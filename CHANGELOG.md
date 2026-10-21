@@ -2,6 +2,72 @@
 
 All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM-DD format.
 
+## [0.12.0] - 2026-10-21
+
+The Medium findings of `docs/superpowers/audits/2026-10-21-pipeline-gui-audit.md` (P2-P13 on the
+command chain, G5-G13 on the HTML pages). The Low findings stay open.
+
+### Breaking
+
+- `extract_target_reads` follows the project: an accession excluded in the registry is never
+  extracted, and when the registry holds a selection only the selected accessions that meet
+  `--threshold` are. `--ignore-selection` extracts every sample at the threshold instead.
+- The containment threshold is no longer part of an extraction's identity: a sample extracted
+  with the same genome FASTA, preset and `--min-mapq` is skipped on a rerun whatever threshold it
+  was recorded with. The threshold is still recorded for information.
+- A paired extraction keeps the `<genome>_s.fastq.gz` file of reads that mapped without their
+  mate, and `--assemble` gives it to megahit as unpaired reads (`-r`). Reruns may assemble
+  slightly differently; the assembly marker records the inputs.
+- `interactive_plot` requires `--output-file` and always writes the page; `--show` opens it in a
+  browser (the former `--no-show` is the default and is accepted as a no-op). The unused
+  `sample_metadata` parameter of `create_interactive_heatmap` is gone.
+- `select_datasets --no-record` on the file of the recorded selection exits 2 (a usage error)
+  instead of 1.
+
+### Fixed
+
+- `parse_containment` reads every match file before writing anything: an unreadable file, or a
+  folder with no match CSV, is an error that names it and the table, summary, details and
+  registry are left as they were. A header separated by `;` or a tab is reported as such.
+- `download_metadata` exits 1 when an accession has no metadata or a match file cannot be read
+  (what was fetched is still recorded); `parse_metadata` exits 1 when a file could not be
+  parsed and refuses an empty folder, leaving an older table as it is.
+- `use_branchwater`, `extract_branchwater_metadata`, `select_datasets`, `sra_info`,
+  `sra_validate` and the four `advanced_analysis` commands report errors through the shared
+  path, with the traceback in the log file; a file in another format counts as an error for
+  `extract_branchwater_metadata` instead of being skipped.
+- `status --next` suggests extraction only for the downloaded accessions screened against the
+  genome (every downloaded one when the project recorded no screening), and shell-quotes every
+  path and id in the printed commands.
+- A lock timeout while recording an extraction result no longer disappears in a warning: the
+  remaining samples are still extracted, then the command exits 4.
+- `sra_validate` reports a named accession with no folder as failed, checks only folders named
+  like an accession (no transient or stray folders), and a failed validation does not count the
+  dataset as analysed.
+- A gzipped genome FASTA is sketched like a plain one, and one `genome_name` rule gives the
+  genome id without the FASTA suffix and `.gz` to `genome_prepare`, `branchwater_search`,
+  `sra_sketch` and `status --init`.
+- `status --init` registers a genome only when a match CSV, an extraction folder or a registry
+  record names it; a FASTA under `genomes/` on its own is a file.
+- `sra_report` corrects its four comparison tests with the Holm procedure; the page and the
+  terminal show the raw and the adjusted p-value and "significant" follows the adjusted one.
+- The containment explorer says when the genomes have no taxonomy (and points at
+  `enrich_taxonomy`) or when no sample reaches `--min-containment`; its genus bar names its cut
+  ("top 30 of N"), the heatmap says it takes the maximum per family, and the NCBI no-value
+  strings (NP, uncalculated, not provided, missing, not applicable, unknown) render as empty
+  cells.
+- `interactive_plot` pages carry a title, a viewport and the report styles; the heatmap uses a
+  sequential scale for a non-negative matrix and a diverging one centred on zero otherwise, and
+  its size is capped.
+- `project_report` draws the datasets per stage as a bar chart (the stages are not nested) with
+  both axes from zero.
+
+### Internal
+
+- Three modules leave the B902 list (`data/read_extraction.py`, `cli/commands/sra_enhanced.py`,
+  `cli/commands/advanced_analysis.py`; the budget is 25) and the rank-C budget drops to 104.
+- `holm_adjusted` lives in `processing/statistics.py`; `genome_name` in `core/validation.py`.
+
 ## [0.11.2] - 2026-10-21
 
 The High findings of `docs/superpowers/audits/2026-10-21-pipeline-gui-audit.md` (P1, P7, G1, G2, G3).

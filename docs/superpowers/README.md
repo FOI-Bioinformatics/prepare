@@ -34,5 +34,5 @@ the current behaviour is in the user and developer guides listed in [../README.m
 | 2026-10-21 | [plans/2026-10-21-local-sketch.md](plans/2026-10-21-local-sketch.md) | plan | 0.11.0 | done |
 | 2026-10-21 | [audits/2026-10-21-tech-debt.md](audits/2026-10-21-tech-debt.md) | audit | 0.11.1 (quick wins); the medium-term items are not yet planned | open |
 | 2026-10-21 | [plans/2026-10-21-tech-debt-quick-wins.md](plans/2026-10-21-tech-debt-quick-wins.md) | plan | 0.11.1 | done |
-| 2026-10-21 | [audits/2026-10-21-pipeline-gui-audit.md](audits/2026-10-21-pipeline-gui-audit.md) | audit | 0.11.2 (High findings); Mediums planned below | open |
-| 2026-10-21 | [plans/2026-10-21-pipeline-gui-medium-fixes.md](plans/2026-10-21-pipeline-gui-medium-fixes.md) | plan | 0.12.0 | open |
+| 2026-10-21 | [audits/2026-10-21-pipeline-gui-audit.md](audits/2026-10-21-pipeline-gui-audit.md) | audit | 0.11.2 (High findings), 0.12.0 (Medium findings); the Low findings are open | open |
+| 2026-10-21 | [plans/2026-10-21-pipeline-gui-medium-fixes.md](plans/2026-10-21-pipeline-gui-medium-fixes.md) | plan | 0.12.0 | done |

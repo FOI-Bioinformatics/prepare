@@ -129,7 +129,7 @@ of one command.
 | | `sra_profile` | Statistics and a quality profile for each downloaded dataset |
 | | `sra_report` | One HTML report on dataset quality, with an optional group comparison |
 | | `sra_sketch` | Sourmash sketches of downloaded datasets, with local containment of a genome |
-| | `extract_target_reads` | Keep the reads that map to a target genome, optionally assemble them |
+| | `extract_target_reads` | Keep the reads that map to a target genome for the selected, non-excluded samples; optionally assemble them |
 | Store | `store_init` | Create the shared data store and record this project's use of it |
 | | `store_status` | Report dataset counts, bytes and stale projects |
 | | `store_reindex` | Rebuild the store catalogue from the dataset sidecar files |
@@ -140,7 +140,7 @@ of one command.
 | | `store_usage` | Report which projects and genomes used a dataset |
 | | `store_gc` | Report, and with `--yes` remove, unused datasets and leftover temporary files |
 | Analysis | `diversity_analysis` | Alpha and beta diversity metrics |
-| | `interactive_plot` | Interactive visualizations |
+| | `interactive_plot` | Interactive visualizations, written to `--output-file` |
 | | `validate_taxonomy` | Validate species names against NCBI taxonomy |
 | | `taxonomic_summary` | Taxonomic summaries at several levels |
 | Environment | `doctor` | Check tools, configuration, store, disk space and resources |
