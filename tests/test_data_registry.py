@@ -726,6 +726,15 @@ class TestRecords:
         assert metadata["platform"] is None
         assert metadata["library_strategy"] is None
 
+    def test_a_failed_validation_is_not_analysed(self, tmp_path):
+        """P8: a dataset whose only analysis is a failed validate is not in the analysed stage."""
+        registry = reg.load_registry(tmp_path / "prepare_registry.json")
+        reg.record_analysis(registry, "SRR1", "validate", "", {"passed": False, "files": 1, "issues": ["x"]})
+        reg.record_analysis(registry, "SRR2", "validate", "", {"passed": True, "files": 1, "issues": []})
+        reg.record_analysis(registry, "SRR3", "profile", "p.json", {"reads": 5})
+        assert reg.query(registry, "analysed") == ["SRR2", "SRR3"]
+        assert reg.stage_members(registry)["analysed"] == ["SRR2", "SRR3"]
+
     def test_query_and_stage_counts(self, tmp_path):
         r = reg.load_registry(tmp_path / "prepare_registry.json")
         for acc, cont in (("SRR1", 0.9), ("SRR2", 0.5), ("SRR3", 0.05)):

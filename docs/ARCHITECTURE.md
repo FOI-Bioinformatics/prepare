@@ -440,6 +440,9 @@ itself if it wants that further run's own tools to start.
   Both modules look `registry` up at call time, since `registry.py` imports them
 - **registry_blocks**: Typed dataclasses for every block the registry file holds, described in
   "Project registry" above
+- **project_selection**: `selection_for_genome`, which recorded selection applies to a genome
+  (made on its column, `max_containment` or a `--genome-ids` list naming it), shared by
+  `extract_target_reads` and the `status --next` suggestions
 - **registry_timing**: `started`/`seconds` for the download, extraction and assembly blocks
   (`set_download_timing` and its two siblings, `Stopwatch`, and `timing_summary` for `status`), kept
   out of `registry.py`, which is at its size ceiling
@@ -523,7 +526,7 @@ itself if it wants that further run's own tools to start.
 
 - **plots**: Functions for generating various types of plots
 - **project_report** (`visualization/project_report.py`): `render_html(report)`, the HTML page of
-  `project_report`, one `<section>` per report section, with a funnel figure and a per-genome figure;
+  `project_report`, one `<section>` per report section, with a datasets-per-stage bar chart (the stages are not nested, so not a funnel) and a per-genome figure;
   plotly and jinja2 are imported through `optional.require` (the `interactive` extra), and plotly.js is
   embedded in the page
 
@@ -651,8 +654,10 @@ Two commands decide their code from a set of per-item outcomes: `download_sra` r
 every accession that failed was classified `network` by `classify_download_error`, and 1 otherwise
 (a truncated download is a failure unless `--accept-partial` is given, as an incomplete store copy
 already was).
-`download_metadata` logs each accession NCBI did not return and exits 0, unless every failure was a
-network one and nothing was fetched (`NetworkError`, 4); a rerun fetches only the missing ones.
+`download_metadata` logs each accession NCBI did not return, records what it fetched and exits 1
+when any accession is missing, or 4 when every failure was a network one and nothing was fetched
+(`NetworkError`); a rerun fetches only the missing ones. `parse_metadata` likewise writes the table
+from the files it could parse and exits 1 when any file could not be parsed.
 
 ### Logging policy
 

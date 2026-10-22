@@ -32,15 +32,24 @@ def _figure_div(figure: Any) -> str:
     return str(offline.plot(figure, output_type="div", include_plotlyjs=False))
 
 
-def _funnel_figure(funnel: Dict[str, Any]) -> str:
+def _stage_figure_object(funnel: Dict[str, Any]) -> Any:
+    """The datasets per stage as bars in stage order.
+
+    The stages are not nested (an analysed, extracted or assembled dataset need not be a
+    selected one), so a funnel shape would misread; bars from zero do not.
+    """
     go = require("plotly.graph_objects", "interactive", PURPOSE)
     stages = [stage for stage in FUNNEL_STAGES if stage in funnel]
-    figure = go.Figure(go.Funnel(y=stages, x=[funnel[stage].get("accessions", 0) for stage in stages]))
-    figure.update_layout(**plotly_layout(title="Datasets reaching each stage", height=360))
-    return _figure_div(figure)
+    figure = go.Figure(go.Bar(x=stages, y=[funnel[stage].get("accessions", 0) for stage in stages]))
+    figure.update_layout(**plotly_layout(title="Datasets per stage", height=360, yaxis_rangemode="tozero"))
+    return figure
 
 
-def _genome_figure(genomes: Dict[str, Any]) -> str:
+def _funnel_figure(funnel: Dict[str, Any]) -> str:
+    return _figure_div(_stage_figure_object(funnel))
+
+
+def _genome_figure_object(genomes: Dict[str, Any]) -> Any:
     go = require("plotly.graph_objects", "interactive", PURPOSE)
     names = list(genomes)
     figure = go.Figure(
@@ -49,8 +58,14 @@ def _genome_figure(genomes: Dict[str, Any]) -> str:
             go.Bar(name="assembled", x=names, y=[genomes[g]["assembled"] for g in names]),
         ]
     )
-    figure.update_layout(**plotly_layout(title="Datasets per genome", barmode="group", height=360))
-    return _figure_div(figure)
+    figure.update_layout(
+        **plotly_layout(title="Datasets per genome", barmode="group", height=360, yaxis_rangemode="tozero")
+    )
+    return figure
+
+
+def _genome_figure(genomes: Dict[str, Any]) -> str:
+    return _figure_div(_genome_figure_object(genomes))
 
 
 def _sections(report: Dict[str, Any]) -> List[Dict[str, Any]]:

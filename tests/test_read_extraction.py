@@ -70,6 +70,46 @@ class TestSelectSamples:
         with pytest.raises(ProcessingError):
             select_samples_for_genome(df, "GCF_missing", 0.1)
 
+    def test_a_selection_made_for_another_genome_does_not_bound_this_one(self, tmp_path, caplog):
+        """Review: the selection is project-wide; it applies only when its criteria cover the genome."""
+        from prepare.data.read_extraction import selected_samples
+        from prepare.data.registry import record_selection
+
+        table = tmp_path / "parsed_containment.txt"
+        table.write_text("\tG1\tG2\nSRR1\t0.9\t0.0\nSRR2\t0.0\t0.8\nSRR3\t0.7\t0.6\n")
+        registry = load_registry(tmp_path / "registry.json")
+        record_selection(registry, ["SRR1", "SRR3"], {"column": "G1", "threshold": 0.5}, "accessions.txt")
+
+        assert selected_samples(table, "G1", 0.1, registry=registry) == ["SRR1", "SRR3"]
+        with caplog.at_level(logging.INFO):
+            assert selected_samples(table, "G2", 0.1, registry=registry) == ["SRR2", "SRR3"]
+        assert "selection was made for G1" in caplog.text
+
+        record_selection(registry, ["SRR3"], {"column": "max_containment"}, "accessions.txt")
+        assert selected_samples(table, "G2", 0.1, registry=registry) == ["SRR3"]
+        record_selection(registry, ["SRR2"], {"genome_ids": ["G1", "G2"], "require": "any"}, "accessions.txt")
+        assert selected_samples(table, "G2", 0.1, registry=registry) == ["SRR2"]
+
+    def test_selected_samples_applies_exclusions_and_the_selection(self, tmp_path, caplog):
+        from prepare.data.read_extraction import selected_samples
+        from prepare.data.registry import record_exclusion, record_selection
+
+        table = tmp_path / "parsed_containment.txt"
+        table.write_text("\tGCF_1\nSRR1\t0.9\nSRR2\t0.6\nSRR3\t0.5\nSRR4\t0.3\n")
+        registry = load_registry(tmp_path / "registry.json")
+        record_exclusion(registry, "SRR2", "blacklisted")
+        record_selection(registry, ["SRR2", "SRR3"], {"genome_id": "GCF_1"}, "accessions.txt")
+
+        assert selected_samples(table, "GCF_1", 0.1) == ["SRR1", "SRR2", "SRR3", "SRR4"]
+        with caplog.at_level(logging.INFO):
+            assert selected_samples(table, "GCF_1", 0.1, registry=registry) == ["SRR3"]
+        assert "4 sample(s) in the table" in caplog.text and "1 excluded" in caplog.text
+        assert selected_samples(table, "GCF_1", 0.1, registry=registry, ignore_selection=True) == [
+            "SRR1",
+            "SRR3",
+            "SRR4",
+        ]
+
 
 class TestSampleReads:
     """_sample_reads: which files of an accession folder are handed to minimap2."""
@@ -203,6 +243,27 @@ class TestExtractTargetReads:
         assert "different read counts" in caplog.text
 
     @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_paired_export_keeps_the_singleton_file(self, mock_run):
+        """P10: reads whose mate did not map (samtools fastq -s) are part of the extraction."""
+        state = {"nonempty": ("-1", "-2", "-s")}
+        mock_run.side_effect = _fake_tools(state)
+        with tempfile.TemporaryDirectory() as tmp:
+            root, table, genome = _make_tree(tmp, paired=True)
+            results = extract_target_reads(
+                parsed_containment=table,
+                genome_id="GCF_1",
+                genome_fasta=genome,
+                fastq_folder=root / "fastq",
+                output_folder=root / "targeted",
+                threshold=0.5,
+            )
+            assert [p.name for p in results["SRR1"].files] == [
+                "GCF_1_1.fastq.gz",
+                "GCF_1_2.fastq.gz",
+                "GCF_1_s.fastq.gz",
+            ]
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_mapped_count_is_logged(self, mock_run, caplog):
         state = {"mapped": 1234}
         mock_run.side_effect = _fake_tools(state)
@@ -247,7 +308,7 @@ class TestExtractTargetReads:
         def on_result(accession, result):
             seen.append((accession, result.mapped_records))
             if accession == "SRR1":
-                raise RuntimeError("registry is locked by another process")
+                raise DataAccessError("registry file could not be written")
 
         with tempfile.TemporaryDirectory() as tmp:
             root, table, genome = _make_tree(tmp, paired=True)
@@ -265,6 +326,55 @@ class TestExtractTargetReads:
         assert [acc for acc, _ in seen] == ["SRR1", "SRR2"]
         assert set(results) == {"SRR1", "SRR2"}
         assert "Recording the extraction result for SRR1 failed" in caplog.text
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_a_lock_timeout_while_recording_is_a_transient_error(self, mock_run):
+        """P12: the run finishes the remaining samples, then the lock timeout surfaces (exit 4)."""
+        from prepare.core.exceptions import LockTimeoutError, TransientError
+
+        mock_run.side_effect = _fake_tools({})
+        seen = []
+
+        def on_result(accession, result):
+            seen.append(accession)
+            if accession == "SRR1":
+                raise LockTimeoutError("registry lock held by another process")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, table, genome = _make_tree(tmp, paired=True)
+            with pytest.raises(TransientError, match="registry lock"):
+                extract_target_reads(
+                    parsed_containment=table,
+                    genome_id="GCF_1",
+                    genome_fasta=genome,
+                    fastq_folder=root / "fastq",
+                    output_folder=root / "targeted",
+                    threshold=0.3,
+                    on_result=on_result,
+                )
+            assert (root / "targeted" / "SRR2" / "GCF_1_1.fastq.gz").exists()  # the run went on
+        assert seen == ["SRR1", "SRR2"]
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_an_unexpected_callback_error_propagates(self, mock_run):
+        """A bug in the callback is not hidden behind a warning."""
+        mock_run.side_effect = _fake_tools({})
+
+        def on_result(accession, result):
+            raise RuntimeError("bug")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root, table, genome = _make_tree(tmp, paired=True)
+            with pytest.raises(RuntimeError):
+                extract_target_reads(
+                    parsed_containment=table,
+                    genome_id="GCF_1",
+                    genome_fasta=genome,
+                    fastq_folder=root / "fastq",
+                    output_folder=root / "targeted",
+                    threshold=0.3,
+                    on_result=on_result,
+                )
 
     def test_missing_table_raises(self):
         with pytest.raises(DataAccessError):
@@ -664,6 +774,24 @@ class TestMateCountMismatch:
 
 
 class TestRecordMatches:
+    def test_a_different_threshold_does_not_remap(self, tmp_path):
+        """P3: the threshold decides which samples are tried, not what one sample's extraction is."""
+        record = {
+            "genome_fasta": str(tmp_path / "g.fna"),
+            "preset": "sr",
+            "threshold": 0.5,
+            "min_mapq": 0,
+            "mapped_reads": 0,
+        }
+        (tmp_path / "g.fna").write_text(">a\nA\n")
+        assert _record_matches(record, tmp_path / "g.fna", "sr", 0.1, min_mapq=0)
+
+    def test_a_different_mapq_still_remaps(self, tmp_path):
+        record = {"genome_fasta": str(tmp_path / "g.fna"), "preset": "sr", "min_mapq": 20, "mapped_reads": 0}
+        (tmp_path / "g.fna").write_text(">a\nA\n")
+        assert not _record_matches(record, tmp_path / "g.fna", "sr", 0.1, min_mapq=0)
+        assert not _record_matches(record, tmp_path / "g.fna", "map-ont", 0.1, min_mapq=20)
+
     def test_record_matches_compares_min_mapq(self, tmp_path):
         """A record's min_mapq is compared like every other extraction parameter: a
         mismatch means the sample must be redone rather than skipped."""
@@ -1244,6 +1372,38 @@ class TestFastaLength:
         fasta = tmp_path / "g.fna"
         fasta.write_text(">chr1 some description\nACGTACGT\nACGT\n>chr2\nTTTT\n")
         assert fasta_length(fasta) == 16
+
+
+class TestMegahitInputs:
+    def test_megahit_gets_singletons_as_r(self, tmp_path):
+        from prepare.data.assembly import _megahit_args
+
+        mates = [tmp_path / "G_1.fastq.gz", tmp_path / "G_2.fastq.gz"]
+        singles = tmp_path / "G_s.fastq.gz"
+        args = _megahit_args(mates + [singles], tmp_path / "asm", 1, None, None, None, None)
+        assert args[:6] == ["-1", str(mates[0]), "-2", str(mates[1]), "-r", str(singles)]
+        assert "-r" not in _megahit_args(mates, tmp_path / "asm", 1, None, None, None, None)
+
+    def test_three_files_without_a_singleton_file_are_refused(self, tmp_path):
+        from prepare.data.assembly import _megahit_args
+
+        reads = [tmp_path / f"G_{i}.fastq.gz" for i in (1, 2, 3)]
+        with pytest.raises(ProcessingError):
+            _megahit_args(reads, tmp_path / "asm", 1, None, None, None, None)
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_coverage_maps_the_mates_only_when_singletons_are_present(self, mock_run, tmp_path):
+        """minimap2 pairs its query files positionally, so the singleton file is left out of the back-mapping."""
+        mock_run.side_effect = _fake_tools({"mapped": 4})
+        contigs = tmp_path / "contigs.fa"
+        contigs.write_text(">c1\n" + "A" * 100 + "\n")
+        reads = [tmp_path / "G_1.fastq.gz", tmp_path / "G_2.fastq.gz", tmp_path / "G_s.fastq.gz"]
+        for path in reads:
+            with gzip.open(path, "wt") as handle:
+                handle.write("@r\nACGT\n+\nIIII\n")
+        assembly_coverage(contigs, reads, "sr", 1, tmp_path, mapped_reads=4)
+        minimap_args = next(c.args[1] for c in mock_run.call_args_list if c.args[0] == "minimap2")
+        assert str(reads[2]) not in minimap_args and str(reads[1]) in minimap_args
 
 
 class TestAssemblyCoverage:

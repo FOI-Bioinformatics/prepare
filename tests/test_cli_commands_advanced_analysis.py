@@ -5,6 +5,7 @@ Tests for diversity analysis, interactive plotting, and taxonomy commands.
 """
 
 import argparse
+import logging
 from unittest.mock import patch, mock_open
 import pandas as pd
 import importlib.util
@@ -162,7 +163,7 @@ class TestDiversityAnalysisCommand:
     @patch("pandas.read_csv")
     def test_execute_failure(self, mock_read_csv):
         """Test execution failure."""
-        mock_read_csv.side_effect = Exception("File not found")
+        mock_read_csv.side_effect = OSError("File not found")
 
         command = DiversityAnalysisCommand()
         args = argparse.Namespace(
@@ -270,10 +271,19 @@ class TestInteractivePlotCommand:
         command.configure_parser(parser)
 
         # Test required arguments
-        args = parser.parse_args(["--data-file", "data.csv", "--plot-type", "pca"])
+        args = parser.parse_args(["--data-file", "data.csv", "--plot-type", "pca", "--output-file", "p.html"])
         assert args.data_file == "data.csv"
         assert args.plot_type == "pca"
-        assert args.no_show is False
+        assert args.show is False
+
+    def test_no_output_file_is_a_usage_error(self, capsys):
+        """G11: the page is always written, so --output-file is required and named when missing."""
+        parser = argparse.ArgumentParser()
+        InteractivePlotCommand().configure_parser(parser)
+        with pytest.raises(SystemExit) as exc:
+            parser.parse_args(["--data-file", "data.csv", "--plot-type", "pca"])
+        assert exc.value.code == 2
+        assert "--output-file" in capsys.readouterr().err
 
     def test_configure_parser_with_options(self):
         """Test parser with optional arguments."""
@@ -297,7 +307,7 @@ class TestInteractivePlotCommand:
                 "plot.html",
                 "--title",
                 "My Plot",
-                "--no-show",
+                "--show",
             ]
         )
 
@@ -306,7 +316,7 @@ class TestInteractivePlotCommand:
         assert args.size_by == "weight"
         assert args.output_file == "plot.html"
         assert args.title == "My Plot"
-        assert args.no_show is True
+        assert args.show is True
 
     @requires_interactive
     @patch("prepare.cli.commands.advanced_analysis.read_table")
@@ -328,7 +338,7 @@ class TestInteractivePlotCommand:
             size_by=None,
             output_file="pca.html",
             title="PCA Test",
-            no_show=True,
+            show=False,
         )
 
         result = command.execute(args)
@@ -361,14 +371,14 @@ class TestInteractivePlotCommand:
             size_by=None,
             output_file=None,
             title=None,
-            no_show=False,
+            show=True,
         )
 
         result = command.execute(args)
 
         assert result == 0
         mock_create_heatmap.assert_called_once_with(
-            mock_data_df, sample_metadata=None, title="Interactive Heatmap", output_file=None, show_plot=True
+            mock_data_df, title="Interactive Heatmap", output_file=None, show_plot=True
         )
 
     @requires_interactive
@@ -395,7 +405,7 @@ class TestInteractivePlotCommand:
             size_by=None,
             output_file=None,
             title=None,
-            no_show=False,
+            show=True,
         )
 
         result = command.execute(args)
@@ -427,7 +437,7 @@ class TestInteractivePlotCommand:
             size_by=None,
             output_file=None,
             title=None,
-            no_show=False,
+            show=True,
         )
 
         result = command.execute(args)
@@ -448,7 +458,7 @@ class TestInteractivePlotCommand:
             size_by=None,
             output_file=str(tmp_path / "t.html"),
             title=None,
-            no_show=True,
+            show=False,
         )
         assert InteractivePlotCommand().execute(args) == 0
         assert mock_tsne.call_args.kwargs["output_file"] == str(tmp_path / "t.html")
@@ -686,7 +696,7 @@ class TestTaxonomicSummaryCommand:
     @patch("pandas.read_csv")
     def test_execute_failure(self, mock_read_csv):
         """Test execution failure."""
-        mock_read_csv.side_effect = Exception("File not found")
+        mock_read_csv.side_effect = OSError("File not found")
 
         command = TaxonomicSummaryCommand()
         args = argparse.Namespace(
@@ -749,13 +759,11 @@ class TestAdvancedAnalysisIntegration:
             command.configure_parser(parser)
 
     @requires_analysis
-    @patch("prepare.cli.commands.advanced_analysis.logger")
-    def test_logging_behavior(self, mock_logger):
-        """Test that commands use logging appropriately."""
+    def test_logging_behavior(self, caplog):
+        """An I/O failure is reported through fail: one ERROR line with the traceback attached."""
         command = DiversityAnalysisCommand()
 
-        # Mock the pandas import and other dependencies
-        with patch("pandas.read_csv", side_effect=Exception("Test error")):
+        with patch("pandas.read_csv", side_effect=OSError("Test error")), caplog.at_level(logging.ERROR):
             args = argparse.Namespace(
                 abundance_file="test.csv",
                 metadata_file=None,
@@ -768,7 +776,8 @@ class TestAdvancedAnalysisIntegration:
             result = command.execute(args)
 
             assert result == 1
-            mock_logger.error.assert_called()
+            errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+            assert len(errors) == 1 and errors[0].exc_info is not None and "Test error" in errors[0].getMessage()
 
 
 class TestTaxonomicSummaryWithEnrichMap:

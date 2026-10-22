@@ -15,11 +15,11 @@ import logging
 import platform  # noqa: F401 - tests patch platform.system through this module
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import pandas as pd
 
-from prepare.core.exceptions import DataAccessError, ProcessingError
+from prepare.core.exceptions import DataAccessError, PrepareError, ProcessingError, TransientError
 from prepare.data.assembly import (  # noqa: F401 - re-exported; the assembly code moved there
     _megahit_args,
     assemble_extracted_reads,
@@ -31,6 +31,7 @@ from prepare.data.assembly import (  # noqa: F401 - re-exported; the assembly co
 from prepare.data.extraction_locks import LockHeld, index_build_lock, sample_extraction_lock
 from prepare.data.extraction_staging import publish_staged, remove_published, require_nonempty, staged_sample_outputs
 from prepare.data.file_io import atomic_path, ensure_directory, write_text_atomic
+from prepare.data.project_selection import selection_for_genome
 from prepare.data.read_extraction_export import (  # noqa: F401 - re-exported; the export and coverage code moved there
     FILTER_FLAGS,
     MINIMAP2_MIN_VERSION,
@@ -60,6 +61,9 @@ from prepare.data.read_extraction_export import (  # noqa: F401 - re-exported; t
 from prepare.data.sra import MATE1_SUFFIXES, fastq_files, fastq_stem, orphan_fastq, primary_fastq
 from prepare.utils.security import SecureSubprocess
 
+if TYPE_CHECKING:
+    from prepare.data.registry import Registry
+
 logger = logging.getLogger(__name__)
 
 # minimap2 presets by read type; keys are accepted on the CLI via --preset
@@ -88,19 +92,25 @@ class ExtractionResult:
 
 
 def _notify_result(
-    on_result: Optional[Callable[[str, "ExtractionResult"], None]], accession: str, result: "ExtractionResult"
+    on_result: Optional[Callable[[str, "ExtractionResult"], None]],
+    accession: str,
+    result: "ExtractionResult",
+    deferred: List[TransientError],
 ) -> None:
-    """Call ``on_result`` in isolation so a failing callback never stops the run.
+    """Call ``on_result`` so a failing callback never stops the run, but is not forgotten.
 
-    The callback records the result (a registry write, which can raise, for example on a
-    lock timeout). One sample's bookkeeping failing must not cost the remaining samples
-    their extraction.
+    The callback records the result (a registry write). A ``PrepareError`` is logged so the
+    remaining samples are still extracted; a ``TransientError`` (a lock timeout) is also kept
+    in ``deferred`` for the caller to raise after the loop (exit 4). Anything else propagates.
     """
     if on_result is None:
         return
     try:
         on_result(accession, result)
-    except Exception as e:
+    except TransientError as e:
+        logger.warning("Recording the extraction result for %s failed: %s (reported after the run)", accession, e)
+        deferred.append(e)
+    except PrepareError as e:
         logger.warning("Recording the extraction result for %s failed: %s", accession, e)
 
 
@@ -181,12 +191,18 @@ def select_samples_for_genome(containment: pd.DataFrame, genome_id: str, thresho
     return [str(acc) for acc in containment.index[values >= threshold]]
 
 
-def selected_samples(parsed_containment: Union[str, Path], genome_id: str, threshold: float) -> List[str]:
-    """Return the sample accessions that meet containment >= threshold for a genome.
+def selected_samples(
+    parsed_containment: Union[str, Path],
+    genome_id: str,
+    threshold: float,
+    registry: Optional["Registry"] = None,
+    ignore_selection: bool = False,
+) -> List[str]:
+    """Return the sample accessions to extract for a genome.
 
-    Reads the parsed containment table and delegates to ``select_samples_for_genome``.
-    Exposed so a caller (the CLI) can learn which samples were selected without
-    duplicating that logic, or re-running the full extraction.
+    The table's samples at containment >= ``threshold``, minus the accessions the registry
+    excludes, and, when the registry holds a selection and ``ignore_selection`` is off, only
+    those the selection names. Without a registry the table alone decides.
 
     Raises:
         DataAccessError: If the table is missing.
@@ -196,12 +212,25 @@ def selected_samples(parsed_containment: Union[str, Path], genome_id: str, thres
     if not table_path.exists():
         raise DataAccessError(f"Parsed containment table not found: {table_path}")
     containment = pd.read_csv(table_path, sep="\t", index_col=0)
-    return select_samples_for_genome(containment, genome_id, threshold)
+    samples = select_samples_for_genome(containment, genome_id, threshold)
+    if registry is None:
+        return samples
+    from prepare.data.registry import query  # registry_scan imports this module
+
+    excluded = set(query(registry, "excluded"))
+    selection = set() if ignore_selection else selection_for_genome(registry, genome_id)
+    kept = [acc for acc in samples if acc not in excluded and (not selection or acc in selection)]
+    applied = f"{len(selection)} in the recorded selection" if selection else "no recorded selection applied"
+    logger.info(
+        "%d sample(s) in the table at containment >= %.3f for %s; %d excluded; %s; %d to extract",
+        *(len(samples), threshold, genome_id, sum(acc in excluded for acc in samples), applied, len(kept)),
+    )
+    return kept
 
 
 #: Why a registry extraction record was rejected: the call's own parameters (genome, preset,
-#: threshold, min_mapq) changed since the record was written, versus the parameters still
-#: matching but one of the recorded output files being gone from disk.
+#: min_mapq) changed since the record was written, versus the parameters still matching but
+#: one of the recorded output files being gone from disk.
 _PARAMETERS_DIFFER = "recorded parameters differ from this call"
 _OUTPUT_FILE_MISSING = "recorded output file missing"
 
@@ -211,20 +240,19 @@ def _record_mismatch_reason(
 ) -> Optional[str]:
     """Why a registry extraction record does not match the current call, or None when it does.
 
-    A parameter that is absent or None is a wildcard. Records rebuilt from disk by
-    ``status --init`` carry no parameters at all, and rejecting them would remap every
-    sample of an already extracted project. Distinguishes a parameter mismatch from a
-    recorded output file that has since been removed from disk, so a caller can log which
-    one triggered the redo instead of always blaming the parameters.
+    The identity of an extraction is the genome FASTA, the minimap2 preset and the mapping
+    quality floor; the containment threshold only decides which samples are tried, so it is
+    recorded for information and never compared. A parameter that is absent or None is a
+    wildcard. Records rebuilt from disk by ``status --init`` carry no parameters at all, and
+    rejecting them would remap every sample of an already extracted project. Distinguishes a
+    parameter mismatch from a recorded output file that has since been removed from disk, so
+    a caller can log which one triggered the redo instead of always blaming the parameters.
     """
     recorded_fasta = record.get("genome_fasta")
     if recorded_fasta is not None and Path(recorded_fasta).resolve() != genome_path.resolve():
         return _PARAMETERS_DIFFER
     recorded_preset = record.get("preset")
     if recorded_preset is not None and recorded_preset != preset:
-        return _PARAMETERS_DIFFER
-    recorded_threshold = record.get("threshold")
-    if recorded_threshold is not None and float(recorded_threshold) != float(threshold):
         return _PARAMETERS_DIFFER
     recorded_mapq = record.get("min_mapq")
     if recorded_mapq is not None and int(recorded_mapq) != int(min_mapq):
@@ -241,9 +269,8 @@ def _record_matches(
 ) -> bool:
     """True when a registry extraction record matches the current call and its files are still usable.
 
-    A parameter that is absent or None is a wildcard. Records rebuilt from disk by
-    ``status --init`` carry no parameters at all, and rejecting them would remap every
-    sample of an already extracted project.
+    The key is the genome FASTA, preset and ``min_mapq``; ``threshold`` is accepted for the
+    call signature and ignored (see ``_record_mismatch_reason``).
     """
     return _record_mismatch_reason(record, genome_path, preset, threshold, min_mapq=min_mapq) is None
 
@@ -509,6 +536,35 @@ def _extract_one_sample(
     return outcome
 
 
+def _samples_to_extract(
+    table_path: Path,
+    genome_id: str,
+    threshold: float,
+    samples: Optional[List[str]],
+    available: Optional[Set[str]],
+    already_done: Dict[str, Dict[str, Any]],
+    fastq_root: Path,
+) -> List[str]:
+    """The samples ``extract_target_reads`` loops over: the given list or the table's, minus those without FASTQ."""
+    if samples is None:
+        containment = pd.read_csv(table_path, sep="\t", index_col=0)
+        samples = select_samples_for_genome(containment, genome_id, threshold)
+        logger.info("%d sample(s) meet containment >= %.3f for %s", len(samples), threshold, genome_id)
+    if available is None:
+        return samples
+    # A sample already recorded (``already_done``) is kept even when it is not in
+    # ``available``: its FASTQ input may have been removed since a successful
+    # extraction (e.g. by store_gc/store_unlink), and it must still reach the
+    # "already extracted" fast path rather than being counted as missing.
+    known = set(available) | set(already_done.keys())
+    missing = [acc for acc in samples if acc not in known]
+    if missing:
+        logger.info(
+            "%d of the %d selected sample(s) have no FASTQ under %s; skipped", len(missing), len(samples), fastq_root
+        )
+    return [acc for acc in samples if acc in known]
+
+
 def extract_target_reads(
     parsed_containment: Union[str, Path],
     genome_id: str,
@@ -529,6 +585,7 @@ def extract_target_reads(
     truncated_downloads: Optional[Dict[str, Dict[str, Any]]] = None,
     keep_sam: bool = False,
     available: Optional[Set[str]] = None,
+    samples: Optional[List[str]] = None,
 ) -> Dict[str, ExtractionResult]:
     """Extract reads mapping to a target genome for every qualifying sample.
 
@@ -548,8 +605,8 @@ def extract_target_reads(
         dry_run: If True, report the qualifying samples without running any tool.
         force: If True, redo extraction even for a sample already recorded in ``already_done``.
         already_done: Accession -> the registry's extraction record for this genome; skipped
-            (unless ``force``) when its genome FASTA, preset and threshold still match this
-            call and its files are still on disk (or it mapped 0).
+            (unless ``force``) when its genome FASTA, preset and mapping quality floor still
+            match this call and its files are still on disk (or it mapped 0).
         on_result: Called on the main thread with (accession, result) after each real-run
             sample, skipped ones included, so the caller can checkpoint as it lands. A raising
             callback is logged, not fatal. Dry runs never call it.
@@ -569,6 +626,9 @@ def extract_target_reads(
             out and counted rather than logged individually, so a dry run over many thousands
             of screened-but-not-downloaded samples prints one summary line. ``None`` checks
             each selected sample's FASTQ files individually instead.
+        samples: The accessions to extract, as ``selected_samples`` returns them (the table
+            bounded by the registry's exclusions and selection). ``None`` takes every sample
+            of the table at ``threshold``.
 
     Returns:
         Mapping of accession to an ``ExtractionResult`` (empty files in dry-run).
@@ -588,29 +648,12 @@ def extract_target_reads(
     if not dry_run and not genome_path.exists():
         raise DataAccessError(f"Target genome FASTA not found: {genome_path}")
 
-    containment = pd.read_csv(table_path, sep="\t", index_col=0)
-    samples = select_samples_for_genome(containment, genome_id, threshold)
-    logger.info("%d sample(s) meet containment >= %.3f for %s", len(samples), threshold, genome_id)
-    if available is not None:
-        # A sample already recorded (``already_done``) is kept even when it is not in
-        # ``available``: its FASTQ input may have been removed since a successful
-        # extraction (e.g. by store_gc/store_unlink), and it must still reach the
-        # "already extracted" fast path below rather than being counted as missing.
-        known = set(available) | set((already_done or {}).keys())
-        missing = [acc for acc in samples if acc not in known]
-        samples = [acc for acc in samples if acc in known]
-        if missing:
-            logger.info(
-                "%d of the %d selected sample(s) have no FASTQ under %s; skipped",
-                len(missing),
-                len(missing) + len(samples),
-                fastq_root,
-            )
+    already_done = already_done or {}
+    samples = _samples_to_extract(table_path, genome_id, threshold, samples, available, already_done, fastq_root)
 
     results: Dict[str, ExtractionResult] = {}
     output_root = Path(output_folder)
     SecureSubprocess.add_allowed_root(output_root)
-    already_done = already_done or {}
     mate_counts = mate_counts or {}
     truncated_downloads = truncated_downloads or {}
 
@@ -624,6 +667,7 @@ def extract_target_reads(
         sam_dir = Path(temp_folder)
         SecureSubprocess.add_allowed_root(sam_dir)
 
+    deferred: List[TransientError] = []
     for accession in samples:
         if _skip_if_truncated(accession, truncated_downloads.get(accession), allow_truncated):
             continue
@@ -649,6 +693,8 @@ def extract_target_reads(
             continue
         results[accession] = result
         if not dry_run:
-            _notify_result(on_result, accession, result)
+            _notify_result(on_result, accession, result, deferred)
 
+    if deferred:
+        raise deferred[0]
     return results

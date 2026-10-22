@@ -168,8 +168,9 @@ prepare extract_target_reads --parsed-containment parsed_containment.txt \
     --genome-id GCF_000008025.1 --genome-fasta genomes/GCF_000008025.1.fna --threshold 0.1
 ```
 
-Samples at or above the threshold in the containment table are mapped with minimap2 (preset `sr` by
-default, `--threads` default 4) and the mapped reads are written with samtools to
+Samples at or above the threshold in the containment table, minus the excluded ones and, when the
+registry holds a selection, only the selected ones (`--ignore-selection` takes the table alone), are
+mapped with minimap2 (preset `sr` by default, `--threads` default 4) and the mapped reads are written with samtools to
 `targeted/<accession>/` as `<genome>_*.fastq.gz`. The registry records the mapped read count, the genome
 FASTA, preset, threshold and files, including for samples that mapped no reads. For samples with mapped
 reads it also records the breadth of the reference covered at 1x or more and the length-weighted mean

@@ -79,12 +79,26 @@ class TestGenerateContainmentExplorer:
         # SRR002 has genA=0.1 and genB=0.9. genA should be excluded but genB included.
         assert "SRR002" in html  # still present via genB=0.9
 
-    def test_empty_taxonomy(self, containment_df, tmp_path):
+    def test_no_taxonomy_hides_the_taxonomy_sections(self, containment_df, tmp_path):
+        """G6: without a taxonomy map the page says so instead of charting 'Unknown'."""
         out = tmp_path / "empty_tax.html"
         generate_containment_explorer(containment_df, {}, output_file=out)
         html = out.read_text()
-        assert "Unknown" in html
         assert "resultsTable" in html
+        assert "Taxonomy overview" not in html and "Distributions" not in html
+        assert '<p class="k">Families</p>' not in html and '<p class="k">Genera</p>' not in html
+        assert "Top families" not in html
+        assert "enrich_taxonomy" in html
+
+    def test_an_empty_result_explains_itself(self, containment_df, taxonomy, tmp_path):
+        """G10: no row above --min-containment: the page says so and still counts the genome columns."""
+        out = tmp_path / "empty.html"
+        generate_containment_explorer(containment_df, taxonomy, output_file=out, min_containment=0.95)
+        html = out.read_text()
+        import re
+
+        assert re.search(r"No sample reaches containment 0\.950;\s+lower --min-containment", html)
+        assert "<b>2</b> genomes" in html
 
     def test_custom_title(self, containment_df, taxonomy, tmp_path):
         out = tmp_path / "titled.html"
@@ -132,6 +146,7 @@ class TestBuildSummaryData:
         empty = pd.DataFrame()
         summary = _build_summary_data(empty, containment_df, taxonomy)
         assert summary["total_samples"] == 0
+        assert summary["total_genomes"] == 2  # the genome columns are still there (G10)
 
 
 class TestBuildTableHtml:
@@ -176,6 +191,21 @@ class TestExplorerEscapingAndMetadata:
         row = long_df[long_df["sample"] == "SRR001"].iloc[0]
         assert row["location"] == "Peru"
         assert row["date"] == "2020"
+
+    def test_metadata_placeholders_are_blank(self, containment_df, taxonomy):
+        """G9: the strings NCBI uses for 'no value' render as empty cells, whatever their case."""
+        meta = pd.DataFrame(
+            {
+                "location": ["NP", "uncalculated", "not provided"],
+                "collection_date": ["Missing", "Not Applicable", "unknown"],
+            },
+            index=["SRR001", "SRR002", "SRR003"],
+        )
+        long_df = _build_long_dataframe(containment_df, taxonomy, meta, 0.0)
+        assert set(long_df["location"]) == {""} and set(long_df["date"]) == {""}
+        kept = pd.DataFrame({"location": ["Not Peru"]}, index=["SRR001"])
+        long_df = _build_long_dataframe(containment_df, taxonomy, kept, 0.0)
+        assert long_df.loc[long_df["sample"] == "SRR001", "location"].iloc[0] == "Not Peru"
 
     def test_nan_metadata_is_an_empty_cell(self, containment_df, taxonomy):
         meta = pd.DataFrame(
@@ -260,3 +290,38 @@ def test_sunburst_counts_hits_so_the_hierarchy_adds_up():
     assert values["F"] == 4 and values["s1"] == 2
     assert "hits" in fig.layout.title.text.lower()
     assert "sample_count" not in fig.to_json()
+
+
+class TestChartTitlesNameTheirRule:
+    """G7, G8: the genus bar says how many genera it shows; the heatmap says it aggregates per family."""
+
+    def _long(self, genera):
+        rows = [
+            {
+                "sample": f"S{i}",
+                "genome": f"g{i}",
+                "containment": 0.5,
+                "family": f"F{i % 3}",
+                "genus": f"G{i}",
+                "species": "s",
+                "location": "",
+                "date": "",
+            }
+            for i in range(genera)
+        ]
+        return pd.DataFrame(rows)
+
+    def test_genus_bar_title_names_the_cut(self):
+        from prepare.visualization.explorer import _build_distributions
+
+        pytest.importorskip("plotly")
+        _, bar_html = _build_distributions(self._long(31))
+        assert "Samples per genus (top 30 of 31)" in bar_html
+        _, bar_html = _build_distributions(self._long(5))
+        assert "Samples per genus (5 genera)" in bar_html
+
+    def test_heatmap_title_says_maximum_per_family(self):
+        from prepare.visualization.explorer import _build_heatmap
+
+        pytest.importorskip("plotly")
+        assert "Sample-by-family containment (maximum over the family's genomes)" in _build_heatmap(self._long(4))

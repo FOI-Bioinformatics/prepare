@@ -232,3 +232,24 @@ def test_a_byte_that_is_not_utf8_in_the_run_log_still_gives_a_report(project, ca
     report = json.loads((project / "project_report" / "project_report.json").read_text())
     assert report["runs"]["runs"]
     assert "unreadable line" in caplog.text
+
+
+class TestStageChartIsABarChart:
+    """G13: the stages are not nested, so they are drawn as bars from zero, not as a funnel."""
+
+    def test_stage_chart_is_a_bar_chart(self):
+        go = pytest.importorskip("plotly.graph_objects")
+        from prepare.visualization.project_report import _stage_figure_object
+
+        figure = _stage_figure_object({"screened": {"accessions": 10}, "downloaded": {"accessions": 4}})
+        assert isinstance(figure.data[0], go.Bar)
+        assert list(figure.data[0].x) == ["screened", "downloaded"] and list(figure.data[0].y) == [10, 4]
+        assert figure.layout.title.text == "Datasets per stage"
+        assert figure.layout.yaxis.rangemode == "tozero"
+
+    def test_genome_chart_axis_starts_at_zero(self):
+        pytest.importorskip("plotly.graph_objects")
+        from prepare.visualization.project_report import _genome_figure_object
+
+        figure = _genome_figure_object({"G1": {"extracted": 0, "assembled": 0}})
+        assert figure.layout.yaxis.rangemode == "tozero"

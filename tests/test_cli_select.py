@@ -174,14 +174,15 @@ def test_no_record_refuses_the_recorded_selection_file(tmp_path, monkeypatch, ca
         rc = SelectDatasetsCommand().execute(
             _args(tmp_path, genome_id="GCF_A", threshold=0.05, no_record=True, output="accessions.txt")
         )
-    assert rc == 1
+    assert rc == 2  # a usage error: the flag combination, not the data, is wrong
     assert (tmp_path / "accessions.txt").read_text() == before_file == "SRR1\n"
     assert registry_path.read_text() == before_registry
-    assert any("recorded selection" in r.message and "--output" in r.message for r in caplog.records)
+    refusals = [r for r in caplog.records if "recorded selection" in r.message and "--output" in r.message]
+    assert len(refusals) == 1 and refusals[0].exc_info is not None  # through fail, traceback attached
 
     # The same file named by an absolute path is refused as well.
     rc = SelectDatasetsCommand().execute(_args(tmp_path, genome_id="GCF_A", threshold=0.05, no_record=True))
-    assert rc == 1
+    assert rc == 2
     assert (tmp_path / "accessions.txt").read_text() == "SRR1\n"
 
 

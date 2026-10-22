@@ -110,13 +110,11 @@ class TestInteractiveTSNE:
         """Test t-SNE plot saving to file."""
         output_file = tmp_path / "test_tsne.html"
 
-        with patch("plotly.graph_objects.Figure.write_html") as mock_write:
-            create_interactive_tsne(
-                sample_data, output_file=output_file, perplexity=5.0, show_plot=False  # Must be < n_samples (10)
-            )
-
-            mock_write.assert_called_once()
-            assert output_file.exists()  # replaced from a temporary file, not written in place
+        create_interactive_tsne(
+            sample_data, output_file=output_file, perplexity=5.0, show_plot=False  # Must be < n_samples (10)
+        )
+        assert output_file.exists()  # replaced from a temporary file, not written in place
+        assert "<title>" in output_file.read_text()
 
     @patch("plotly.graph_objects.Figure.show")
     def test_create_tsne_missing_metadata_column(self, mock_show, sample_data, sample_metadata):
@@ -229,11 +227,9 @@ class TestInteractiveHeatmapExtended:
         """Test heatmap saving to file."""
         output_file = tmp_path / "test_heatmap.html"
 
-        with patch("plotly.graph_objects.Figure.write_html") as mock_write:
-            create_interactive_heatmap(sample_data, output_file=output_file, show_plot=False)
-
-            mock_write.assert_called_once()
-            assert output_file.exists()  # replaced from a temporary file, not written in place
+        create_interactive_heatmap(sample_data, output_file=output_file, show_plot=False)
+        assert output_file.exists()  # replaced from a temporary file, not written in place
+        assert "<title>" in output_file.read_text()
 
     @patch("plotly.graph_objects.Figure.show")
     def test_heatmap_custom_clustering_parameters(self, mock_show, sample_data):
@@ -290,18 +286,16 @@ class TestDiversityComparisonExtended:
         """Test diversity plot saving to file."""
         output_file = tmp_path / "test_diversity.html"
 
-        with patch("plotly.graph_objects.Figure.write_html") as mock_write:
-            create_diversity_comparison_plot(
-                sample_alpha_diversity,
-                sample_metadata,
-                group_by="group",
-                diversity_metric="shannon",
-                output_file=output_file,
-                show_plot=False,
-            )
-
-            mock_write.assert_called_once()
-            assert output_file.exists()  # replaced from a temporary file, not written in place
+        create_diversity_comparison_plot(
+            sample_alpha_diversity,
+            sample_metadata,
+            group_by="group",
+            diversity_metric="shannon",
+            output_file=output_file,
+            show_plot=False,
+        )
+        assert output_file.exists()  # replaced from a temporary file, not written in place
+        assert "<title>" in output_file.read_text()
 
     @patch("plotly.graph_objects.Figure.show")
     def test_diversity_custom_title(self, mock_show, sample_alpha_diversity, sample_metadata):

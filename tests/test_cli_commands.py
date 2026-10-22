@@ -98,12 +98,29 @@ class TestUseBranchwaterCommand:
         assert result == 1
         mock_command.assert_called_once_with("test_folder", str(tmp_path.resolve() / "matches"), errors=[])
 
-    def test_use_branchwater_returns_1_on_file_error(self, tmp_path):
+    def test_use_branchwater_returns_1_on_file_error(self, tmp_path, caplog):
+        """An unreadable file fails through the shared path: one ERROR line with the traceback attached."""
         source = tmp_path / "bw"
         source.mkdir()
         (source / "bad.csv").write_bytes(b"\x00\x05\x16\x07\xb0")
         args = argparse.Namespace(branchwater_folder=str(source), matches_folder=str(tmp_path / "m"))
-        assert UseBranchwaterCommand().execute(args) == 1
+        with caplog.at_level(logging.ERROR):
+            assert UseBranchwaterCommand().execute(args) == 1
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR and r.exc_info is not None]
+        assert len(errors) == 1  # the one line of fail; the data layer's per-file line carries no traceback
+        assert "bad.csv" in errors[0].getMessage()
+
+    def test_extract_branchwater_metadata_unreadable_file_is_an_error(self, tmp_path, caplog):
+        """A file in another format is an error named in the log, through the shared path, exit 1."""
+        source = tmp_path / "bw"
+        source.mkdir()
+        (source / "good.csv").write_text("acc,containment,organism\nERR123,0.95,E. coli\n")
+        (source / "other.csv").write_text("run,score\nERR1,0.5\n")
+        args = argparse.Namespace(branchwater_folder=str(source), metadata_folder=str(tmp_path / "metadata"))
+        with caplog.at_level(logging.ERROR):
+            assert ExtractBranchwaterMetadataCommand().execute(args) == 1
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR and r.exc_info is not None]
+        assert len(errors) == 1 and "other.csv" in errors[0].getMessage()
 
     @patch("prepare.cli.commands.branchwater.process_branchwater_files")
     def test_execute_logs_a_next_hint(self, mock_command, caplog):
@@ -235,8 +252,50 @@ class TestParseContainmentCommand:
             "summary.txt",
             0.05,
             details_file=None,
-            errors=[],
         )
+
+    def test_exit_1_leaves_registry_and_table_unchanged_on_an_unreadable_file(self, tmp_path):
+        """A bad match file: exit 1, no table written and the registry's screening blocks kept."""
+        matches_folder = tmp_path / "matches"
+        matches_folder.mkdir()
+        (matches_folder / "GCF_A.csv").write_text("acc,containment\nSRR1,0.9\n")
+        registry_path = tmp_path / "prepare_registry.json"
+        args = argparse.Namespace(
+            matches_folder=str(matches_folder),
+            parsed_containment_file=str(tmp_path / "parsed.txt"),
+            summary_containment_file=str(tmp_path / "summary.txt"),
+            step_size=0.1,
+            details_file=None,
+            registry=str(registry_path),
+            registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
+        )
+        assert ParseContainmentCommand().execute(args) == 0
+        before = registry_path.read_text()
+        table_before = (tmp_path / "parsed.txt").read_bytes()
+
+        (matches_folder / "GCF_B.csv").write_text("acc,containment\nSRR3,0.8\n")
+        (matches_folder / "bad.csv").write_text("run,score\nSRR2,0.5\n")
+        assert ParseContainmentCommand().execute(args) == 1
+        assert registry_path.read_text() == before
+        assert (tmp_path / "parsed.txt").read_bytes() == table_before
+
+    def test_empty_matches_folder_is_exit_1(self, tmp_path, caplog):
+        """No match CSV at all: exit 1 naming the folder, and no registry is created."""
+        matches_folder = tmp_path / "matches"
+        matches_folder.mkdir()
+        args = argparse.Namespace(
+            matches_folder=str(matches_folder),
+            parsed_containment_file=str(tmp_path / "parsed.txt"),
+            summary_containment_file=str(tmp_path / "summary.txt"),
+            step_size=0.1,
+            details_file=None,
+            registry=str(tmp_path / "prepare_registry.json"),
+            registry_max_screened=DEFAULT_REGISTRY_MAX_SCREENED,
+        )
+        with caplog.at_level(logging.ERROR):
+            assert ParseContainmentCommand().execute(args) == 1
+        assert "No match CSV in" in caplog.text and "matches" in caplog.text
+        assert not (tmp_path / "prepare_registry.json").exists()
 
     def test_execute_records_screening_in_registry(self, tmp_path):
         """Every accession in the parsed containment table is recorded as screened from matches."""
@@ -494,6 +553,7 @@ class TestDownloadMetadataCommand:
             accessions_file=None,
             api_key=None,
             batch_size=200,
+            failures={},
         )
 
     def test_execute_records_metadata_in_registry(self, tmp_path):
@@ -2855,7 +2915,7 @@ class TestParseMetadataCommand:
 
         result = command.execute(args)
         assert result == 0
-        mock_command.assert_called_once_with(str(tmp_path.resolve() / "metadata"), "metadata_table.txt")
+        mock_command.assert_called_once_with(str(tmp_path.resolve() / "metadata"), "metadata_table.txt", errors=[])
 
     @patch("prepare.cli.commands.metadata.parse_metadata")
     def test_execute_resolves_the_project_root_once(self, mock_parse, tmp_path):

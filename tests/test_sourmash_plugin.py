@@ -105,7 +105,6 @@ class TestPrepareParsePlugin:
         assert folder.endswith("test_matches")
         assert tuple(rest) == ("parsed.txt", "summary.txt", 0.2)
         assert mock_parse.call_args.kwargs["details_file"] is None
-        assert mock_parse.call_args.kwargs["errors"] == []
 
     @patch("prepare.data.branchwater.parse_containment_data", side_effect=RuntimeError("bad"))
     def test_main_handles_error(self, mock_parse, parser):
@@ -140,7 +139,7 @@ class TestParsePluginErrorsAndRegistry:
         assert exc.value.code == 1
         assert "cannot read it" in capsys.readouterr().err
 
-    def test_unreadable_match_file_exits_1_and_records_screening(self, parser, tmp_path, capsys):
+    def test_unreadable_match_file_exits_1_and_records_nothing(self, parser, tmp_path, capsys):
         folder = tmp_path / "matches"
         folder.mkdir()
         (folder / "G1.csv").write_text("acc,containment,cANI\n" "SRR1,0.9,0.99\n")
@@ -162,13 +161,8 @@ class TestParsePluginErrorsAndRegistry:
         err = capsys.readouterr().err
         assert "could not be read" in err
         assert "BAD.csv" in err
-        import json
-
-        data = json.loads(registry.read_text())
-        dumped = json.dumps(data)
-        assert "SRR1" in dumped
-        assert "screening" in dumped
-        assert "G1" in dumped
+        assert not registry.exists()
+        assert not (tmp_path / "p.txt").exists()
 
     def test_screening_recorded_in_registry(self, parser, tmp_path):
         folder = tmp_path / "matches"

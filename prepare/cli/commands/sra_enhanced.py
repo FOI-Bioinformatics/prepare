@@ -20,12 +20,14 @@ from prepare.cli.base import (
     read_accessions_file,
     resolve_command_store,
 )
-from prepare.core.exceptions import PrepareError
+from prepare.core.exceptions import DataAccessError, PrepareError
 from prepare.core.settings import require_email, setting_for
+from prepare.core.validation import validate_accession
 from prepare.data import registry_blocks as rb
 from prepare.data.file_io import visible_files
 from prepare.data.registry import Registry, load_registry, record_analysis
 from prepare.data.registry_batch import registry_batch
+from prepare.data.sra.cleanup import is_transient_folder
 from prepare.data.sra import (
     MATE1_SUFFIXES,
     MATE_SUFFIXES,
@@ -163,9 +165,6 @@ class SRAInfoCommand(BaseCommand):
 
         except (PrepareError, OSError) as e:
             return self.fail(e, "SRA info command failed")
-        except Exception as e:  # noqa: B902 - top-level catch: keep the traceback, return 1
-            self.logger.exception("SRA info command failed: %s", e)
-            return 1
 
 
 class SRAValidateCommand(BaseCommand):
@@ -213,11 +212,32 @@ class SRAValidateCommand(BaseCommand):
         parser.add_argument("--data-root", default=None, help="Shared data store root (overrides discovery)")
 
     def _find_accession_dirs(self, fastq_folder, specific_accessions=None):
-        """Find accession directories to validate."""
-        accession_dirs = visible_files(fastq_folder, dirs=True)
+        """Find accession directories to validate.
+
+        Only folders named like an accession count; a download-in-progress folder (``<acc>_temp``,
+        ``.prepare-tmp``) or any other folder under the FASTQ root is neither validated nor recorded.
+        """
+        accession_dirs = [
+            d
+            for d in visible_files(fastq_folder, dirs=True)
+            if validate_accession(d.name) and not is_transient_folder(d.name)
+        ]
         if specific_accessions:
             accession_dirs = [d for d in accession_dirs if d.name in specific_accessions]
         return accession_dirs
+
+    def _missing_results(self, wanted, accession_dirs):
+        """A FAILED result for every named accession that has no folder, each logged as an error."""
+        found = {d.name for d in accession_dirs}
+        results = []
+        for accession in wanted or ():
+            if accession in found:
+                continue
+            self.logger.error("%s: no folder under the FASTQ folder; nothing to validate", accession)
+            results.append(
+                {"accession": accession, "status": "FAILED", "issues": "no folder", "issues_list": ["no folder"]}
+            )
+        return results
 
     @staticmethod
     def _empty_file_issues(fastq_files) -> list:
@@ -430,9 +450,9 @@ class SRAValidateCommand(BaseCommand):
 
             wanted = accessions_from_args(getattr(args, "accessions_file", None), getattr(args, "accession", None))
             accession_dirs = self._find_accession_dirs(fastq_folder, wanted)
-            if not accession_dirs:
-                self.logger.error("No accession directories found")
-                return 1
+            missing = self._missing_results(wanted, accession_dirs)
+            if not accession_dirs and not missing:
+                raise DataAccessError(f"No accession folder under {fastq_folder}")
 
             # A snapshot, read without the lock: validation reads every file (and md5s it with
             # --md5), which can take minutes. The results are recorded afterwards in one
@@ -444,7 +464,7 @@ class SRAValidateCommand(BaseCommand):
                 self._validate_directory(acc_dir, registry, args.check_pairs, check_md5) for acc_dir in accession_dirs
             ]
             with registry_batch(args.registry, flush_every=None, flush_seconds=None) as batch:
-                for result in validation_results:
+                for result in validation_results:  # a named accession with no folder is not recorded
                     summary = {
                         "passed": result["status"] == "PASSED",
                         "files": result.get("num_files", 0),
@@ -464,12 +484,9 @@ class SRAValidateCommand(BaseCommand):
                 rows = [(r["accession"], "", "analysed", "validate") for r in validation_results]
                 record_usage_many(store, batch.registry, rows)
 
-            success = self._print_validation_results(validation_results)
+            success = self._print_validation_results(validation_results + missing)
             return 0 if success else 1
 
-        except PrepareError as e:
+        except (PrepareError, OSError) as e:
             # A registry lock wait that gave up (4) or a configuration problem (3) keeps its code.
             return self.fail(e, "SRA validation failed")
-        except Exception as e:
-            logger.error(f"SRA validation failed: {e}")
-            return 1

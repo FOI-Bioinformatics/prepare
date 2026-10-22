@@ -279,6 +279,7 @@ MAX_CONCURRENT_DOWNLOADS = 10
 # and the tallest heatmap in pixels, so a large run still opens in a browser.
 EXPLORER_TABLE_ROWS = 5000
 EXPLORER_HEATMAP_MAX_HEIGHT = 2000
+EXPLORER_GENUS_BARS = 30
 
 # Plugin System Constants
 PLUGIN_REGISTRY_NAME = "prepare_plugins"

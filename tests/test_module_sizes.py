@@ -21,7 +21,7 @@ MAX_LINES = 800
 MIN_MAINTAINABILITY = 20.0
 # Functions at radon rank C (complexity 11-20) sit just under the rank D gate of ``make check``.
 # Their number, measured on 2026-10-21, only goes down.
-MAX_RANK_C = 105
+MAX_RANK_C = 104
 
 # path relative to the repository -> (line ceiling, maintainability floor). Empty: every module meets the ceilings.
 KNOWN_EXCEPTIONS: Dict[str, Tuple[int, float]] = {}

@@ -234,11 +234,7 @@ class TestValidateBranchwaterFile:
         csv_content = "run_id,containment,ksize,scaled\nERR123,0.95,31,1000"
         csv_file.write_text(csv_content)
 
-        with patch("prepare.data.branchwater.logger") as mock_logger:
-            result = _validate_branchwater_file(csv_file)
-
-        assert result is False
-        mock_logger.warning.assert_called_once()
+        assert _validate_branchwater_file(csv_file) is False
 
     def test_validate_branchwater_file_missing_containment(self, tmp_path):
         """Test validation with missing containment column."""
@@ -246,11 +242,7 @@ class TestValidateBranchwaterFile:
         csv_content = "acc,similarity,ksize,scaled\nERR123,0.95,31,1000"
         csv_file.write_text(csv_content)
 
-        with patch("prepare.data.branchwater.logger") as mock_logger:
-            result = _validate_branchwater_file(csv_file)
-
-        assert result is False
-        mock_logger.warning.assert_called_once()
+        assert _validate_branchwater_file(csv_file) is False
 
 
 class TestExtractMetadataFromBranchwater:
@@ -561,19 +553,8 @@ class TestParseContainmentData:
         mock_process.assert_called_once()
         mock_generate.assert_called_once()
 
-    def test_parse_containment_data_no_files(self, tmp_path):
-        """Test with no CSV files."""
-        matches_dir = tmp_path / "matches"
-        matches_dir.mkdir()
-        output_file = tmp_path / "parsed.txt"
-        summary_file = tmp_path / "summary.txt"
-
-        result = parse_containment_data(matches_dir, output_file, summary_file)
-
-        assert isinstance(result, ContainmentSummary)
-
     def test_parse_containment_data_processing_errors(self, tmp_path):
-        """Test with file processing errors."""
+        """Every unreadable file is named in one error and nothing is written."""
         matches_dir = tmp_path / "matches"
         matches_dir.mkdir()
         output_file = tmp_path / "parsed.txt"
@@ -586,21 +567,67 @@ class TestParseContainmentData:
         with patch("prepare.data.branchwater._process_genome_containments") as mock_process:
             mock_process.side_effect = DataAccessError("Processing error")
 
-            result = parse_containment_data(matches_dir, output_file, summary_file)
+            with pytest.raises(DataAccessError, match="2 match file.*genome1.csv.*genome2.csv"):
+                parse_containment_data(matches_dir, output_file, summary_file)
 
-        # Should return empty summary when no valid data
-        assert isinstance(result, ContainmentSummary)
+        assert not output_file.exists()
+
+    def test_parse_containment_with_an_unreadable_file_writes_nothing(self, tmp_path):
+        """One match file with the wrong header: nothing is written and the error names it."""
+        matches_dir = tmp_path / "matches"
+        matches_dir.mkdir()
+        output_file = tmp_path / "parsed.txt"
+        summary_file = tmp_path / "summary.txt"
+        (matches_dir / "good.csv").write_text("acc,containment\nSRR1,0.9\n")
+        (matches_dir / "bad.csv").write_text("run,score\nSRR2,0.5\n")
+
+        with pytest.raises(DataAccessError, match="bad.csv"):
+            parse_containment_data(matches_dir, output_file, summary_file)
+
+        assert not output_file.exists()
+        assert not summary_file.exists()
+        assert not (tmp_path / "parsed_details.tsv").exists()
+
+    def test_parse_containment_on_an_empty_matches_folder_raises(self, tmp_path):
+        """A folder without match CSVs is an error that names the folder."""
+        matches_dir = tmp_path / "matches"
+        matches_dir.mkdir()
+        (matches_dir / "notes.txt").write_text("x")
+
+        with pytest.raises(DataAccessError, match="No match CSV in .*matches"):
+            parse_containment_data(matches_dir, tmp_path / "parsed.txt", tmp_path / "summary.txt")
+
+    def test_a_semicolon_separated_csv_names_its_separator(self, tmp_path):
+        """A file separated by ';' is reported as such, not as missing columns."""
+        matches_dir = tmp_path / "matches"
+        matches_dir.mkdir()
+        (matches_dir / "g.csv").write_text("acc;containment\nSRR1;0.9\n")
+
+        with pytest.raises(DataAccessError, match=r"not comma separated \(found ';'\)"):
+            parse_containment_data(matches_dir, tmp_path / "parsed.txt", tmp_path / "summary.txt")
+
+    def test_a_header_only_match_file_raises_and_writes_nothing(self, tmp_path):
+        """Review: a zero-result match file is an error, not a silent rewrite of an older table."""
+        matches_dir = tmp_path / "matches"
+        matches_dir.mkdir()
+        output_file = tmp_path / "parsed.txt"
+        output_file.write_text("old")
+        (matches_dir / "g.csv").write_text("acc,containment\n")
+
+        with pytest.raises(DataAccessError, match="No containment data in .*g.csv"):
+            parse_containment_data(matches_dir, output_file, tmp_path / "summary.txt")
+
+        assert output_file.read_text() == "old"
+        assert not (tmp_path / "parsed_details.tsv").exists()
 
     def test_parse_containment_data_invalid_folder(self):
         """Test with invalid matches folder."""
         with pytest.raises(ValidationError):
             parse_containment_data("/nonexistent", "output.txt", "summary.txt")
 
-    def test_unreadable_file_is_reported_and_summary_is_warning(self, tmp_path, caplog):
-        """A genuinely unreadable match file (not a mocked exception) must be named in
-        ``errors`` and must not stop the other genome's file in the same folder from being
-        parsed; with at least one error, the "Processed N files with M errors" summary line
-        must log at WARNING, not INFO."""
+    def test_a_binary_match_file_is_named_and_the_good_one_is_not_written(self, tmp_path, caplog):
+        """A genuinely unreadable match file (not a mocked exception) is named in the error,
+        logged per file, and the good file in the same folder is not written out either."""
         import logging
 
         matches_dir = tmp_path / "matches"
@@ -614,18 +641,24 @@ class TestParseContainmentData:
         )
         (matches_dir / "bad_genome.csv").write_bytes(b"\x00\x05\x16\x07\xb0")
 
-        errors: list = []
-        # Captured from INFO up, not just WARNING: a regression that logged the summary line
-        # at INFO would otherwise be filtered out of caplog entirely, so the assertion below
-        # would fail on an empty `summary_records` list rather than on the level mismatch.
-        with caplog.at_level(logging.INFO):
-            result = parse_containment_data(matches_dir, output_file, summary_file, errors=errors)
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(DataAccessError, match="bad_genome.csv"):
+                parse_containment_data(matches_dir, output_file, summary_file)
 
-        assert errors == ["bad_genome.csv"]
-        assert isinstance(result, ContainmentSummary)
-        assert "SRR1" in output_file.read_text()
-        summary_records = [r for r in caplog.records if "Processed" in r.message and "errors" in r.message]
-        assert summary_records and summary_records[0].levelno == logging.WARNING
+        assert "bad_genome.csv" in caplog.text
+        assert not output_file.exists()
+
+
+def test_extract_metadata_names_a_file_in_another_format_in_errors(tmp_path):
+    """A CSV without the Branchwater columns is an error, not a silent skip (P18)."""
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "good.csv").write_text("acc,containment,organism\nERR123,0.95,E. coli\n")
+    (source_dir / "other.csv").write_text("run,score\nERR1,0.5\n")
+    errors: list = []
+    result = extract_metadata_from_branchwater(source_dir, tmp_path / "metadata.csv", errors=errors)
+    assert errors == ["other.csv"]
+    assert list(result["Run_ID"]) == ["ERR123"]
 
 
 class TestBranchwaterIntegration:
@@ -923,12 +956,11 @@ def test_unexpected_error_while_parsing_one_containment_file_propagates(tmp_path
             parse_containment_data(tmp_path, tmp_path / "out.tsv", tmp_path / "summary.tsv")
 
 
-def test_unreadable_containment_file_is_still_skipped(tmp_path):
-    """Kind (a): a file that cannot be read is recorded in ``errors`` and skipped."""
+def test_unreadable_containment_file_is_an_error(tmp_path):
+    """Kind (a): a file that cannot be read is named in the error that stops the run."""
     (tmp_path / "genome1.csv").write_text("wrong,header\nx,y\n")
-    errors: list = []
-    parse_containment_data(tmp_path, tmp_path / "out.tsv", tmp_path / "summary.tsv", errors=errors)
-    assert errors == ["genome1.csv"]
+    with pytest.raises(DataAccessError, match="genome1.csv"):
+        parse_containment_data(tmp_path, tmp_path / "out.tsv", tmp_path / "summary.tsv")
 
 
 def test_data_access_error_from_genome_containments_chains_the_cause(tmp_path):

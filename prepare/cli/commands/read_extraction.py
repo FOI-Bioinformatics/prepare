@@ -117,6 +117,11 @@ class ExtractTargetReadsCommand(BaseCommand):
             help="Minimum containment for a sample to be included",
         )
         parser.add_argument(
+            "--ignore-selection",
+            action="store_true",
+            help="Extract every sample at --threshold, not only the selected ones; excluded samples are always skipped",
+        )
+        parser.add_argument(
             "--preset", choices=sorted(MINIMAP2_PRESETS), default="sr", help="minimap2 preset for the read type"
         )
         parser.add_argument("--threads", type=int, default=4, help="Threads for minimap2 and samtools")
@@ -530,11 +535,35 @@ class ExtractTargetReadsCommand(BaseCommand):
             if not outcome.skipped:
                 self.logger.info("  %s", accession)
 
+    @staticmethod
+    def _selected(args: argparse.Namespace, registry) -> list:
+        """The accessions to extract: the table at the threshold, bounded by the registry (P2)."""
+        return selected_samples(
+            args.parsed_containment,
+            args.genome_id,
+            args.threshold,
+            registry=registry,
+            ignore_selection=getattr(args, "ignore_selection", False),
+        )
+
     def _report_no_reads(self, args: argparse.Namespace, results: Dict[str, ExtractionResult]) -> None:
         """Say which of the three reasons left the run without a single mapped read."""
-        selected = selected_samples(args.parsed_containment, args.genome_id, args.threshold)
+        registry = load_registry(args.registry)
+        selected = self._selected(args, registry)
         if not selected:
-            self.logger.error("No sample meets containment >= %s for %s", args.threshold, args.genome_id)
+            in_table = selected_samples(args.parsed_containment, args.genome_id, args.threshold)
+            if in_table:
+                self.logger.error(
+                    "%d sample(s) meet containment >= %s for %s but all are excluded or outside the recorded "
+                    "selection (%d excluded, %d selected); see blacklist, select_datasets or --ignore-selection",
+                    len(in_table),
+                    args.threshold,
+                    args.genome_id,
+                    len(query(registry, "excluded")),
+                    len(query(registry, "selected")),
+                )
+            else:
+                self.logger.error("No sample meets containment >= %s for %s", args.threshold, args.genome_id)
         elif not results:
             self.logger.error(
                 "No FASTQ files found for the %d selected sample(s) under %s", len(selected), args.fastq_folder
@@ -567,7 +596,7 @@ class ExtractTargetReadsCommand(BaseCommand):
             }
 
             # Computed once: the unusable-download check reads only these samples' sidecars.
-            selected = selected_samples(args.parsed_containment, args.genome_id, args.threshold)
+            selected = self._selected(args, registry)
             truncated_downloads = self._unusable_downloads(registry, Path(args.fastq_folder), selected)
             available = self._available_accessions(args, registry)
 
@@ -601,6 +630,7 @@ class ExtractTargetReadsCommand(BaseCommand):
                     mate_counts=mate_counts,
                     truncated_downloads=truncated_downloads,
                     keep_sam=args.debug_keep_sam,
+                    samples=selected,
                     available=available,
                 )
             if progress is not None:

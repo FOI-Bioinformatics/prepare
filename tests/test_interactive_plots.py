@@ -87,11 +87,9 @@ class TestInteractivePlots:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_file = Path(temp_dir) / "test_pca.html"
 
-            with patch("plotly.graph_objects.Figure.write_html") as mock_write:
-                create_interactive_pca(self.data_matrix, output_file=output_file, show_plot=False)
-
-                mock_write.assert_called_once()
-                assert output_file.exists()  # replaced from a temporary file, not written in place
+            create_interactive_pca(self.data_matrix, output_file=output_file, show_plot=False)
+            assert output_file.exists()  # replaced from a temporary file, not written in place
+            assert "<title>" in output_file.read_text()
 
     @patch("plotly.graph_objects.Figure.show")
     def test_create_interactive_heatmap_basic(self, mock_show):
@@ -268,3 +266,48 @@ class TestInteractivePlotsEdgeCases:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+class TestHeatmapScaleAndSize:
+    """G12: a non-negative matrix gets a sequential scale; a signed one a diverging scale centred on 0."""
+
+    def _heatmap(self, values):
+        pytest.importorskip("scipy")
+        frame = pd.DataFrame(values, index=[f"S{i}" for i in range(len(values))], columns=["a", "b", "c"])
+        return create_interactive_heatmap(frame, cluster_samples=False, cluster_features=False, show_plot=False)
+
+    def test_heatmap_uses_a_sequential_scale_for_nonnegative_data(self):
+        fig = self._heatmap([[0.0, 0.5, 1.0], [0.2, 0.4, 0.6], [0.1, 0.9, 0.3]])
+        trace = fig.data[0]
+        assert trace.colorscale[0][1] == "#440154"  # plotly's Viridis
+        assert trace.zmid is None
+
+    def test_heatmap_uses_a_diverging_scale_centred_on_zero_for_signed_data(self):
+        fig = self._heatmap([[-1.0, 0.5, 1.0], [0.2, -0.4, 0.6], [0.1, 0.9, -0.3]])
+        trace = fig.data[0]
+        assert trace.zmid == 0
+        assert trace.colorscale[0][1] == "rgb(5,48,97)"  # plotly's RdBu_r
+
+    def test_heatmap_size_is_capped(self):
+        from prepare.core.constants import EXPLORER_HEATMAP_MAX_HEIGHT
+
+        pytest.importorskip("scipy")
+        frame = pd.DataFrame(np.random.rand(500, 300))
+        fig = create_interactive_heatmap(frame, cluster_samples=False, cluster_features=False, show_plot=False)
+        assert fig.layout.height == EXPLORER_HEATMAP_MAX_HEIGHT
+        assert fig.layout.width <= EXPLORER_HEATMAP_MAX_HEIGHT
+
+
+def test_written_page_has_a_title_and_viewport(tmp_path):
+    """G14: the written page is a document with a title, a viewport and the report styles, not a bare figure."""
+    from prepare.visualization.interactive import _write_figure
+
+    go = pytest.importorskip("plotly.graph_objects")
+    fig = go.Figure(data=[go.Bar(x=["a"], y=[1])])
+    fig.update_layout(title="Species abundance")
+    out = _write_figure(fig, tmp_path / "plot.html")
+    html = out.read_text()
+    assert "<title>Species abundance</title>" in html
+    assert 'name="viewport"' in html
+    assert "pre-wrap" in html or "--pre-" in html  # REPORT_CSS present
+    assert "plotly-graph-div" in html

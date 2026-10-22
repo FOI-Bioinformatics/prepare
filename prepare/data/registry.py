@@ -1,11 +1,10 @@
 """Per-project registry of dataset state, the project journal.
 
-The registry records decisions and provenance for every SRA accession a
-project touches: screening results per target genome, the selection criteria,
-exclusions with reasons, download outcomes with file sizes and dates, analyses,
-and per-genome extraction and assembly results. Existence on disk is never
-taken from the registry alone; ``status`` re-checks the filesystem and the
-scanners here rebuild or reconcile the journal from what is on disk.
+The registry records decisions and provenance for every SRA accession a project touches:
+screening results per target genome, the selection criteria, exclusions with reasons, download
+outcomes with file sizes and dates, analyses, and per-genome extraction and assembly results.
+Existence on disk is never taken from the registry alone; ``status`` re-checks the filesystem
+and the scanners here rebuild or reconcile the journal from what is on disk.
 """
 
 import logging
@@ -415,10 +414,8 @@ def nan_to_none(value: Any) -> Any:
 
 def _to_int_or_none(value: Any) -> Optional[int]:
     """Convert a numeric value (int or numeric string) to ``int``; ``None`` otherwise."""
-    if value is None:
-        return None
     try:
-        return int(value)
+        return None if value is None else int(value)
     except (TypeError, ValueError):
         return None
 
@@ -461,9 +458,8 @@ def record_analysis(
 ) -> None:
     """Record one named analysis's output path, summary and timestamp for ``accession``.
 
-    Stored under the dataset entry's ``analyses`` mapping, keyed by ``analysis``, so a second
-    call with the same name overwrites that analysis's previous run rather than accumulating a
-    history of runs.
+    Stored under the dataset entry's ``analyses`` mapping keyed by ``analysis``, so a second call
+    with the same name overwrites that analysis's previous run rather than keeping a history.
     """
     output_path = _project_relative(output, project_root(registry))
     entry = rb.AnalysisEntry(date=_now(), output=output_path, summary=dict(summary))
@@ -473,8 +469,7 @@ def record_analysis(
 def record_export(registry: Registry, name: str, output: Union[str, Path], summary: Dict[str, Any]) -> None:
     """Record a project-level export (e.g. the results table) under ``project["exports"][name]``.
 
-    Only the latest run of each export is kept: its date, the project-relative output path
-    and a summary of what it contained.
+    Only the latest run is kept: its date, the project-relative output path and a summary.
     """
     project = rb.project_block(registry)
     output_path = _project_relative(output, project_root(registry))
@@ -594,6 +589,11 @@ def _extraction_stage(registry: Registry, acc: str, stage: str, genome_id: Optio
     raise DataAccessError(f"Unknown stage '{stage}'. Choose one of: {', '.join(STAGES)}")
 
 
+def _is_analysed(analyses: Optional[Dict[str, Any]]) -> bool:
+    """Whether any recorded analysis counts; a validation that failed is not an analysis of the dataset."""
+    return any((entry.get("summary") or {}).get("passed") is not False for entry in (analyses or {}).values())
+
+
 def _in_stage(registry: Registry, acc: str, stage: str, genome_id: Optional[str]) -> bool:
     """Whether ``acc`` is in ``stage``; reads the one field it needs, without building a block."""
     if stage == "screened":
@@ -606,7 +606,7 @@ def _in_stage(registry: Registry, acc: str, stage: str, genome_id: Optional[str]
     if stage == "downloaded":
         return rb.raw(registry, acc, "download", "state") == "downloaded"
     if stage == "analysed":
-        return bool(registry.datasets[acc].get("analyses"))
+        return _is_analysed(registry.datasets[acc].get("analyses"))
     return _extraction_stage(registry, acc, stage, genome_id)
 
 
@@ -635,8 +635,7 @@ def stage_counts(registry: Registry) -> Dict[str, Any]:
     extracted and assembled accession counts plus the list of accessions extracted against it
     with zero mapped reads.
 
-    ``status`` uses ``processing.status_report.stage_members`` and ``genome_counts`` instead (one
-    pass); this function is kept as the reference those two are tested against.
+    ``status`` uses ``processing.status_report`` instead (one pass); this is the tested reference.
     """
     stages = {stage: len(query(registry, stage)) for stage in STAGES}
     genomes: Dict[str, Dict[str, Any]] = {}

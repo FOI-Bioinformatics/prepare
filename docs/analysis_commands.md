@@ -57,7 +57,7 @@ Each term of `--permanova-formula` is tested on its own as a one-factor PERMANOV
 
 ## interactive_plot
 
-`interactive_plot` writes a browser-based plot from a data matrix. It needs the `interactive` extra and the `analysis` extra (scikit-learn for `pca`, `tsne` and `diversity`, scipy for `heatmap`).
+`interactive_plot` writes a browser-based plot from a data matrix to `--output-file`, which is required; `--show` also opens the written page in a browser. It needs the `interactive` extra and the `analysis` extra (scikit-learn for `pca`, `tsne` and `diversity`, scipy for `heatmap`). The heatmap uses a sequential colour scale for a non-negative matrix and a diverging scale centred on zero for a signed one, and its size is capped so a large matrix still opens.
 
 ```bash
 # Interactive PCA plot
@@ -72,7 +72,8 @@ prepare interactive_plot \
 prepare interactive_plot \
     --data-file abundance_matrix.csv \
     --plot-type heatmap \
-    --title "Species Abundance Heatmap"
+    --title "Species Abundance Heatmap" \
+    --output-file heatmap.html
 
 # Diversity comparison plots
 prepare interactive_plot \
@@ -82,7 +83,7 @@ prepare interactive_plot \
     --color-by treatment_group
 ```
 
-The plot types are `pca`, `tsne`, `heatmap` and `diversity`. `--color-by` and `--size-by` name metadata columns and need `--metadata-file`. `--no-show` writes the file without opening a browser.
+The plot types are `pca`, `tsne`, `heatmap` and `diversity`. `--color-by` and `--size-by` name metadata columns and need `--metadata-file`. The page is written without opening a browser unless `--show` is given.
 
 ## validate_taxonomy
 
@@ -130,7 +131,7 @@ prepare genome_search --genus Francisella --format tsv
 
 ## explore_containment
 
-`explore_containment` writes an interactive HTML browser of the containment table (default `containment_explorer.html`). `--min-containment` drops weak hits, `--metadata` adds an optional sample metadata table, and `--open` opens the page in a browser. It also writes a GTDB taxonomy cache (default `taxonomy_cache.tsv`) next to it. The taxonomy is computed on the fly unless `--taxonomy-map` names an existing map.
+`explore_containment` writes an interactive HTML browser of the containment table (default `containment_explorer.html`). `--min-containment` drops weak hits (a page with no hit left says so), `--metadata` adds an optional sample metadata table, and `--open` opens the page in a browser. Without a taxonomy for the genomes the page shows the results table only and points at `enrich_taxonomy`. It also writes a GTDB taxonomy cache (default `taxonomy_cache.tsv`) next to it. The taxonomy is computed on the fly unless `--taxonomy-map` names an existing map.
 
 ```bash
 prepare explore_containment --parsed-containment parsed_containment.txt --min-containment 0.1

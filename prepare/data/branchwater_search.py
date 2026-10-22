@@ -25,6 +25,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from prepare.core.exceptions import DataAccessError
+from prepare.core.validation import genome_name
 from prepare.core.optional import require
 from prepare.data.file_io import open_atomic, write_text_atomic
 
@@ -50,6 +51,13 @@ BRANCHWATER_COLUMNS = [
 ]
 
 
+def _open_text(path: Path):
+    """Open a plain or gzipped (by magic number) text file for reading."""
+    with open(path, "rb") as probe:
+        packed = probe.read(2) == b"\x1f\x8b"
+    return gzip.open(path, "rt") if packed else open(path, "r")
+
+
 def sketch_fasta(fasta_path: Union[str, Path]) -> Dict[str, Any]:
     """Build the k=21, scaled=1000 sourmash signature Branchwater expects for one FASTA file.
 
@@ -70,14 +78,14 @@ def sketch_fasta(fasta_path: Union[str, Path]) -> Dict[str, Any]:
 
     minhash = sourmash.MinHash(n=0, ksize=KSIZE, scaled=SCALED)
     n_records = 0
-    with open(path) as handle:
+    with _open_text(path) as handle:
         for record in SeqIO.parse(handle, "fasta"):
             minhash.add_sequence(str(record.seq).upper(), force=True)
             n_records += 1
     if n_records == 0:
         raise DataAccessError(f"No sequences found in {path}")
 
-    signature = sourmash.SourmashSignature(minhash, name=path.stem, filename=path.name)
+    signature = sourmash.SourmashSignature(minhash, name=genome_name(path), filename=path.name)
     buffer = io.BytesIO()
     signature_module.save_signatures_to_json([signature], buffer)
     payload = json.loads(buffer.getvalue().decode("utf-8"))

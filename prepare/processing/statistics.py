@@ -8,7 +8,7 @@ import logging
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Sequence, Tuple, Union
+from typing import Dict, List, Sequence, Tuple, Union
 
 from prepare.core.exceptions import ProcessingError
 from prepare.core.optional import require
@@ -353,3 +353,18 @@ def compare_group_means(groups: Sequence[np.ndarray]) -> Tuple[str, float, float
         return "t-test", statistic, p_value
     statistic, p_value = stats.f_oneway(*groups)
     return "ANOVA", statistic, p_value
+
+
+def holm_adjusted(p_values: Sequence[float]) -> List[float]:
+    """Holm step-down adjusted p-values, in the order given, each capped at 1.
+
+    The smallest raw p-value is multiplied by the number of tests, the next by one less, and
+    so on; each adjusted value is at least the one before it in that order.
+    """
+    order = sorted(range(len(p_values)), key=lambda i: p_values[i])
+    adjusted = [0.0] * len(p_values)
+    running = 0.0
+    for rank, index in enumerate(order):
+        running = max(running, (len(p_values) - rank) * p_values[index])
+        adjusted[index] = min(1.0, running)
+    return adjusted

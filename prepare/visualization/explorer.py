@@ -19,7 +19,7 @@ from typing import Dict, Optional, Tuple, Union
 
 import pandas as pd
 
-from prepare.core.constants import EXPLORER_TABLE_ROWS, EXPLORER_HEATMAP_MAX_HEIGHT
+from prepare.core.constants import EXPLORER_GENUS_BARS, EXPLORER_HEATMAP_MAX_HEIGHT, EXPLORER_TABLE_ROWS
 from prepare.core.models import TaxonomyInfo
 from prepare.core.optional import require
 from prepare.core.utils import get_genome_columns
@@ -74,13 +74,16 @@ def generate_containment_explorer(
 
     long_df = _build_long_dataframe(containment_df, taxonomy, metadata, min_containment)
     summary = _build_summary_data(long_df, containment_df, taxonomy)
+    summary["min_containment"] = min_containment
 
     sunburst_html = ""
     heatmap_html = ""
     box_html = ""
     bar_html = ""
 
-    if not long_df.empty:
+    # The taxonomy sections are drawn only when some genome has a taxonomy; a page of
+    # "Unknown" would read as a result rather than as a missing enrichment step.
+    if not long_df.empty and summary["has_taxonomy"]:
         sunburst_html = _build_sunburst(long_df)
         heatmap_html = _build_heatmap(long_df)
         box_html, bar_html = _build_distributions(long_df)
@@ -103,6 +106,10 @@ _DATE_COLUMNS = ("collection_date_sam", "collection_date")
 _LONG_COLUMNS = ["sample", "genome", "containment", "family", "genus", "species", "location", "date"]
 
 
+#: Strings NCBI sample metadata uses for "no value"; rendered as an empty cell (compared in lower case).
+_PLACEHOLDERS = frozenset({"np", "uncalculated", "not provided", "missing", "not applicable", "unknown", "na", "n/a"})
+
+
 def _metadata_text(metadata: pd.DataFrame, columns: Tuple[str, ...]) -> pd.Series:
     """Return the first present metadata column as text indexed by sample, a missing value as an empty string."""
     present = [metadata[c] for c in columns if c in metadata.columns]
@@ -112,6 +119,7 @@ def _metadata_text(metadata: pd.DataFrame, columns: Tuple[str, ...]) -> pd.Serie
     for other in present[1:]:
         merged = merged.combine_first(other)
     merged = merged.astype(object).where(merged.notna(), "").astype(str)
+    merged = merged.where(~merged.str.strip().str.lower().isin(_PLACEHOLDERS), "")
     merged.index = merged.index.astype(str)
     return merged
 
@@ -154,21 +162,26 @@ def _build_summary_data(
     containment_df: pd.DataFrame,
     taxonomy: Dict[str, TaxonomyInfo],
 ) -> dict:
-    """Compute summary statistics for the explorer header cards."""
+    """Compute summary statistics for the explorer header cards.
+
+    ``total_genomes`` is the number of genome columns in the table, whatever the filter kept;
+    ``has_taxonomy`` says whether any shown genome has a taxonomy, so the page can tell a
+    missing enrichment step from a result.
+    """
+    total_genomes = len(get_genome_columns(containment_df))
     if long_df.empty:
         return {
             "total_samples": 0,
-            "total_genomes": 0,
+            "total_genomes": total_genomes,
             "num_families": 0,
             "num_genera": 0,
             "containment_min": 0.0,
             "containment_max": 0.0,
             "top_families": [],
+            "has_taxonomy": False,
         }
 
-    genome_cols = get_genome_columns(containment_df)
     samples_with_containment = int(long_df["sample"].nunique())
-    total_genomes = len(genome_cols)
     families = long_df.loc[long_df["family"] != "Unknown", "family"].unique()
     genera = long_df.loc[long_df["genus"] != "Unknown", "genus"].unique()
 
@@ -182,6 +195,7 @@ def _build_summary_data(
         "containment_min": float(long_df["containment"].min()),
         "containment_max": float(long_df["containment"].max()),
         "top_families": [{"name": name, "count": int(count)} for name, count in top_families.items()],
+        "has_taxonomy": bool((long_df["family"] != "Unknown").any()),
     }
 
 
@@ -227,7 +241,7 @@ def _build_heatmap(long_df: pd.DataFrame) -> str:
         pivot,
         color_continuous_scale=CONTAINMENT_SCALE,
         labels=dict(x="Family", y="Sample", color="Containment"),
-        title="Sample-by-family containment",
+        title="Sample-by-family containment (maximum over the family's genomes)",
         aspect="auto",
     )
     fig.update_layout(**plotly_layout(height=min(EXPLORER_HEATMAP_MAX_HEIGHT, max(320, 22 * len(pivot.index) + 110))))
@@ -250,12 +264,15 @@ def _build_distributions(long_df: pd.DataFrame) -> tuple:
 
     genus_counts = long_df.groupby("genus")["sample"].nunique().reset_index()
     genus_counts.columns = ["genus", "sample_count"]
-    genus_counts = genus_counts.sort_values("sample_count", ascending=False).head(30)
+    total_genera = len(genus_counts)
+    genus_counts = genus_counts.sort_values("sample_count", ascending=False).head(EXPLORER_GENUS_BARS)
+    shown = len(genus_counts)
+    cut = f"top {shown} of {total_genera}" if total_genera > shown else f"{shown} genera"
     bar_fig = px.bar(
         genus_counts,
         x="genus",
         y="sample_count",
-        title="Samples per genus",
+        title=f"Samples per genus ({cut})",
         labels={"genus": "Genus", "sample_count": "Samples"},
     )
     bar_fig.update_layout(**plotly_layout(height=450, xaxis_tickangle=-30))
@@ -313,8 +330,10 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
             <p class="pre-readout">
                 <span><b>{{ summary.total_samples }}</b> samples</span>
                 <span><b>{{ summary.total_genomes }}</b> genomes</span>
+                {% if summary.has_taxonomy %}
                 <span><b>{{ summary.num_families }}</b> families</span>
                 <span><b>{{ summary.num_genera }}</b> genera</span>
+                {% endif %}
                 <span>containment
                     <b>{{ "%.3f"|format(summary.containment_min) }}</b>&ndash;<b>{{
                         "%.3f"|format(summary.containment_max) }}</b></span>
@@ -322,9 +341,17 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
     </header>
     <main class="pre-wrap">
+        {% if summary.total_samples == 0 %}
+        <p class="pre-note warn">No sample reaches containment {{ "%.3f"|format(summary.min_containment) }};
+            lower --min-containment to see weaker hits.</p>
+        {% elif not summary.has_taxonomy %}
+        <p class="pre-note warn">No taxonomy for these genomes: the taxonomy sections are left out.
+            Run <code>prepare enrich_taxonomy</code> and pass its map with <code>--taxonomy-map</code>.</p>
+        {% endif %}
         <section class="pre-stats" aria-label="Run summary">
             <div class="pre-stat"><p class="k">Samples</p><div class="v">{{ summary.total_samples }}</div></div>
             <div class="pre-stat"><p class="k">Genomes</p><div class="v">{{ summary.total_genomes }}</div></div>
+            {% if summary.has_taxonomy %}
             <div class="pre-stat"><p class="k">Families</p><div class="v">{{ summary.num_families }}</div></div>
             <div class="pre-stat"><p class="k">Genera</p><div class="v">{{ summary.num_genera }}</div></div>
             {% if summary.top_families %}
@@ -336,6 +363,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
                 {%- endfor -%}
                 </div>
             </div>
+            {% endif %}
             {% endif %}
         </section>
 

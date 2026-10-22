@@ -27,7 +27,7 @@ prepare status --json                      # the report as one JSON document
 
 ### Creating and reconciling the registry
 
-- `--init` creates the registry from what is on disk. It fills every metadata block it creates from an `<ACCESSION>_metadata.xml` that records a spot count (spot count, size, md5, assay type, organism, collection date, library layout and strategy, platform), in the same write that creates the registry.
+- `--init` creates the registry from what is on disk. A genome is registered when a match CSV, an extraction folder or a `genome_prepare` record names it; a FASTA under `genomes/` on its own is not registered. It fills every metadata block it creates from an `<ACCESSION>_metadata.xml` that records a spot count (spot count, size, md5, assay type, organism, collection date, library layout and strategy, platform), in the same write that creates the registry.
 - `--reconcile` compares the registry with the disk, records files that were removed by hand and registers untracked work. It re-checks `unverified` download verdicts and fills metadata in the same way as `--init` (see [reads.md](reads.md) for the spot-count sources). A store link costs nothing for this check, since its read count comes from the sidecar, but a plain project download is counted again from its mate-1 file and its file of unpaired reads. The first reconcile after spot counts become known therefore reads, once, the mate-1 file of every `unverified` plain download that has a spot count; later runs read nothing again. On a large project, run that first reconcile as a cluster job rather than on a login node.
 
 The reconcile report, and the `drift` object of `status --json`, add four lists:
@@ -43,7 +43,7 @@ The four keys are always present in `--json`, as empty lists when there is nothi
 
 ### Suggested next commands
 
-`status --next` lists a runnable `download_sra` command for accessions that are ready to download. For accessions that are still selected under a `select_datasets --no-skip-excluded` run, it prints a `select_datasets ... --skip-excluded` command instead. The command reproduces that run's genome, threshold, metadata and top-N and run filter criteria, so that rerunning it drops the excluded accessions from the selection file first.
+`status --next` lists a runnable `download_sra` command for accessions that are ready to download, and an `extract_target_reads` command per genome for the downloaded accessions that command would extract: screened against the genome at or above the default threshold, not excluded and within the selection when one covers the genome (an accession with no screening record at all is kept). Paths and ids in the printed commands are shell-quoted. For accessions that are still selected under a `select_datasets --no-skip-excluded` run, it prints a `select_datasets ... --skip-excluded` command instead. The command reproduces that run's genome, threshold, metadata and top-N and run filter criteria, so that rerunning it drops the excluded accessions from the selection file first.
 
 ### Wanted lists and folder locations
 
@@ -81,7 +81,7 @@ The extraction and assembly figures cover only the pairs that reached the stage 
 
 `status --export-tsv registry` writes `registry_datasets.tsv` and `registry_extractions.tsv`. The extraction table has the timing columns followed by `coverage_tsv`, `n90`, `largest` and `assembly_dir`.
 
-`extract_target_reads` skips samples already extracted or assembled with the same genome, preset and threshold, and `--force` redoes them (see [extraction_assembly.md](extraction_assembly.md)).
+`extract_target_reads` skips samples already extracted or assembled with the same genome, preset and `--min-mapq`, and `--force` redoes them (see [extraction_assembly.md](extraction_assembly.md)).
 
 ## results_table
 

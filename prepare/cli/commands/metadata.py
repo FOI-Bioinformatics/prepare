@@ -7,7 +7,7 @@ import logging
 from functools import partial
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -122,11 +122,32 @@ class DownloadMetadataCommand(BaseCommand):
             return
         self.logger.info("Copied %d metadata file(s) into the store at %s", len(downloaded), paths.metadata)
 
+    def _parse_downloaded(self, downloaded: Dict[str, Path], term) -> Dict[str, Tuple[Any, Dict[str, Any]]]:
+        """Parse each fetched XML into its registry fields, without the registry lock.
+
+        Checked before each accession: a signal stops the loop there, leaving every later
+        accession's XML on disk (already written atomically by ``download_metadata``) but not
+        yet recorded; what was parsed so far is still recorded by the caller.
+        """
+        parsed: Dict[str, Tuple[Any, Dict[str, Any]]] = {}
+        for accession, xml_path in downloaded.items():
+            if term is not None and term.stop.is_set():
+                self.logger.warning("Stopping before %s: interrupted", accession)
+                break
+            try:
+                fields = _metadata_fields(parse_metadata_xml(xml_path))
+            except (PrepareError, ValueError, OSError, ET.ParseError) as e:
+                self.logger.warning(f"Could not parse metadata for {accession}: {e}; recorded the file path only")
+                fields = {}
+            parsed[accession] = (xml_path, fields)
+        return parsed
+
     def execute(self, args: argparse.Namespace) -> int:
         email = require_email(args)
         try:
             args.matches_folder = str(anchored_folder(args.matches_folder, getattr(args, "registry", None)))
             args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
+            failures: Dict[str, str] = {}
             downloaded = download_metadata(
                 email=email,
                 matches_folder=args.matches_folder,
@@ -136,31 +157,19 @@ class DownloadMetadataCommand(BaseCommand):
                 accessions_file=args.accessions_file,
                 api_key=setting_for(args, "ncbi_api_key"),
                 batch_size=args.batch_size,
+                failures=failures,
             )
             term = getattr(args, "_termination", None)
             if not args.dry_run and downloaded:
                 # Every XML is parsed before the registry lock is taken; the records are then
-                # written in one transaction on the registry as it is at that point. Checked
-                # before each accession: a signal stops the loop there, leaving every later
-                # accession's XML on disk (already written atomically by download_metadata)
-                # but not yet recorded; what was parsed so far is still recorded below.
-                parsed: Dict[str, Tuple[Any, Dict[str, Any]]] = {}
-                for accession, xml_path in downloaded.items():
-                    if term is not None and term.stop.is_set():
-                        self.logger.warning("Stopping before %s: interrupted", accession)
-                        break
-                    try:
-                        fields = _metadata_fields(parse_metadata_xml(xml_path))
-                    except (PrepareError, ValueError, OSError, ET.ParseError) as e:
-                        self.logger.warning(
-                            f"Could not parse metadata for {accession}: {e}; recorded the file path only"
-                        )
-                        fields = {}
-                    parsed[accession] = (xml_path, fields)
-                registry = _record_all_metadata(args.registry, parsed)
+                # written in one transaction on the registry as it is at that point.
+                registry = _record_all_metadata(args.registry, self._parse_downloaded(downloaded, term))
                 self._share_with_store(args, registry, downloaded)
             if term is not None and term.stop.is_set():
                 raise KeyboardInterrupt("download_metadata stopped")
+            if failures:
+                self.logger.error("No metadata for %d accession(s): %s", len(failures), ", ".join(sorted(failures)))
+                return 1
             return 0
         except PrepareError as e:
             return self.fail(e, "Error downloading metadata")
@@ -231,27 +240,34 @@ class ParseMetadataCommand(BaseCommand):
             return None
         return str(accession), metadata_folder / f"{accession}_metadata.xml", _metadata_fields(row)
 
+    def _table_records(self, df: pd.DataFrame, metadata_folder: Path, term) -> Dict[str, Tuple[Any, Dict[str, Any]]]:
+        """The registry record of every row of the parsed table, stopping early on a signal."""
+        # Only the columns the registry records, as plain dicts: a wide table (one column per
+        # sample attribute) makes a pandas Series per row costly.
+        columns = [column for column in _ROW_COLUMNS if column in df.columns]
+        parsed: Dict[str, Tuple[Any, Dict[str, Any]]] = {}
+        for row in df[columns].to_dict("records"):
+            if term is not None and term.stop.is_set():
+                self.logger.warning("Stopping metadata parsing: interrupted")
+                break
+            record = self._row_record(metadata_folder, row)
+            if record is not None:
+                parsed[record[0]] = (record[1], record[2])
+        return parsed
+
     def execute(self, args: argparse.Namespace) -> int:
         try:
             args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
-            df = parse_metadata(args.metadata_folder, args.metadata_table_file)
-            metadata_folder = Path(args.metadata_folder)
-            # Only the columns the registry records, as plain dicts: a wide table (one column per
-            # sample attribute) makes a pandas Series per row costly.
-            columns = [column for column in _ROW_COLUMNS if column in df.columns]
-            parsed: Dict[str, Tuple[Any, Dict[str, Any]]] = {}
+            errors: List[str] = []
+            df = parse_metadata(args.metadata_folder, args.metadata_table_file, errors=errors)
             term = getattr(args, "_termination", None)
-            for row in df[columns].to_dict("records"):
-                if term is not None and term.stop.is_set():
-                    self.logger.warning("Stopping metadata parsing: interrupted")
-                    break
-                record = self._row_record(metadata_folder, row)
-                if record is not None:
-                    parsed[record[0]] = (record[1], record[2])
-            # Parsed above without the registry lock; recorded here in one transaction.
-            _record_all_metadata(args.registry, parsed)
+            # Parsed without the registry lock; recorded in one transaction.
+            _record_all_metadata(args.registry, self._table_records(df, Path(args.metadata_folder), term))
             if term is not None and term.stop.is_set():
                 raise KeyboardInterrupt("parse_metadata stopped")
+            if errors:
+                self.logger.error("%d metadata file(s) could not be parsed: %s", len(errors), ", ".join(errors))
+                return 1
             return 0
         except PrepareError as e:
             return self.fail(e, "Error parsing metadata")

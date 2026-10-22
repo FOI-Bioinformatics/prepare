@@ -4,7 +4,7 @@
 
 PREPARE is a command-line toolkit that finds public metagenomic datasets containing a target genome
 (Branchwater containment), downloads their metadata and reads from NCBI/SRA, and analyses them. The
-package is `prepare`, version 0.11.2, and needs Python 3.12 or newer. The documentation index is
+package is `prepare`, version 0.12.0, and needs Python 3.12 or newer. The documentation index is
 `docs/README.md`; design reasoning is in `docs/ARCHITECTURE.md`.
 
 ## Commands
@@ -54,7 +54,8 @@ Layers and their boundaries:
 - **Data** (`prepare/data/`): file I/O, Branchwater, metadata, and the `data/sra/` package for downloads.
   `data/registry.py` is the project registry (`prepare_registry.json`), each step records its outcome
   there and `status` reads it back; `data/registry_blocks.py` holds one typed dataclass per registry
-  block and preserves unknown keys on a round trip. `data/run_log.py` is the per-project run log
+  block and preserves unknown keys on a round trip. `data/project_selection.py` says which recorded
+  selection applies to a genome. `data/run_log.py` is the per-project run log
   (`<project>/.prepare/runs/`).
 - **SRA analysis** (`prepare/sra/`): quality profiling and HTML reporting, see below.
 - **Store** (`prepare/store/`): the shared data store, see below.

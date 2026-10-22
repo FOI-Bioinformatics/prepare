@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from prepare.cli.base import finite_float, BaseCommand
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD, DEFAULT_TOP_N
-from prepare.core.exceptions import PrepareError
+from prepare.core.exceptions import PrepareError, ValidationError
 from prepare.data import registry_blocks as rb
 from prepare.data import run_log
 from prepare.data.file_io import write_text_atomic
@@ -212,12 +212,10 @@ class SelectDatasetsCommand(BaseCommand):
             # selection is recorded afterwards against the registry as it is then (see below).
             registry = load_registry(args.registry)
             if args.no_record and Path(args.output).resolve() in _recorded_selection_files(registry):
-                self.logger.error(
-                    "%s is the recorded selection's file; give --no-record a different --output "
-                    "or run without --no-record",
-                    args.output,
+                raise ValidationError(
+                    f"{args.output} is the recorded selection's file; give --no-record a different --output "
+                    "or run without --no-record"
                 )
-                return 1
             exclude = set(query(registry, "excluded")) if args.skip_excluded else set()
             excluded_count = len(exclude)
             downloaded = set(query(registry, "downloaded")) if args.skip_downloaded else set()

@@ -2,7 +2,7 @@
 
 This guide covers `extract_target_reads`, which maps reads to a target genome and optionally assembles the mapped reads of each sample. Return to the [documentation index](README.md).
 
-A targeted assembly uses only the reads relevant to one genome, which gives a small assembly instead of a whole-metagenome assembly. For every sample whose containment for the target genome meets the threshold, the command maps the reads with minimap2, keeps the mapped reads with samtools and writes them to `targeted/<ACC>/`.
+A targeted assembly uses only the reads relevant to one genome, which gives a small assembly instead of a whole-metagenome assembly. For every sample whose containment for the target genome meets the threshold, the command maps the reads with minimap2, keeps the mapped reads with samtools and writes them to `targeted/<ACC>/`. An accession excluded in the registry (`blacklist`) is always skipped. When the registry holds a selection (`select_datasets`) made for this genome (its column, `max_containment`, or a `--genome-ids` list naming it), only the selected accessions that meet the threshold are extracted; a selection made for another genome's column is not applied. `--ignore-selection` extracts every sample at the threshold instead. Without a selection, the table alone decides.
 
 ```bash
 prepare extract_target_reads \
@@ -29,11 +29,13 @@ The command needs `minimap2` and `samtools`, and `megahit` with `--assemble`, on
 
 Mapped reads always drop unmapped, secondary and supplementary alignments. `--min-mapq` additionally discards records below a mapping-quality threshold (default 0, which keeps every mapped record). A value of 20 is reasonable for a close relative of the target genome. A divergent strain can map with a low MAPQ, so a higher threshold can discard real matches.
 
+A paired sample gives `targeted/<ACC>/<genome>_1.fastq.gz` and `<genome>_2.fastq.gz`, plus `<genome>_s.fastq.gz` when some reads mapped without their mate; these singleton reads are part of the extraction and go into the assembly as unpaired reads (megahit `-r`). A single-end sample, or a paired sample whose mate files hold different read counts, gives `<genome>.fastq.gz` or `<genome>_0.fastq.gz`.
+
 For each sample with kept reads, `samtools coverage` runs on the kept alignments. It skips duplicate and QC-fail reads by default and writes `targeted/<ACC>/<genome>_coverage.tsv`. The registry records the breadth of the reference covered at 1x or more and the length-weighted mean depth. A failure of this step is logged as a warning and leaves the extracted reads in place. `--debug-keep-sam` keeps the intermediate SAM files.
 
 ## Skipping and redoing
 
-A sample already extracted with the same genome FASTA, preset and threshold is skipped on a rerun, including samples that mapped zero reads. `--force` redoes extraction and assembly. Re-extracting a sample drops its recorded assembly from the registry, since that assembly was built from the reads being replaced. The assembly folder stays on disk.
+A sample already extracted with the same genome FASTA, preset and `--min-mapq` is skipped on a rerun, including samples that mapped zero reads. The containment threshold only decides which samples are tried; it is recorded with the extraction but a different threshold does not redo a sample. `--force` redoes extraction and assembly. Re-extracting a sample drops its recorded assembly from the registry, since that assembly was built from the reads being replaced. The assembly folder stays on disk.
 
 ## Incomplete downloads and --allow-truncated
 

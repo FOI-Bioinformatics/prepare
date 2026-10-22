@@ -50,6 +50,9 @@ def _get_unique_accessions(matches_folder, threshold):
 
     Returns:
         Set of unique accessions
+
+    Raises:
+        DataAccessError: If the folder holds no match CSV or a match file cannot be read
     """
     unique_accessions: set = set()
     matches_path = Path(matches_folder)
@@ -58,8 +61,7 @@ def _get_unique_accessions(matches_folder, threshold):
     csv_files = list_files(matches_path, "*.csv")
 
     if not csv_files:
-        logger.warning(f"No CSV files found in {matches_path}")
-        return unique_accessions
+        raise DataAccessError(f"No match CSV in {matches_path}")
 
     for csv_file in csv_files:
         # Read CSV file
@@ -74,8 +76,7 @@ def _get_unique_accessions(matches_folder, threshold):
                 accession_col = "SRA accession"
                 containment_col = "containment"
             else:
-                logger.warning(f"Unknown file format: {csv_file}")
-                continue
+                raise ValueError("no 'acc' or 'SRA accession' column")
 
             # Filter by threshold
             if threshold > 0:
@@ -87,7 +88,7 @@ def _get_unique_accessions(matches_folder, threshold):
         # pandas' ParserError and EmptyDataError are ValueErrors; KeyError is a missing
         # containment column; TypeError is a containment column holding text.
         except (OSError, ValueError, KeyError, TypeError) as e:
-            logger.warning(f"Error reading {csv_file}: {e}")
+            raise DataAccessError(f"Cannot read match file {csv_file}: {e}") from e
 
     return unique_accessions
 
@@ -106,6 +107,7 @@ def download_metadata(
     accessions_file: Optional[Union[str, Path]] = None,
     api_key: Optional[str] = None,
     batch_size: int = 200,
+    failures: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Path]:
     """
     Download metadata for SRA accessions found in match files, or from an explicit list.
@@ -123,6 +125,8 @@ def download_metadata(
             non-empty, non-comment lines and the matches folder is not read.
         api_key: Optional NCBI API key; raises the rate limit and is used for every request.
         batch_size: Accessions per ``Entrez.efetch`` call, from 1 to 500.
+        failures: Optional mapping the caller inspects afterwards; every accession that
+            could not be fetched is added with the reason. Left untouched when None.
 
     Returns:
         Dictionary mapping accessions to metadata file paths
@@ -130,6 +134,7 @@ def download_metadata(
     Raises:
         ValueError: If batch_size is outside 1 to 500.
         DataAccessError: If the download fails
+        NetworkError: If NCBI could not be reached for any accession
     """
     if not 1 <= batch_size <= MAX_BATCH_SIZE:
         raise ValueError(f"batch_size must be between 1 and {MAX_BATCH_SIZE}, got {batch_size}")
@@ -162,7 +167,13 @@ def download_metadata(
 
         # Download metadata for each accession, in batches
         return _download_accessions_metadata(
-            accessions_to_download, metadata_path, email, to_download_count, api_key=api_key, batch_size=batch_size
+            accessions_to_download,
+            metadata_path,
+            email,
+            to_download_count,
+            api_key=api_key,
+            batch_size=batch_size,
+            failures=failures,
         )
 
     except NetworkError:
@@ -178,6 +189,7 @@ def _download_accessions_metadata(
     total_count: int,
     api_key: Optional[str] = None,
     batch_size: int = 200,
+    failures: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Path]:
     """
     Download metadata for multiple accessions, fetched in batches.
@@ -189,13 +201,15 @@ def _download_accessions_metadata(
         total_count: Total number of accessions to download
         api_key: Optional NCBI API key
         batch_size: Accessions per ``Entrez.efetch`` call
+        failures: Optional mapping that receives every failed accession and its reason
 
     Returns:
         Dictionary mapping accessions to metadata file paths, for successes only.
     """
     # Each efetch call sets Entrez.email/api_key itself under _ENTREZ_LOCK (_entrez_credentials).
     result_files: Dict[str, Path] = {}
-    failures: Dict[str, str] = {}
+    if failures is None:
+        failures = {}
     batches = [accessions_to_download[i : i + batch_size] for i in range(0, len(accessions_to_download), batch_size)]
     progress = ProgressReporter(
         "download_metadata", len(accessions_to_download), settings.active().progress_every, logger=logger
@@ -468,34 +482,37 @@ def _metadata_table(field_rows: List[Dict[str, Any]], attribute_rows: List[Dict[
     return pd.DataFrame(columns)
 
 
-def parse_metadata(metadata_folder: Union[str, Path], output_file: Union[str, Path]) -> pd.DataFrame:
+def parse_metadata(
+    metadata_folder: Union[str, Path], output_file: Union[str, Path], errors: Optional[List[str]] = None
+) -> pd.DataFrame:
     """
     Parse metadata XML files and create a consolidated table.
 
     Each file is parsed once; its fixed fields and sample attributes are read from the same tree.
+    A file that cannot be parsed is left out of the table and named in ``errors``.
 
     Args:
         metadata_folder: Folder containing metadata XML files
         output_file: Path to save the consolidated metadata table
+        errors: Optional list the caller inspects afterwards; the name of each file that
+            could not be parsed is appended to it. Left untouched when None.
 
     Returns:
         DataFrame containing the parsed metadata
 
     Raises:
-        DataAccessError: If parsing fails
+        DataAccessError: If the folder holds no metadata XML or the table cannot be written
     """
     metadata_path = validate_folder(metadata_folder)
 
     field_rows: List[Dict[str, Any]] = []
     attribute_rows: List[Dict[str, Any]] = []
-    error_count = 0
 
     try:
         xml_files = list_files(metadata_path, "*.xml")
 
         if not xml_files:
-            logger.warning(f"No XML files found in {metadata_path}")
-            return pd.DataFrame()
+            raise DataAccessError(f"No metadata XML in {metadata_path}")
 
         logger.info(f"Processing {len(xml_files)} metadata files")
 
@@ -503,8 +520,9 @@ def parse_metadata(metadata_folder: Union[str, Path], output_file: Union[str, Pa
             try:
                 fields, sample_attributes = _parse_metadata_file(xml_file)
             except (OSError, etree.XMLSyntaxError, ValueError) as e:
-                error_count += 1
                 logger.error(f"Error parsing {xml_file}: {e}")
+                if errors is not None:
+                    errors.append(xml_file.name)
                 continue
 
             field_rows.append(fields)
@@ -528,6 +546,8 @@ def parse_metadata(metadata_folder: Union[str, Path], output_file: Union[str, Pa
 
         return metadata_df
 
+    except DataAccessError:
+        raise
     except (OSError, ValueError, PrepareError) as e:
         raise DataAccessError(f"Error parsing metadata: {e}") from e
 

@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from prepare.cli.base import BaseCommand, accessions_from_args, anchored_folder, positive_int, resolve_command_store
 from prepare.core import settings
 from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
-from prepare.core.validation import validate_accession
+from prepare.core.validation import genome_name, validate_accession
 from prepare.core.optional import require
 from prepare.data import run_log
 from prepare.data.branchwater_search import load_signature, sketch_fasta
@@ -113,7 +113,7 @@ class SRASketchCommand(BaseCommand):
             "--signature", default=None, help="Existing plain sourmash signature of the genome (k=21, scaled=1000)"
         )
         parser.add_argument(
-            "--genome-id", default=None, help="Name of the matches CSV (default: the genome file's stem)"
+            "--genome-id", default=None, help="Name of the matches CSV (default: the genome file's name without suffix)"
         )
         parser.add_argument("--matches-folder", default="matches", help="Folder the containment CSV is written to")
         parser.add_argument(
@@ -288,7 +288,7 @@ class SRASketchCommand(BaseCommand):
         if not source:
             return None
         signature = sketch_fasta(args.genome_fasta) if args.genome_fasta else load_signature(args.signature)
-        return args.genome_id or Path(source).stem, signature
+        return args.genome_id or genome_name(source), signature
 
     def _containment(
         self, args: argparse.Namespace, genome: Tuple[str, Dict[str, Any]], planned: List[Planned], failed: List[str]
