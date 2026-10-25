@@ -4,7 +4,7 @@
 
 PREPARE is a command-line toolkit that finds public metagenomic datasets containing a target genome
 (Branchwater containment), downloads their metadata and reads from NCBI/SRA, and analyses them. The
-package is `prepare`, version 0.12.0, and needs Python 3.12 or newer. The documentation index is
+package is `prepare`, version 0.12.1, and needs Python 3.12 or newer. The documentation index is
 `docs/README.md`; design reasoning is in `docs/ARCHITECTURE.md`.
 
 ## Commands

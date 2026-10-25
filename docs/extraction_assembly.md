@@ -53,7 +53,7 @@ With `--assemble`, each selected sample is assembled on its own with megahit. Th
 
 - `--assembly-preset` selects megahit's `--presets` value: `meta-sensitive` (the default, suited to small targeted read sets), `meta-large`, or `default` (no `--presets` flag).
 - `--min-contig-len` sets the minimum contig length, and `--keep-intermediate` keeps megahit's `intermediate_contigs/` folder.
-- Unless `--no-coverage` is given, the extracted reads are mapped back onto the assembled contigs to report a mapping rate and an estimated mean depth next to the other assembly statistics.
+- Unless `--no-coverage` is given, the extracted reads (the mate files, and the singleton file in a run of its own) are mapped back onto the assembled contigs to report a mapping rate and an estimated mean depth next to the other assembly statistics.
 - A megahit failure is reported with the tool's own error message (the last lines of its stderr), not only the exit code.
 
 ### Threads and memory on macOS and elsewhere

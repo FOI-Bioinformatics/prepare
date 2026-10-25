@@ -655,8 +655,8 @@ every accession that failed was classified `network` by `classify_download_error
 (a truncated download is a failure unless `--accept-partial` is given, as an incomplete store copy
 already was).
 `download_metadata` logs each accession NCBI did not return, records what it fetched and exits 1
-when any accession is missing, or 4 when every failure was a network one and nothing was fetched
-(`NetworkError`); a rerun fetches only the missing ones. `parse_metadata` likewise writes the table
+when an accession is missing, or 4 when any failure was a network one (`NetworkError`); a rerun
+fetches only the missing ones. `parse_metadata` likewise writes the table
 from the files it could parse and exits 1 when any file could not be parsed.
 
 ### Logging policy
