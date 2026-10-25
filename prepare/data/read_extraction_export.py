@@ -270,18 +270,14 @@ def assembly_coverage(
         Optional[float]}``, the last None when the assembly has no contigs to spread reads over.
     """
     work_root = Path(work_dir)
-    sam_path = work_root / "coverage.sam"
-    bam_path = work_root / "coverage.bam"
     # minimap2 pairs its query files by position, so a singleton file next to the mate files
-    # is left out of the back-mapping rather than paired with a mate file.
-    queries = [r for r in reads if not is_singleton_file(r)] if len(reads) > 2 else list(reads)
-    try:
-        SecureSubprocess.run_secure("minimap2", _minimap2_map_args(preset, threads, sam_path, contigs, queries))
-        SecureSubprocess.run_secure("samtools", _samtools_view_args(["-F", FILTER_FLAGS], threads, bam_path, sam_path))
-        reads_mapped = _count_records(bam_path)
-    finally:
-        sam_path.unlink(missing_ok=True)
-        bam_path.unlink(missing_ok=True)
+    # is mapped in a run of its own rather than paired with a mate file.
+    groups: List[List[Path]] = [[Path(r) for r in reads]]
+    if len(reads) > 2:
+        mates = [r for r in groups[0] if not is_singleton_file(r)]
+        singles = [r for r in groups[0] if is_singleton_file(r)]
+        groups = [group for group in (mates, singles) if group]
+    reads_mapped = sum(_count_back_mapped(contigs, group, preset, threads, work_root) for group in groups)
 
     mapping_rate = reads_mapped / mapped_reads if mapped_reads else None
     avg_read_len = _average_read_length(reads[0]) if reads else 0.0
@@ -296,6 +292,21 @@ def assembly_coverage(
         "mapping_rate": mapping_rate,
         "mean_depth_estimate": mean_depth_estimate,
     }
+
+
+def _count_back_mapped(
+    contigs: Union[str, Path], queries: Sequence[Union[str, Path]], preset: str, threads: int, work_root: Path
+) -> int:
+    """Map ``queries`` onto ``contigs`` and count the kept records; the SAM and BAM are removed either way."""
+    sam_path = work_root / "coverage.sam"
+    bam_path = work_root / "coverage.bam"
+    try:
+        SecureSubprocess.run_secure("minimap2", _minimap2_map_args(preset, threads, sam_path, contigs, queries))
+        SecureSubprocess.run_secure("samtools", _samtools_view_args(["-F", FILTER_FLAGS], threads, bam_path, sam_path))
+        return _count_records(bam_path)
+    finally:
+        sam_path.unlink(missing_ok=True)
+        bam_path.unlink(missing_ok=True)
 
 
 def _run_minimap2(

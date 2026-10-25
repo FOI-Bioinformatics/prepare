@@ -709,6 +709,27 @@ class TestSamHitOnly:
         assert result["reads_mapped"] == 2
         assert result["mapping_rate"] == 1.0
 
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_assembly_coverage_counts_the_singleton_file_in_a_second_run(self, mock_run, tmp_path):
+        """Minor 7: mates in one minimap2 run, the singleton in another; the counts add up."""
+        state = {"sam_records": self.RECORDS}
+        mock_run.side_effect = _fake_tools(state)
+        contigs = tmp_path / "final.contigs.fa"
+        contigs.write_text(">c1 len=10\nACGT\n")
+        reads = [tmp_path / f"GCF_1_{tag}.fastq.gz" for tag in ("1", "2", "s")]
+        for path in reads:
+            with gzip.open(path, "wt") as handle:
+                handle.write("@r\nACGT\n+\nIIII\n")
+
+        result = assembly_coverage(contigs, reads, "sr", 1, tmp_path, mapped_reads=4)
+
+        aligns = [args for exe, args in state["calls"] if exe == "minimap2" and "-o" in args]
+        queried = [[x for x in a if x.endswith(".fastq.gz")] for a in aligns]
+        assert queried == [[str(reads[0]), str(reads[1])], [str(reads[2])]]
+        assert result["reads_mapped"] == 4  # 2 from each run of the fake
+        assert result["mapping_rate"] == 1.0
+        assert not (tmp_path / "coverage.sam").exists() and not (tmp_path / "coverage.bam").exists()
+
 
 class TestTruncatedDownloadSkip:
     @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
