@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from prepare.cli.base import finite_float, BaseCommand, anchored_folder
-from prepare.core.exceptions import DataAccessError, PrepareError
+from prepare.core.exceptions import DataAccessError, NetworkError, PrepareError
 from prepare.core.settings import require_email, setting_for
 from prepare.data import registry_blocks as rb
 from prepare.data.defaults import resolve_metadata_table
@@ -168,11 +168,24 @@ class DownloadMetadataCommand(BaseCommand):
             if term is not None and term.stop.is_set():
                 raise KeyboardInterrupt("download_metadata stopped")
             if failures:
-                self.logger.error("No metadata for %d accession(s): %s", len(failures), ", ".join(sorted(failures)))
-                return 1
+                return self._fail_for_missing(failures)
             return 0
         except PrepareError as e:
             return self.fail(e, "Error downloading metadata")
+
+    def _fail_for_missing(self, failures: Dict[str, str]) -> int:
+        """Name (at most ten of) the accessions without metadata; exit 4 when any failed for a
+        network reason, since a rerun fetches them, and 1 otherwise."""
+        names = sorted(failures)
+        shown = ", ".join(names[:10]) + (f" and {len(names) - 10} more" if len(names) > 10 else "")
+        self.logger.error("No metadata for %d accession(s): %s", len(names), shown)
+        if any(reason.startswith("network: ") for reason in failures.values()):
+            error: PrepareError = NetworkError(
+                f"NCBI could not be reached for {len(names)} accession(s); try again later"
+            )
+        else:
+            error = DataAccessError(f"NCBI returned no metadata for {len(names)} accession(s)")
+        return self.fail(error, "Error downloading metadata")
 
 
 def _record_all_metadata(registry_arg: Optional[str], parsed: Dict[str, Tuple[Any, Dict[str, Any]]]) -> Registry:
