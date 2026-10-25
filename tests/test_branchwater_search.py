@@ -74,6 +74,19 @@ class TestSketchFasta:
         with pytest.raises(DataAccessError, match="Cannot read"):
             sketch_fasta(path)
 
+    @pytest.mark.parametrize(
+        "body", [b"hello world\n", b">g\xe9\nACGT\n", b"\x00\x01\x02\x03"], ids=["text", "latin1", "binary"]
+    )
+    def test_sketch_fasta_rejects_a_file_that_is_not_a_fasta(self, tmp_path, body):
+        """Review: a file that is not FASTA, or not UTF-8, is a DataAccessError, not a traceback."""
+        from prepare.core.exceptions import DataAccessError
+
+        pytest.importorskip("sourmash")
+        path = tmp_path / "g.fna"
+        path.write_bytes(body)
+        with pytest.raises(DataAccessError, match="Cannot read"):
+            sketch_fasta(path)
+
     def test_builds_k21_scaled1000_signature(self, tmp_path):
         pytest.importorskip("sourmash")
         fasta = tmp_path / "GCF_000000001.1.fna"
