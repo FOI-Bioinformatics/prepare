@@ -1958,6 +1958,106 @@ class TestExtractionFollowsTheProject:
         assert "1 sample(s) meet containment >= 0.1 for GCF_1 but" in caplog.text and "excluded" in caplog.text
         mock_run.assert_not_called()
 
+    @staticmethod
+    def _flaky_record(errors, on_error=None):
+        """A ``_record_result`` that raises ``errors[accession]`` (after ``on_error``) and otherwise records."""
+        real = ExtractTargetReadsCommand._record_result
+
+        def record(self, args, accession, outcome, *rest):
+            if accession in errors:
+                if on_error is not None:
+                    on_error(args)
+                raise errors[accession]
+            return real(self, args, accession, outcome, *rest)
+
+        return patch.object(ExtractTargetReadsCommand, "_record_result", record)
+
+    def _two_sample_args(self, tmp_path, **overrides):
+        root, table, genome = _project_tree(tmp_path, {"SRR1": 0.9, "SRR2": 0.9})
+        return root, _args(
+            tmp_path,
+            parsed_containment=str(table),
+            genome_fasta=str(genome),
+            fastq_folder=str(root / "fastq"),
+            output_folder=str(root / "targeted"),
+            **overrides,
+        )
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_a_recording_error_is_exit_1_after_the_run(self, mock_run, tmp_path, caplog):
+        """Minor 1: a DataAccessError from the registry write is reported and fails the run."""
+        from prepare.core.exceptions import DataAccessError
+
+        mock_run.side_effect = _fake_tools({})
+        root, args = self._two_sample_args(tmp_path)
+        with self._flaky_record({"SRR1": DataAccessError("disk full")}), caplog.at_level(logging.ERROR):
+            assert ExtractTargetReadsCommand().execute(args) == 1
+        assert (root / "targeted" / "SRR2" / "GCF_1_1.fastq.gz").exists()  # the run went on
+        assert "Recording failed for 1 sample(s): SRR1 (disk full)" in caplog.text
+
+    @staticmethod
+    def _fake_assembly(assembled):
+        def assemble(reads, out_dir, **kwargs):
+            assembled.append(Path(out_dir).parent.name)
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            (Path(out_dir) / "final.contigs.fa").write_text(">c1 len=100\nACGT\n")
+            return Path(out_dir), True
+
+        return patch("prepare.cli.commands.extraction_assembly.assemble_extracted_reads", side_effect=assemble)
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_a_lock_timeout_still_assembles_and_notes_the_run_then_exits_4(self, mock_run, tmp_path):
+        """Minor 2: the lock timeout on SRR1 skips neither the assembly nor the run-log summary."""
+        from prepare.core.exceptions import LockTimeoutError
+
+        mock_run.side_effect = _fake_tools({})
+        root, args = self._two_sample_args(tmp_path, assemble=True, no_coverage=True)
+        assembled: list = []
+        with (
+            self._flaky_record({"SRR1": LockTimeoutError("registry lock held")}),
+            self._fake_assembly(assembled),
+            patch("prepare.cli.commands.read_extraction.run_log.note_run") as note,
+        ):
+            assert ExtractTargetReadsCommand().execute(args) == 4
+        assert sorted(assembled) == ["SRR1", "SRR2"]
+        assert any("with_reads" in call.kwargs.get("summary", {}) for call in note.call_args_list)
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_a_recording_failure_on_the_last_sample_still_assembles(self, mock_run, tmp_path):
+        """Review focus 1: the error on the last sample changes the exit code, nothing else."""
+        from prepare.core.exceptions import DataAccessError
+
+        mock_run.side_effect = _fake_tools({})
+        root, args = self._two_sample_args(tmp_path, assemble=True, no_coverage=True)
+        assembled: list = []
+        with self._flaky_record({"SRR2": DataAccessError("disk full")}), self._fake_assembly(assembled):
+            assert ExtractTargetReadsCommand().execute(args) == 1
+        assert sorted(assembled) == ["SRR1", "SRR2"]
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_a_lock_timeout_outranks_a_recording_error(self, mock_run, tmp_path, caplog):
+        """Review focus 2: one TransientError among the failures makes the exit 4; both are named."""
+        from prepare.core.exceptions import DataAccessError, LockTimeoutError
+
+        mock_run.side_effect = _fake_tools({})
+        root, args = self._two_sample_args(tmp_path)
+        errors = {"SRR1": DataAccessError("disk full"), "SRR2": LockTimeoutError("registry lock held")}
+        with self._flaky_record(errors), caplog.at_level(logging.ERROR):
+            assert ExtractTargetReadsCommand().execute(args) == 4
+        assert "Recording failed for 2 sample(s): SRR1 (disk full), SRR2 (registry lock held)" in caplog.text
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_a_stop_during_a_failing_record_is_honoured_before_the_next_sample(self, mock_run, tmp_path):
+        """Minor 2: a stop that arrives while recording SRR1 (which then fails) ends the run before SRR2."""
+        from prepare.core.exceptions import DataAccessError
+
+        mock_run.side_effect = _fake_tools({})
+        root, args = self._two_sample_args(tmp_path)
+        stop = self._flaky_record({"SRR1": DataAccessError("disk full")}, on_error=lambda a: a._termination.stop.set())
+        with stop:
+            assert ExtractTargetReadsCommand().run(args) == 130
+        assert not (root / "targeted" / "SRR2").exists()
+
     def test_ignore_selection_flag_parses(self):
         parser = argparse.ArgumentParser()
         ExtractTargetReadsCommand().configure_parser(parser)

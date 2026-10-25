@@ -1,13 +1,7 @@
-"""Targeted read extraction prior to assembly.
-
-Given a parsed containment table (samples x target genomes), this module maps
-each sample's reads against a chosen target genome and keeps only the reads that
-align. The resulting reduced FASTQ set supports a small, targeted assembly rather
-than a whole-metagenome assembly.
-
-The mapping uses minimap2 (one aligner for both short and long reads) and samtools
-to filter and export the mapped reads. External tools run through
-``SecureSubprocess.run_secure`` and must be present on the system.
+"""Targeted read extraction prior to assembly: maps each sample's reads (from a parsed
+containment table, samples x target genomes) against one target genome with minimap2 and
+keeps the reads that align, through samtools, for a small targeted assembly. External tools
+run through ``SecureSubprocess.run_secure``.
 """
 
 import json
@@ -95,23 +89,21 @@ def _notify_result(
     on_result: Optional[Callable[[str, "ExtractionResult"], None]],
     accession: str,
     result: "ExtractionResult",
-    deferred: List[TransientError],
+    deferred: List[Tuple[str, PrepareError]],
 ) -> None:
     """Call ``on_result`` so a failing callback never stops the run, but is not forgotten.
 
     The callback records the result (a registry write). A ``PrepareError`` is logged so the
-    remaining samples are still extracted; a ``TransientError`` (a lock timeout) is also kept
-    in ``deferred`` for the caller to raise after the loop (exit 4). Anything else propagates.
+    remaining samples are still extracted, and kept in ``deferred`` with the accession for the
+    caller to report after the loop. Anything else propagates.
     """
     if on_result is None:
         return
     try:
         on_result(accession, result)
-    except TransientError as e:
-        logger.warning("Recording the extraction result for %s failed: %s (reported after the run)", accession, e)
-        deferred.append(e)
     except PrepareError as e:
-        logger.warning("Recording the extraction result for %s failed: %s", accession, e)
+        logger.warning("Recording the extraction result for %s failed: %s (reported after the run)", accession, e)
+        deferred.append((accession, e))
 
 
 def resolve_index_path(genome_fasta: Union[str, Path], preset: str, index_dir: Union[str, Path]) -> Path:
@@ -586,6 +578,7 @@ def extract_target_reads(
     keep_sam: bool = False,
     available: Optional[Set[str]] = None,
     samples: Optional[List[str]] = None,
+    record_failures: Optional[List[Tuple[str, PrepareError]]] = None,
 ) -> Dict[str, ExtractionResult]:
     """Extract reads mapping to a target genome for every qualifying sample.
 
@@ -608,8 +601,9 @@ def extract_target_reads(
             (unless ``force``) when its genome FASTA, preset and mapping quality floor still
             match this call and its files are still on disk (or it mapped 0).
         on_result: Called on the main thread with (accession, result) after each real-run
-            sample, skipped ones included, so the caller can checkpoint as it lands. A raising
-            callback is logged, not fatal. Dry runs never call it.
+            sample, skipped ones included, so the caller can checkpoint as it lands. A
+            ``PrepareError`` it raises is logged, not fatal (see ``record_failures``). Dry runs
+            never call it.
         min_mapq: Minimum mapping quality (samtools ``-q``) kept, beyond dropping
             secondary/supplementary alignments. 0 keeps every mapped record, since a divergent
             strain of the target genome can map with a genuinely low MAPQ.
@@ -629,6 +623,10 @@ def extract_target_reads(
         samples: The accessions to extract, as ``selected_samples`` returns them (the table
             bounded by the registry's exclusions and selection). ``None`` takes every sample
             of the table at ``threshold``.
+        record_failures: A list that receives ``(accession, error)`` for every ``PrepareError``
+            ``on_result`` raised, so
+            the caller decides what they mean for the run; nothing is raised for them. ``None``
+            raises the first ``TransientError`` (a lock timeout) after the loop instead.
 
     Returns:
         Mapping of accession to an ``ExtractionResult`` (empty files in dry-run).
@@ -667,7 +665,7 @@ def extract_target_reads(
         sam_dir = Path(temp_folder)
         SecureSubprocess.add_allowed_root(sam_dir)
 
-    deferred: List[TransientError] = []
+    deferred: List[Tuple[str, PrepareError]] = [] if record_failures is None else record_failures
     for accession in samples:
         if _skip_if_truncated(accession, truncated_downloads.get(accession), allow_truncated):
             continue
@@ -695,6 +693,8 @@ def extract_target_reads(
         if not dry_run:
             _notify_result(on_result, accession, result, deferred)
 
-    if deferred:
-        raise deferred[0]
+    if record_failures is None:
+        for _, error in deferred:
+            if isinstance(error, TransientError):
+                raise error
     return results
