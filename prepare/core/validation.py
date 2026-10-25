@@ -58,9 +58,12 @@ GENOME_FILE_SUFFIXES = (
 def genome_name(path: Union[str, Path]) -> str:
     """The genome id of a FASTA or signature file: its name without the FASTA suffix and ``.gz``.
 
-    ``G.fna.gz`` and ``G.fna`` both give ``G``; a file with another suffix gives its stem.
+    ``G.fna.gz`` and ``G.fna`` both give ``G``; a file with another suffix gives its stem. A
+    file that is only a suffix (``.fna``) keeps its name.
     """
     name = Path(path).name
+    if name in GENOME_FILE_SUFFIXES:
+        return name
     for suffix in GENOME_FILE_SUFFIXES:
         if name.endswith(suffix):
             return name[: -len(suffix)]
