@@ -270,14 +270,7 @@ def assembly_coverage(
         Optional[float]}``, the last None when the assembly has no contigs to spread reads over.
     """
     work_root = Path(work_dir)
-    # minimap2 pairs its query files by position, so a singleton file next to the mate files
-    # is mapped in a run of its own rather than paired with a mate file.
-    groups: List[List[Path]] = [[Path(r) for r in reads]]
-    if len(reads) > 2:
-        mates = [r for r in groups[0] if not is_singleton_file(r)]
-        singles = [r for r in groups[0] if is_singleton_file(r)]
-        groups = [group for group in (mates, singles) if group]
-    reads_mapped = sum(_count_back_mapped(contigs, group, preset, threads, work_root) for group in groups)
+    reads_mapped = sum(_count_back_mapped(contigs, group, preset, threads, work_root) for group in _query_groups(reads))
 
     mapping_rate = reads_mapped / mapped_reads if mapped_reads else None
     avg_read_len = _average_read_length(reads[0]) if reads else 0.0
@@ -292,6 +285,20 @@ def assembly_coverage(
         "mapping_rate": mapping_rate,
         "mean_depth_estimate": mean_depth_estimate,
     }
+
+
+def _query_groups(reads: Sequence[Union[str, Path]]) -> List[List[Path]]:
+    """The read files in the groups minimap2 maps together: the mate files, then the singleton file.
+
+    minimap2 pairs its query files by position, so a singleton file next to the mate files is
+    mapped in a run of its own rather than paired with a mate file.
+    """
+    paths = [Path(r) for r in reads]
+    if len(paths) <= 2:
+        return [paths]
+    mates = [r for r in paths if not is_singleton_file(r)]
+    singles = [r for r in paths if is_singleton_file(r)]
+    return [group for group in (mates, singles) if group]
 
 
 def _count_back_mapped(
