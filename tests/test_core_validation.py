@@ -44,3 +44,10 @@ class TestGenomeName:
 
         assert genome_name(Path("/x") / name) == expected
         assert genome_name(name) == expected
+
+    @pytest.mark.parametrize("name", [".fna", ".fna.gz", ".sig"])
+    def test_a_file_that_is_only_a_suffix_keeps_its_name(self, name):
+        """Minor 4: a dot-file named like a suffix is not the empty genome id."""
+        from prepare.core.validation import genome_name
+
+        assert genome_name(name) == name

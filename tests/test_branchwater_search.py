@@ -51,6 +51,42 @@ class TestSketchFasta:
         assert signature["signatures"][0]["mins"] == sketch_fasta(plain)["signatures"][0]["mins"]
         assert signature["name"] == "G"
 
+    def test_sketch_fasta_reports_a_truncated_gzip(self, tmp_path):
+        """Minor 5: a download cut short (the gzip stream ends without its trailer) is a DataAccessError."""
+        import gzip
+
+        from prepare.core.exceptions import DataAccessError
+
+        pytest.importorskip("sourmash")
+        whole = gzip.compress(b">g\n" + b"ACGT" * 500 + b"\n")
+        path = tmp_path / "g.fna.gz"
+        path.write_bytes(whole[: len(whole) // 2])
+        with pytest.raises(DataAccessError, match="Cannot read"):
+            sketch_fasta(path)
+
+    def test_sketch_fasta_rejects_a_fake_gzip_header(self, tmp_path):
+        """Review focus 4: the gzip magic followed by plain text."""
+        from prepare.core.exceptions import DataAccessError
+
+        pytest.importorskip("sourmash")
+        path = tmp_path / "g.fna.gz"
+        path.write_bytes(b"\x1f\x8b>g\nACGT\n")
+        with pytest.raises(DataAccessError, match="Cannot read"):
+            sketch_fasta(path)
+
+    @pytest.mark.parametrize(
+        "body", [b"hello world\n", b">g\xe9\nACGT\n", b"\x00\x01\x02\x03"], ids=["text", "latin1", "binary"]
+    )
+    def test_sketch_fasta_rejects_a_file_that_is_not_a_fasta(self, tmp_path, body):
+        """Review: a file that is not FASTA, or not UTF-8, is a DataAccessError, not a traceback."""
+        from prepare.core.exceptions import DataAccessError
+
+        pytest.importorskip("sourmash")
+        path = tmp_path / "g.fna"
+        path.write_bytes(body)
+        with pytest.raises(DataAccessError, match="Cannot read"):
+            sketch_fasta(path)
+
     def test_builds_k21_scaled1000_signature(self, tmp_path):
         pytest.importorskip("sourmash")
         fasta = tmp_path / "GCF_000000001.1.fna"

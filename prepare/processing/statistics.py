@@ -4,6 +4,7 @@ Statistical analysis for PREPARE.
 This module provides functions for statistical analysis of genomic data.
 """
 
+import math
 import logging
 import numpy as np
 import pandas as pd
@@ -359,12 +360,14 @@ def holm_adjusted(p_values: Sequence[float]) -> List[float]:
     """Holm step-down adjusted p-values, in the order given, each capped at 1.
 
     The smallest raw p-value is multiplied by the number of tests, the next by one less, and
-    so on; each adjusted value is at least the one before it in that order.
+    so on; each adjusted value is at least the one before it in that order. A NaN (a test that
+    produced no p-value) stays NaN and is not counted among the tests.
     """
-    order = sorted(range(len(p_values)), key=lambda i: p_values[i])
-    adjusted = [0.0] * len(p_values)
+    finite = [i for i, p in enumerate(p_values) if math.isfinite(p)]
+    order = sorted(finite, key=lambda i: p_values[i])
+    adjusted = [float("nan")] * len(p_values)
     running = 0.0
     for rank, index in enumerate(order):
-        running = max(running, (len(p_values) - rank) * p_values[index])
+        running = max(running, (len(finite) - rank) * p_values[index])
         adjusted[index] = min(1.0, running)
     return adjusted

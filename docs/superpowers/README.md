@@ -36,3 +36,4 @@ the current behaviour is in the user and developer guides listed in [../README.m
 | 2026-10-21 | [plans/2026-10-21-tech-debt-quick-wins.md](plans/2026-10-21-tech-debt-quick-wins.md) | plan | 0.11.1 | done |
 | 2026-10-21 | [audits/2026-10-21-pipeline-gui-audit.md](audits/2026-10-21-pipeline-gui-audit.md) | audit | 0.11.2 (High findings), 0.12.0 (Medium findings); the Low findings are open | open |
 | 2026-10-21 | [plans/2026-10-21-pipeline-gui-medium-fixes.md](plans/2026-10-21-pipeline-gui-medium-fixes.md) | plan | 0.12.0 | done |
+| 2026-10-25 | [plans/2026-10-25-review-minors.md](plans/2026-10-25-review-minors.md) | plan | 0.12.1 | done |

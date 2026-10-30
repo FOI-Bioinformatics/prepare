@@ -66,7 +66,8 @@ def sketch_fasta(fasta_path: Union[str, Path]) -> Dict[str, Any]:
 
     Raises:
         ConfigurationError: If sourmash is not installed.
-        DataAccessError: If the file is missing or holds no sequences.
+        DataAccessError: If the file is missing, cannot be read (a truncated or corrupt
+            gzip among the reasons) or holds no sequences.
     """
     sourmash = require("sourmash", "sourmash", "Sketching a genome")
     signature_module = require("sourmash.signature", "sourmash", "Sketching a genome")
@@ -78,10 +79,13 @@ def sketch_fasta(fasta_path: Union[str, Path]) -> Dict[str, Any]:
 
     minhash = sourmash.MinHash(n=0, ksize=KSIZE, scaled=SCALED)
     n_records = 0
-    with _open_text(path) as handle:
-        for record in SeqIO.parse(handle, "fasta"):
-            minhash.add_sequence(str(record.seq).upper(), force=True)
-            n_records += 1
+    try:
+        with _open_text(path) as handle:
+            for record in SeqIO.parse(handle, "fasta"):
+                minhash.add_sequence(str(record.seq).upper(), force=True)
+                n_records += 1
+    except (OSError, EOFError, zlib.error, UnicodeDecodeError, ValueError) as e:  # not FASTA, not UTF-8, bad gzip
+        raise DataAccessError(f"Cannot read {path}: {e}") from e
     if n_records == 0:
         raise DataAccessError(f"No sequences found in {path}")
 

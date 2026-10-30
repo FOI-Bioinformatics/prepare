@@ -335,6 +335,18 @@ def test_genome_id_of_a_gz_fasta_drops_both_suffixes(tmp_path):
     assert (tmp_path / "matches" / "G.csv").is_file()
 
 
+def test_a_corrupt_genome_gzip_is_exit_1_not_a_traceback(tmp_path, caplog):
+    """Minor 5: a truncated .fna.gz fails the command through self.fail."""
+    _dataset(tmp_path)
+    whole = gzip.compress(_genome(tmp_path).read_bytes())
+    packed = tmp_path / "G.fna.gz"
+    packed.write_bytes(whole[: len(whole) // 2])
+
+    with caplog.at_level(logging.ERROR):
+        assert SRASketchCommand().execute(_args(tmp_path, genome_fasta=str(packed))) == 1
+    assert "Cannot read" in caplog.text
+
+
 def test_store_cache_round_trip(tmp_path, monkeypatch):
     from prepare.store.catalog import Catalog
     from prepare.store.layout import init_store, store_paths

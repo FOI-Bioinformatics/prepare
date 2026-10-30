@@ -1056,6 +1056,17 @@ class TestStatisticalAnalysis:
         assert holm_adjusted([0.6, 0.7]) == [1.0, 1.0]
         assert holm_adjusted([]) == []
 
+    def test_holm_adjusted_leaves_nan_out_of_the_correction(self):
+        """Minor 3: a test without a p-value is neither significant nor counted among the tests."""
+        import math
+
+        from prepare.processing.statistics import holm_adjusted
+
+        adjusted = holm_adjusted([float("nan"), 0.01, 0.03])
+        assert math.isnan(adjusted[0])
+        assert [round(p, 6) for p in adjusted[1:]] == [0.02, 0.03]  # m = 2, not 3
+        assert all(math.isnan(p) for p in holm_adjusted([float("nan"), float("nan")]))
+
     def test_recommendation_names_the_correction(self):
         tests = {"avg_read_length": {"significant": True, "p_value": 0.001, "p_adjusted": 0.004}}
         recommendations = self.analyzer._generate_comparative_recommendations({}, tests, [])

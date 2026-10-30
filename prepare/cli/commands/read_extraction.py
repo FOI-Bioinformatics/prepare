@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 from prepare.cli.base import finite_float, BaseCommand, anchored_folder
 from prepare.cli.commands.extraction_assembly import assemble_samples
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD
-from prepare.core.exceptions import PrepareError
+from prepare.core.exceptions import PrepareError, TransientError
 from prepare.core import settings
 from prepare.core.settings import SETTINGS, setting_for
 from prepare.data import registry_blocks as rb
@@ -467,20 +467,35 @@ class ExtractTargetReadsCommand(BaseCommand):
         ``extract_target_reads``'s ``samples`` list is never started.
         """
         timing = clock.lap() if clock is not None else None
-        self._record_result(args, accession, outcome, store, timing, recorded)
-        if progress is not None:
-            if outcome.skipped:
-                state = "skipped"
-            else:
-                state = f"{outcome.mapped_records} mapped reads" if outcome.files else "no reads mapped"
-            self.logger.log(progress.item_level, "%s: %s", accession, state)
-            progress.update(True)
-        if clock is not None:
-            # The registry write above is bookkeeping, not part of the next sample's extraction.
-            clock.restart()
-        term = getattr(args, "_termination", None)
-        if term is not None and term.stop.is_set():
-            raise KeyboardInterrupt(f"extract_target_reads stopped after {accession}")
+        try:
+            self._record_result(args, accession, outcome, store, timing, recorded)
+            if progress is not None:
+                if outcome.skipped:
+                    state = "skipped"
+                else:
+                    state = f"{outcome.mapped_records} mapped reads" if outcome.files else "no reads mapped"
+                self.logger.log(progress.item_level, "%s: %s", accession, state)
+                progress.update(True)
+        finally:
+            # Checked even when the record failed (the failure is reported after the run), so
+            # a stop that arrived during the write is not one sample late.
+            if clock is not None:
+                # The registry write above is bookkeeping, not part of the next sample's extraction.
+                clock.restart()
+            term = getattr(args, "_termination", None)
+            if term is not None and term.stop.is_set():
+                raise KeyboardInterrupt(f"extract_target_reads stopped after {accession}")
+
+    def _fail_for_recording(self, failures: List[Tuple[str, PrepareError]], exit_code: int) -> int:
+        """The exit code once the run's recording failures are reported: ``exit_code`` when there
+        are none; otherwise the first transient failure's (4), or the first failure's (1) if that
+        is above ``exit_code``."""
+        if not failures:
+            return exit_code
+        named = ", ".join(f"{acc} ({(str(e).splitlines() or [''])[0]})" for acc, e in failures)
+        self.logger.error("Recording failed for %d sample(s): %s", len(failures), named)
+        first = next((e for _, e in failures if isinstance(e, TransientError)), failures[0][1])
+        return max(exit_code, self.fail(first, "Error recording extraction results"))
 
     @staticmethod
     def _progress_reporter(selected: List[str], available: Set[str], already_done: Dict[str, Any]) -> ProgressReporter:
@@ -608,6 +623,7 @@ class ExtractTargetReadsCommand(BaseCommand):
                 progress = self._progress_reporter(selected, available, already_done)
 
             clock = Stopwatch()
+            record_failures: List[Tuple[str, PrepareError]] = []
             with self._sample_lines_at_item_level(progress):
                 results = extract_target_reads(
                     parsed_containment=args.parsed_containment,
@@ -632,6 +648,7 @@ class ExtractTargetReadsCommand(BaseCommand):
                     keep_sam=args.debug_keep_sam,
                     samples=selected,
                     available=available,
+                    record_failures=record_failures,
                 )
             if progress is not None:
                 progress.finish()
@@ -649,7 +666,7 @@ class ExtractTargetReadsCommand(BaseCommand):
             run_log.note_run(args, summary={**summary, "with_reads": len(with_reads), "skipped": skipped})
             if not with_reads:
                 self._report_no_reads(args, results)
-                return 1
+                return self._fail_for_recording(record_failures, 1)
 
             if args.assemble:
                 assembly = assemble_samples(self, args, with_reads, results, store)
@@ -663,7 +680,7 @@ class ExtractTargetReadsCommand(BaseCommand):
                     lines = {acc: (why.splitlines() or [""])[0] for acc, why in assembly.failed.items()}
                     failed = ", ".join(f"{acc} ({line})" for acc, line in lines.items())
                     self.logger.error("Assembly failed for %d sample(s): %s", len(assembly.failed), failed)
-                    return 1
-            return 0
+                    return self._fail_for_recording(record_failures, 1)
+            return self._fail_for_recording(record_failures, 0)
         except PrepareError as e:
             return self.fail(e, "Error extracting target reads")

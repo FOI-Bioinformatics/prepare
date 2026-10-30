@@ -356,6 +356,37 @@ class TestExtractTargetReads:
         assert seen == ["SRR1", "SRR2"]
 
     @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_record_failures_collects_every_recording_error_and_raises_nothing(self, mock_run):
+        """Minors 1 and 2: with the out-parameter, the caller sees every recording error after the loop."""
+        from prepare.core.exceptions import DataAccessError, LockTimeoutError
+
+        mock_run.side_effect = _fake_tools({})
+        errors = {"SRR1": LockTimeoutError("registry lock held"), "SRR2": DataAccessError("disk full")}
+
+        def on_result(accession, result):
+            if accession in errors:
+                raise errors[accession]
+
+        failures = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root, table, genome = _make_tree(tmp, paired=True)
+            results = extract_target_reads(
+                parsed_containment=table,
+                genome_id="GCF_1",
+                genome_fasta=genome,
+                fastq_folder=root / "fastq",
+                output_folder=root / "targeted",
+                threshold=0.3,
+                on_result=on_result,
+                record_failures=failures,
+            )
+        assert set(results) == {"SRR1", "SRR2"}
+        assert [(acc, type(e).__name__) for acc, e in failures] == [
+            ("SRR1", "LockTimeoutError"),
+            ("SRR2", "DataAccessError"),
+        ]
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_an_unexpected_callback_error_propagates(self, mock_run):
         """A bug in the callback is not hidden behind a warning."""
         mock_run.side_effect = _fake_tools({})
@@ -677,6 +708,27 @@ class TestSamHitOnly:
 
         assert result["reads_mapped"] == 2
         assert result["mapping_rate"] == 1.0
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_assembly_coverage_counts_the_singleton_file_in_a_second_run(self, mock_run, tmp_path):
+        """Minor 7: mates in one minimap2 run, the singleton in another; the counts add up."""
+        state = {"sam_records": self.RECORDS}
+        mock_run.side_effect = _fake_tools(state)
+        contigs = tmp_path / "final.contigs.fa"
+        contigs.write_text(">c1 len=10\nACGT\n")
+        reads = [tmp_path / f"GCF_1_{tag}.fastq.gz" for tag in ("1", "2", "s")]
+        for path in reads:
+            with gzip.open(path, "wt") as handle:
+                handle.write("@r\nACGT\n+\nIIII\n")
+
+        result = assembly_coverage(contigs, reads, "sr", 1, tmp_path, mapped_reads=4)
+
+        aligns = [args for exe, args in state["calls"] if exe == "minimap2" and "-o" in args]
+        queried = [[x for x in a if x.endswith(".fastq.gz")] for a in aligns]
+        assert queried == [[str(reads[0]), str(reads[1])], [str(reads[2])]]
+        assert result["reads_mapped"] == 4  # 2 from each run of the fake
+        assert result["mapping_rate"] == 1.0
+        assert not (tmp_path / "coverage.sam").exists() and not (tmp_path / "coverage.bam").exists()
 
 
 class TestTruncatedDownloadSkip:

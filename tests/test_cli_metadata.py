@@ -238,6 +238,42 @@ def test_download_metadata_exit_1_when_an_accession_has_no_metadata(tmp_path, ca
     assert folder.is_dir()
 
 
+def test_download_metadata_exits_4_when_some_accessions_failed_for_a_network_reason(tmp_path, caplog):
+    """Minor 6: the fetched one is recorded, the missing one is named, and the exit says retry."""
+    import logging
+
+    accessions = tmp_path / "accessions.txt"
+    accessions.write_text("SRR1000000\nSRR1000001\n")
+    (good,) = write_metadata_folder(tmp_path / "fetched", count=1, per_file=4, pool=10)
+    batches = [({"SRR1000000": good}, {"SRR1000001": "network: connection refused"})]
+    with (
+        patch("prepare.data.metadata._download_batch_metadata", side_effect=batches),
+        caplog.at_level(logging.ERROR),
+    ):
+        assert DownloadMetadataCommand().execute(_download_args(tmp_path, accessions_file=str(accessions))) == 4
+    assert "SRR1000001" in caplog.text
+    assert "SRR1000000" in json.loads((tmp_path / "prepare_registry.json").read_text())["datasets"]
+
+
+def test_download_metadata_failure_line_names_at_most_ten_accessions(tmp_path, caplog):
+    """Minor 6: twelve missing accessions give a line with ten names and a count of the rest."""
+    import logging
+
+    missing = [f"SRR{2000000 + i}" for i in range(12)]
+    accessions = tmp_path / "accessions.txt"
+    accessions.write_text("".join(f"{acc}\n" for acc in missing))
+    batches = [({}, {acc: "not in the NCBI response" for acc in missing})]
+    with (
+        patch("prepare.data.metadata._download_batch_metadata", side_effect=batches),
+        caplog.at_level(logging.ERROR),
+    ):
+        assert DownloadMetadataCommand().execute(_download_args(tmp_path, accessions_file=str(accessions))) == 1
+    line = next(
+        r.getMessage() for r in caplog.records if r.levelno == logging.ERROR and "No metadata" in r.getMessage()
+    )
+    assert line.count("SRR") == 10 and line.endswith("and 2 more")
+
+
 def test_download_metadata_unreadable_matches_csv_is_exit_1(tmp_path):
     """A match file in another format stops the run with exit 1."""
     matches = tmp_path / "matches"

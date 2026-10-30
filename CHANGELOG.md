@@ -2,6 +2,28 @@
 
 All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM-DD format.
 
+## [0.12.1] - 2026-10-25
+
+The seven Minor findings the 0.12.0 review deferred (`docs/superpowers/plans/2026-10-25-review-minors.md`).
+
+### Fixed
+
+- `extract_target_reads`: a registry write that fails while recording a sample is reported after the
+  run and sets the exit code (4 for a lock timeout, 1 otherwise) instead of being a warning with exit
+  0 or, for a lock timeout, cutting the run short before the run-log summary and `--assemble`; a stop
+  that arrives during a failing write ends the run before the next sample. The data function takes
+  `record_failures`, a list of `(accession, error)` pairs, for the caller to decide; without it a lock
+  timeout is still raised after the loop.
+- `sra_report`: a test without a p-value (NaN) is left out of the Holm correction and is never
+  reported as significant; it used to be ranked first and adjusted to 0.0.
+- `genome_name` of a file that is only a suffix (`.fna`) is the name, not an empty string.
+- `branchwater_search` and `sra_sketch`: a truncated or corrupt gzipped genome FASTA is an error
+  message (exit 1), not a traceback.
+- `download_metadata` exits 4 when any accession failed for a network reason, so a rerun is the
+  remedy; the error line names at most ten accessions and counts the rest.
+- `extract_target_reads --assemble`: the coverage back-mapping maps the singleton reads in a run of
+  their own, so the mapping rate counts them.
+
 ## [0.12.0] - 2026-10-21
 
 The Medium findings of `docs/superpowers/audits/2026-10-21-pipeline-gui-audit.md` (P2-P13 on the
