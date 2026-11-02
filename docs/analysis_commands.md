@@ -51,7 +51,7 @@ prepare diversity_analysis \
     --permanova-formula "treatment + site"
 ```
 
-The alpha metrics default to `shannon`, `simpson`, `chao1` and `observed_species`. `--beta-metric` is one of `bray_curtis` (the default), `jaccard`, `euclidean` and `manhattan`. The terms of `--permanova-formula` are columns of the metadata table. Results go to `--output-dir` (default `diversity_results`).
+The alpha metrics default to `shannon`, `simpson`, `chao1` and `observed_species`. `--beta-metric` is one of `bray_curtis` (the default), `jaccard`, `euclidean` and `manhattan`. The terms of `--permanova-formula` are columns of the metadata table, so it needs `--metadata-file` (without one the command exits 2). Results go to `--output-dir` (default `diversity_results`).
 
 Each term of `--permanova-formula` is tested on its own as a one-factor PERMANOVA (Anderson 2001) on the beta-diversity distance matrix, with 999 permutations. Samples with a missing value for the term are left out of that test. The pseudo-F statistic uses the standard sums of squares, SS_T = sum of d_ij^2 / N over all pairs and SS_W = sum over groups of the within-group pairs' d_ij^2 / n_g, and the p-value is (1 + the number of permutations with F >= the observed F) / (1 + 999). F and p are reported as nan when fewer than two groups remain. Since 0.10.1 these values differ from those of 0.10.0 and earlier, which used a different sum of squares and no +1 correction; results from earlier versions should be recomputed. The command has no seed option, so the p-value can vary slightly between runs.
 

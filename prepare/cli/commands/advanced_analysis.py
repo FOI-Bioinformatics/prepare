@@ -65,6 +65,8 @@ class DiversityAnalysisCommand(BaseCommand):
         parser.add_argument("--permanova-formula", help="PERMANOVA formula (e.g., 'treatment + site')")
 
     def execute(self, args):
+        if args.permanova_formula and not args.metadata_file:
+            return self.fail(ValidationError("--permanova-formula needs --metadata-file"), self.name)
         # Diversity analysis belongs to the analysis extra; check before any output is written.
         require("sklearn", "analysis", "Diversity analysis")
         from prepare.processing.diversity import (

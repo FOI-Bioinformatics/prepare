@@ -28,6 +28,11 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   and reported as a network failure instead of ending the run with a traceback; a local write error
   (a full disk) is reported as such (exit 1) instead of being retried as "network" with exit 4.
 - `status --init`: a truncated row in a match CSV is skipped instead of failing with a `TypeError`.
+- `extract_target_reads --assemble`: a tool that times out (`--timeout`) fails only its own sample;
+  the loop goes on to the next one instead of ending the run.
+- `download_sra --dry-run` leaves out the accessions the registry excludes, as a real run does.
+- `diversity_analysis --permanova-formula` without `--metadata-file` is a usage error (exit 2); it
+  used to be ignored silently with exit 0.
 
 ## [0.12.1] - 2026-10-25
 

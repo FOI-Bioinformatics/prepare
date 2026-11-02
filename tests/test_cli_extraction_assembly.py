@@ -15,6 +15,7 @@ import pytest
 import prepare.cli.commands.extraction_assembly as asm_mod
 import prepare.data.registry as registry_mod
 from helpers_extraction import _fake_tools, tools_present  # noqa: F401 (autouse fixture)
+from prepare.core.exceptions import SecurityError
 from prepare.cli.commands.extraction_assembly import assemble_samples
 from prepare.cli.commands.read_extraction import ExtractTargetReadsCommand
 from prepare.data.assembly_identity import MARKER_NAME, read_marker
@@ -175,8 +176,12 @@ def test_contig_less_folder_is_redone(mock_run, tmp_path, caplog):
 
 @pytest.mark.parametrize(
     "error",
-    [subprocess.CalledProcessError(1, ["megahit"], stderr="out of memory"), OSError("Permission denied")],
-    ids=["megahit-failed", "os-error"],
+    [
+        subprocess.CalledProcessError(1, ["megahit"], stderr="out of memory"),
+        OSError("Permission denied"),
+        SecurityError("Command timed out after 0.5 s"),
+    ],
+    ids=["megahit-failed", "os-error", "timeout"],
 )
 @patch(RUN_SECURE)
 def test_one_failed_sample_does_not_stop_the_next_and_the_run_exits_1(mock_run, error, tmp_path, caplog):

@@ -81,6 +81,20 @@ class TestDiversityAnalysisCommand:
         assert args.beta_metric == "jaccard"
         assert args.permanova_formula == "treatment + site"
 
+    def test_permanova_formula_without_metadata_is_a_usage_error(self, tmp_path):
+        """--permanova-formula needs --metadata-file; it is refused, not silently dropped."""
+        args = argparse.Namespace(
+            abundance_file="abundance.csv",
+            metadata_file=None,
+            output_dir=str(tmp_path / "out"),
+            alpha_metrics=["shannon"],
+            beta_metric="bray_curtis",
+            permanova_formula="treatment",
+        )
+
+        assert DiversityAnalysisCommand().execute(args) == 2
+        assert not (tmp_path / "out").exists()
+
     @requires_analysis
     @patch("prepare.processing.diversity.calculate_alpha_diversity")
     @patch("prepare.processing.diversity.calculate_beta_diversity")

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from prepare.cli.base import BaseCommand
-from prepare.core.exceptions import ConfigurationError, ProcessingError
+from prepare.core.exceptions import ConfigurationError, ProcessingError, SecurityError
 from prepare.core.settings import setting_for
 from prepare.data import registry_blocks as rb
 from prepare.data.assembly import assembly_memory
@@ -271,8 +271,9 @@ def _assemble_one(
         command.logger.info("%s: assembly against %s is in progress elsewhere; skipped", accession, args.genome_id)
         outcome.busy.append(accession)
         return
-    except (ProcessingError, OSError, subprocess.SubprocessError) as exc:
-        # megahit, publishing the folder, or the coverage mapping (minimap2/samtools) failed.
+    except (ProcessingError, SecurityError, OSError, subprocess.SubprocessError) as exc:
+        # megahit, publishing the folder, or the coverage mapping (minimap2/samtools) failed;
+        # run_secure reports a timeout (--timeout) as a SecurityError.
         command.logger.error("%s: assembly against %s failed: %s", accession, args.genome_id, exc)
         outcome.failed[accession] = str(exc)
         return
