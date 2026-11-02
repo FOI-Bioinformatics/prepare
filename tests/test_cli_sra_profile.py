@@ -201,6 +201,16 @@ def test_every_accession_folder_is_profiled_by_default_and_hidden_ones_are_skipp
     assert list(pd.read_csv(tmp_path / "sra_statistics.csv")["accession"]) == ["SRR1"]
 
 
+def test_a_folder_not_named_like_an_accession_is_not_profiled(tmp_path):
+    """A notes or QC folder beside the datasets is skipped, not a failed accession (exit 1)."""
+    _paired_dataset(tmp_path, "SRR1")
+    (tmp_path / "fastq" / "qc_notes").mkdir()
+
+    assert SRAProfileCommand().execute(_args(tmp_path)) == 0
+
+    assert list(pd.read_csv(tmp_path / "sra_statistics.csv")["accession"]) == ["SRR1"]
+
+
 def test_paired_and_single_layouts_are_detected(tmp_path):
     _paired_dataset(tmp_path, "SRR1")
     single = tmp_path / "fastq" / "SRR2"

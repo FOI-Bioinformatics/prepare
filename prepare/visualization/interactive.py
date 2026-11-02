@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import logging
+import re
 import numpy as np
 import pandas as pd
 from types import ModuleType
@@ -71,9 +72,12 @@ _PAGE = """<!DOCTYPE html>
 
 
 def _figure_title(fig, output_path: Path) -> str:
-    """The figure's title text, else the output file's stem."""
+    """The figure's title as plain text (plotly's ``<br>``/``<sub>`` markup removed), else the file stem."""
     title = getattr(getattr(fig.layout, "title", None), "text", None)
-    return str(title) if title else output_path.stem
+    if not title:
+        return output_path.stem
+    text = re.sub(r"<[^>]*>", "", re.sub(r"<br\s*/?>", " ", str(title), flags=re.IGNORECASE))
+    return " ".join(text.split()) or output_path.stem
 
 
 def _write_figure(fig, output_file: Union[str, Path]) -> Path:

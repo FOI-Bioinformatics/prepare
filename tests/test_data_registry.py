@@ -857,6 +857,15 @@ class TestScanners:
         assert r.datasets["SRR2"]["screening"]["genomes"]["GCF_1"]["containment"] == 0.6
         assert r.datasets["SRR2"]["screening"]["genomes"]["GCF_1"]["cani"] is None
 
+    def test_bootstrap_skips_a_short_row(self, tmp_path):
+        """A truncated line (no containment column) is skipped, not a TypeError."""
+        paths = _project(tmp_path)
+        paths.matches.mkdir(parents=True)
+        (paths.matches / "GCF_1.csv").write_text("acc,containment,cANI\nSRR1,0.5,0.9\nSRR2\n")
+        r = reg.bootstrap_from_disk(paths)
+        assert r.datasets["SRR1"]["screening"]["genomes"]["GCF_1"]["containment"] == 0.5
+        assert "SRR2" not in r.datasets
+
     def test_bootstrap_and_reconcile(self, tmp_path):
         paths = _project(tmp_path)
         _fastq(paths.fastq / "SRR1" / "SRR1_1.fastq")

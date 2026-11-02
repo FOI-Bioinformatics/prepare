@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Dict, List
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import BaseCommand, refuse_bad_accessions
 from prepare.core.exceptions import PrepareError
 from prepare.data import registry_blocks as rb
 from prepare.data import run_log
@@ -77,6 +77,9 @@ class BlacklistCommand(BaseCommand):
                 if not args.reason:
                     raise PrepareError("--reason is required when adding to the blacklist")
                 accessions = args.add or _read_plain_list(Path(args.from_file))
+                refused = refuse_bad_accessions(self.logger, accessions)
+                if refused is not None:
+                    return refused
             blacklist_path = Path(args.blacklist_file)
 
             def update(registry: Registry) -> int:
@@ -112,6 +115,7 @@ class BlacklistCommand(BaseCommand):
 
 
 def _read_plain_list(path: Path) -> List[str]:
+    """Accessions in ``path``: one per line, a trailing ``# reason`` and comment lines ignored."""
     if not path.exists():
         raise PrepareError(f"Accession file not found: {path}")
-    return [ln.strip() for ln in path.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+    return list(read_blacklist_file(path))

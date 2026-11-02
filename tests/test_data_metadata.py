@@ -459,6 +459,41 @@ class TestDownloadBatchMetadata:
             assert parsed["Run_Total_Spots"] == spots
             assert parsed["Run_Size"] == size
 
+    def test_a_non_xml_reply_is_retried_then_reported_as_a_network_failure(self, tmp_path):
+        """An HTML error page with HTTP 200 is retried like a 5xx reply, never a traceback."""
+        metadata_path = tmp_path / "metadata"
+        metadata_path.mkdir()
+        mock_handle = MagicMock()
+        mock_handle.read.return_value = b"<html><body>Service unavailable"
+
+        with patch("prepare.data.metadata.Entrez.efetch", return_value=mock_handle) as mock_efetch:
+            with patch("prepare.data.metadata_fetch._pace_requests"), patch("time.sleep"):
+                successes, failures = _download_batch_metadata(["SRR1", "SRR2"], metadata_path, "a@b.c", None)
+
+        assert successes == {}
+        assert set(failures) == {"SRR1", "SRR2"}
+        assert all(reason.startswith("network: ") for reason in failures.values())
+        assert mock_efetch.call_count == 3
+
+    def test_a_local_write_error_is_not_retried_as_a_network_failure(self, tmp_path):
+        """A full disk raises out at once instead of three retries labelled 'network'."""
+        metadata_path = tmp_path / "metadata"
+        metadata_path.mkdir()
+        mock_handle = MagicMock()
+        mock_handle.read.return_value = _package_xml([("SRR1", {"total_spots": "10"})]).encode()
+        disk_full = OSError(28, "No space left on device")
+
+        with patch("prepare.data.metadata.Entrez.efetch", return_value=mock_handle) as mock_efetch:
+            with patch("prepare.data.metadata_fetch._pace_requests"), patch("time.sleep") as mock_sleep:
+                with patch("prepare.data.metadata_fetch._write_metadata_file", side_effect=disk_full):
+                    with pytest.raises(OSError, match="No space left"):
+                        _download_batch_metadata(["SRR1"], metadata_path, "a@b.c", None)
+                    with pytest.raises(OSError, match="No space left"):
+                        _download_single_metadata("SRR1", metadata_path, "a@b.c", None)
+
+        assert mock_efetch.call_count == 2
+        mock_sleep.assert_not_called()
+
     def test_accession_missing_from_response_is_reported_failed(self, tmp_path):
         """An accession NCBI doesn't return is a failure, and efetch was called only once."""
         metadata_path = tmp_path / "metadata"

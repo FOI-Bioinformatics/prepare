@@ -268,11 +268,12 @@ class SequenceQualityAnalyzer:
         homopolymer_rates = []
 
         for seq in sequences[:1000]:  # Sample first 1000 sequences
-            # K-mer diversity (using 3-mers)
+            # K-mer diversity: distinct 3-mers over the most a read of this length can hold
+            # (min of its 3-mer count and the 64 ACGT 3-mers), so a long read is not
+            # penalised for repeating 3-mers it cannot avoid.
             kmers = [seq[i : i + 3] for i in range(len(seq) - 2)]
-            unique_kmers = len(set(kmers))
-            total_kmers = len(kmers)
-            kmer_diversities.append(unique_kmers / total_kmers if total_kmers > 0 else 0)
+            possible = min(len(kmers), 64)
+            kmer_diversities.append(min(1.0, len(set(kmers)) / possible) if possible > 0 else 0)
 
             # Homopolymer run detection
             homopolymer_count = 0

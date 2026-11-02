@@ -146,17 +146,24 @@ class NCBITaxonomyClient:
         el = parent.find(tag)
         return (el.text or "") if el is not None else ""
 
-    @staticmethod
-    def _parse_lineage(taxon) -> str:
-        """Build a 'rank:name;...' lineage string from a <Taxon>'s LineageEx."""
+    @classmethod
+    def _parse_lineage(cls, taxon) -> str:
+        """Build a 'rank:name;...' lineage string from a <Taxon>'s LineageEx and the taxon itself.
+
+        LineageEx lists only the ancestors, so the taxon's own rank and name end the lineage
+        (unless NCBI gives it no rank).
+        """
         lineage = []
-        lineage_elem = taxon.find(".//LineageEx")
+        lineage_elem = taxon.find("LineageEx")
         if lineage_elem is not None:
             for taxon_elem in lineage_elem.findall("Taxon"):
                 name = taxon_elem.find("ScientificName")
                 rank_elem = taxon_elem.find("Rank")
                 if name is not None and rank_elem is not None:
                     lineage.append(f"{rank_elem.text}:{name.text}")
+        own_rank, own_name = cls._element_text(taxon, "Rank"), cls._element_text(taxon, "ScientificName")
+        if own_rank and own_name and own_rank != "no rank":
+            lineage.append(f"{own_rank}:{own_name}")
         return ";".join(lineage)
 
     @classmethod
@@ -412,6 +419,10 @@ def _lineages_from_validation_table(taxonomy_data: pd.DataFrame) -> Dict[str, Di
             if ":" in part:
                 rank, name = part.split(":", 1)
                 lineage_dict[rank.lower()] = name
+        # A table written before the lineage ended with the taxon itself: add its own rank.
+        own_rank, own_name = row.get("rank"), row.get("validated_name")
+        if isinstance(own_rank, str) and isinstance(own_name, str) and own_rank and own_rank != "no rank":
+            lineage_dict.setdefault(own_rank.lower(), own_name)
         taxonomy_dict[row["original_name"]] = lineage_dict
     return taxonomy_dict
 

@@ -111,6 +111,20 @@ class TestSequenceQualityAnalyzer:
 
         assert complexity_low["homopolymer_rate_mean"] > 0
 
+    def test_complexity_score_does_not_fall_with_read_length(self):
+        """Random reads score high at any length; a 1 kb random read is not low-complexity."""
+        import random
+
+        rng = random.Random(0)
+        scores = {}
+        for length in (100, 250, 1000, 5000):
+            reads = ["".join(rng.choice("ACGT") for _ in range(length)) for _ in range(20)]
+            scores[length] = self.analyzer._analyze_sequence_complexity(reads)["complexity_score"]
+        assert min(scores.values()) > 0.7, scores
+        assert max(scores.values()) <= 1.0
+        homopolymer = self.analyzer._analyze_sequence_complexity(["A" * 1000])["complexity_score"]
+        assert homopolymer < 0.05
+
     def test_trailing_homopolymer_run_is_counted(self):
         """A run of four or more bases that ends the read counts like one inside it."""
         for seq in ("ACGTAAAA", "AAAACGTA"):
@@ -541,6 +555,35 @@ class TestSRADatasetAnalyzer:
         assert profile.reads_sampled == 10000
         assert profile.sampled is True
 
+    def test_profile_dataset_quality_without_fastq_files_is_an_error(self):
+        """A missing dataset is a failure the callers exclude, not an all-zero 'poor' profile."""
+        with patch.object(self.analyzer, "find_fastq_files", return_value=[]):
+            with pytest.raises(DataAccessError, match="No FASTQ files"):
+                self.analyzer.profile_dataset_quality("SRR123456")
+
+    def test_compare_datasets_leaves_out_an_accession_without_fastq_files(self):
+        profile = QualityProfile(
+            accession="SRR1",
+            total_reads=10000,
+            total_bases=1500000,
+            avg_read_length=150,
+            read_length_distribution={},
+            gc_percent=45.0,
+            gc_histogram={},
+            quality_distribution={},
+            n_content=0.01,
+            contamination_indicators={},
+            complexity_score=0.7,
+            duplication_rate=0.1,
+            technology_confidence=0.5,
+            quality_grade="good",
+            recommendations=[],
+        )
+        with patch.object(self.analyzer, "find_fastq_files", return_value=[]):
+            comparison = self.analyzer.compare_datasets({"A": ["SRR1", "SRR2"]}, profiles={"SRR1": profile})
+        assert "SRR2" not in comparison.visualization_data.get("accessions", ["SRR1"])
+        assert any("SRR2" in line for line in comparison.recommendations)
+
     @patch.object(SequenceQualityAnalyzer, "analyze_fastq_quality")
     def test_profile_dataset_quality_prefers_the_shared_statistics_record(self, mock_analyze):
         """Given the dataset's statistics record, the profile reports the dataset totals and
@@ -813,6 +856,25 @@ class TestSRADatasetAnalyzer:
         assert tests["gc_percent"]["test"] == "skipped (a group has fewer than 2 values)"
         assert math.isnan(tests["gc_percent"]["p_value"]) and tests["gc_percent"]["significant"] is False
         assert "a group has fewer than 2 values" in caplog.text
+
+    def test_statistical_tests_with_one_group_holding_no_data_are_skipped_not_empty(self):
+        """A group whose accessions all failed profiling leaves one group with data: every
+        test is a skipped entry with a note, never an empty dict the report cannot render."""
+        df = pd.DataFrame(
+            {
+                "accession": ["SRR1", "SRR2"],
+                "group": ["A", "A"],
+                "avg_read_length": [150.0, 152.0],
+                "gc_percent": [45.0, 47.0],
+                "total_reads": [10000, 12000],
+                "complexity_score": [0.7, 0.75],
+            }
+        )
+        tests = self.analyzer._perform_statistical_tests(df, {"A": ["SRR1", "SRR2"], "B": ["SRR3"]})
+        assert tests
+        for result in tests.values():
+            assert result["test"].startswith("skipped")
+            assert result["p_value"] is None and result["significant"] is False and result["note"]
 
     def test_compare_datasets_profiles_a_group_accession_missing_from_supplied_profiles(self):
         """A partial ``profiles`` dict must not silently drop the accessions it lacks:

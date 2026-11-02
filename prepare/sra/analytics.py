@@ -178,6 +178,14 @@ def _actions_for_anomalies(tripped_types: set) -> List[str]:
     return actions
 
 
+def _untested(test: str, p_value: Optional[float], note: str = "") -> Dict[str, Any]:
+    """A statistical test entry for a comparison that did not run (never significant)."""
+    entry: Dict[str, Any] = {"test": test, "statistic": np.nan, "p_value": p_value, "significant": False}
+    if note:
+        entry["note"] = note
+    return entry
+
+
 def _record_total(dataset_stats: Optional[Dict[str, Any]], files: Sequence[Path]) -> Optional[int]:
     """Reads across ``files`` from the statistics record's per-file counts, or None when any is missing.
 
@@ -227,6 +235,9 @@ class SRADatasetAnalyzer:
 
         Returns:
             QualityProfile with comprehensive analysis; GC in percent
+
+        Raises:
+            DataAccessError: when the accession has no FASTQ files
         """
         logger.info(f"Profiling dataset quality for {accession}")
 
@@ -238,15 +249,14 @@ class SRADatasetAnalyzer:
             files = [Path(p) for p in fastq_path]
         files = [f for f in files if f.exists()]
 
-        if files:
-            if dataset_stats is None:
-                dataset_stats = load_dataset_stats(files, sample_size=sample_size)
-            quality_metrics = self.quality_analyzer.analyze_fastq_quality(
-                files, sample_size=sample_size, sampler=sampler, total_records=_record_total(dataset_stats, files)
-            )
-        else:
-            logger.warning(f"FASTQ file not found for {accession}, using metadata only")
-            quality_metrics = {}
+        if not files:
+            # The callers log and exclude a failed profile; an all-zero one would be counted.
+            raise DataAccessError(f"No FASTQ files found for {accession}")
+        if dataset_stats is None:
+            dataset_stats = load_dataset_stats(files, sample_size=sample_size)
+        quality_metrics = self.quality_analyzer.analyze_fastq_quality(
+            files, sample_size=sample_size, sampler=sampler, total_records=_record_total(dataset_stats, files)
+        )
 
         # Extract metrics
         reads_sampled = quality_metrics.get("total_reads_sampled", 0)
@@ -695,27 +705,22 @@ class SRADatasetAnalyzer:
                 if not data.empty:
                     group_data.append(data.values)
 
-            if len(group_data) >= 2 and min(len(values) for values in group_data) < 2:
+            if len(group_data) < 2:
+                # Every other group's accessions failed profiling or lack this figure.
+                tests[col] = _untested("skipped (fewer than 2 groups have data)", None, "At least 2 groups need data")
+            elif min(len(values) for values in group_data) < 2:
                 # A group of one has no variance of its own; the test would give NaN and warnings.
                 logger.info("Not testing %s: a group has fewer than 2 values", col)
-                tests[col] = {
-                    "test": "skipped (a group has fewer than 2 values)",
-                    "statistic": np.nan,
-                    "p_value": np.nan,
-                    "significant": False,
-                    "note": "Each group needs at least 2 datasets for a statistical comparison",
-                }
+                note = "Each group needs at least 2 datasets for a statistical comparison"
+                tests[col] = _untested("skipped (a group has fewer than 2 values)", np.nan, note)
             elif len(group_data) >= 2:
                 # Check if data is nearly identical (would cause precision loss)
                 all_values = np.concatenate(group_data)
                 variance = np.var(all_values)
 
                 if variance < 1e-10:  # Extremely low variance, skip statistical tests
-                    tests[col]["test"] = "skipped (identical values)"
-                    tests[col]["statistic"] = np.nan
-                    tests[col]["p_value"] = 1.0  # No significant difference for identical values
-                    tests[col]["significant"] = False
-                    tests[col]["note"] = "Values too similar for meaningful statistical comparison"
+                    note = "Values too similar for meaningful statistical comparison"
+                    tests[col] = _untested("skipped (identical values)", 1.0, note)
                 else:
                     # Perform t-test if 2 groups, ANOVA if more
                     try:
@@ -724,11 +729,7 @@ class SRADatasetAnalyzer:
                         tests[col]["p_value"] = float(p_value)
                         tests[col]["significant"] = bool(p_value < 0.05)
                     except RuntimeWarning:
-                        # Handle precision loss warnings gracefully
-                        tests[col]["test"] = "failed (precision loss)"
-                        tests[col]["statistic"] = np.nan
-                        tests[col]["p_value"] = np.nan
-                        tests[col]["significant"] = False
+                        tests[col] = _untested("failed (precision loss)", np.nan)
 
         # One correction over the tests that ran: four tests at 0.05 each would otherwise
         # report a chance difference far more often than one in twenty.

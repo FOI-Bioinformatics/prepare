@@ -2,6 +2,60 @@
 
 All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM-DD format.
 
+## [Unreleased]
+
+### Fixed
+
+- `store_adopt` never loses the only copy of a dataset:
+  - an adopt interrupted partway (Ctrl-C, a `--lock-wait` timeout, an I/O error) records every
+    accession it already linked or copied, so `store_gc` no longer sees those store copies as unused;
+  - a sidecar-less store folder is finished only when it holds the same reads as the project's
+    folder; one that differs is a conflict and both copies are kept;
+  - under `--move` the project folder is replaced by a link only after the store copy is checked
+    again under the dataset lock (still there, verified, holding every non-FASTQ file of the
+    folder), and it is renamed aside rather than removed, so a failed link puts it back. A
+    dedup no longer deletes notes or QC files kept beside identical reads.
+- `sra_profile`/`sra_report`: GC, N50, the length histogram, quality and duplication (and, without
+  seqkit, the read lengths and total bases) are sampled over every FASTQ file of a dataset. They
+  came from the first file only, which after `fasterq-dump --split-3` is the few orphan reads in
+  `<ACC>.fastq`. Statistics cached by an earlier version are recomputed once.
+- `sra_validate`: a truncated or corrupt `.fastq.gz` is a FAILED accession with a format error
+  instead of ending the whole run with a traceback.
+- `blacklist --from-file` reads a file in `blacklist.txt`'s own format: a trailing `# reason` and an
+  indented comment line are no longer stored as accessions. `--add` and `--from-file` refuse a value
+  that is not an SRA accession (exit 2).
+- `download_metadata`: a batch reply that is not XML (an HTML error page with HTTP 200) is retried
+  and reported as a network failure instead of ending the run with a traceback; a local write error
+  (a full disk) is reported as such (exit 1) instead of being retried as "network" with exit 4.
+- `status --init`: a truncated row in a match CSV is skipped instead of failing with a `TypeError`.
+- `extract_target_reads --assemble`: a tool that times out (`--timeout`) fails only its own sample;
+  the loop goes on to the next one instead of ending the run.
+- `download_sra --dry-run` leaves out the accessions the registry excludes, as a real run does.
+- `diversity_analysis --permanova-formula` without `--metadata-file` is a usage error (exit 2); it
+  used to be ignored silently with exit 0.
+- `sra_report --groups-file`: a groups file listing an accession in more than one group is refused
+  (exit 2); overlapping groups used to leave a group without data and fail while writing the page. A
+  test that cannot run because fewer than 2 groups have profiled datasets is shown as skipped, and a
+  skipped test shows its reason instead of "p nan" on the page and "p=nan" in the terminal.
+- `sra_profile`/`sra_report`: the complexity score divides a read's distinct 3-mers by the most it
+  could hold (at most 64) instead of by its length, so it no longer falls with read length. Long
+  random reads were flagged as low-complexity anomalies and 250 bp reads got a PCR-duplicate
+  recommendation; scores, grades and group tests on complexity from earlier versions should be
+  recomputed.
+- `SRADatasetAnalyzer.profile_dataset_quality` raises `DataAccessError` for an accession without
+  FASTQ files instead of returning an all-zero "poor" profile, so `compare_datasets`,
+  `detect_dataset_anomalies` and the quality dashboard leave it out as a profiling failure.
+- `validate_taxonomy`: the lineage ends with the taxon's own rank and name (NCBI's LineageEx lists
+  only its ancestors), so `analyze_taxonomy` summarises a name validated at genus rank under that
+  genus instead of `Unclassified_genus`. A table written by an earlier version gets the same result
+  from its `rank` and `validated_name` columns.
+- `interactive_plot` PCA page: the page title shows the plot title as text, not plotly's
+  `<br><sub>` markup.
+- `store_init` run from a subfolder records the project's root (the registry's folder) as the
+  project path and name, not the subfolder.
+- `sra_profile` without named accessions skips a folder in `--fastq-folder` that is not named like an
+  SRA accession, as `sra_validate` does, instead of failing it with exit 1.
+
 ## [0.12.1] - 2026-10-25
 
 The seven Minor findings the 0.12.0 review deferred (`docs/superpowers/plans/2026-10-25-review-minors.md`).

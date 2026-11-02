@@ -85,7 +85,8 @@ def registry_inputs(
 ) -> Tuple[set, dict, set, dict]:
     """The excluded accessions, expected spot counts, truncated accessions and run sizes in the registry.
 
-    All four are empty for a dry run. Expected spot counts are only collected with
+    For a dry run only the exclusions are collected (so it counts what a real run would
+    download); the other three are empty. Expected spot counts are only collected with
     ``--verify-downloads`` (the default): the registry's ``run_total_spots`` first, then, for an
     accession of this run without one, ``ncbi.spots`` in the store sidecar (with a store),
     ``Run_Total_Spots`` in ``<ACC>_metadata.xml`` in the project's ``metadata`` folder and then in
@@ -99,9 +100,9 @@ def registry_inputs(
     expected_spots: dict = {}
     truncated: set = set()
     run_sizes: dict = {}
+    excluded = set(query(project_registry, "excluded"))
     if args.dry_run:
         return excluded, expected_spots, truncated, run_sizes
-    excluded = set(query(project_registry, "excluded"))
     verify = getattr(args, "verify_downloads", True)
     for acc in project_registry.datasets:
         metadata = rb.metadata_block(project_registry, acc) or rb.MetadataBlock()

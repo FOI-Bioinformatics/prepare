@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from prepare.cli.base import BaseCommand, accessions_from_args, anchored_folder, resolve_command_store
 from prepare.core.exceptions import PrepareError, ValidationError
+from prepare.core.validation import validate_accession
 from prepare.data import run_log
 from prepare.data.file_io import visible_files, write_text_atomic
 from prepare.data.registry import load_registry, record_analysis
@@ -146,7 +147,12 @@ class SRAProfileCommand(BaseCommand):
         if named:
             return named
         folder = Path(args.fastq_folder)
-        found = [d.name for d in visible_files(folder, dirs=True) if not is_transient_folder(d.name)]
+        # A folder not named like an accession (notes, QC output) is not a dataset.
+        found = [
+            d.name
+            for d in visible_files(folder, dirs=True)
+            if validate_accession(d.name) and not is_transient_folder(d.name)
+        ]
         if not found:
             raise ValidationError(f"No accession folders in {folder}; give --accession or --accessions-file")
         return found

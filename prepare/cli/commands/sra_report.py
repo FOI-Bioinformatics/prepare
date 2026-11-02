@@ -9,6 +9,7 @@ figures in ``sra_report.json``, and a ``"report"`` analysis is recorded per acce
 
 import argparse
 import json
+import math
 from collections import Counter
 from functools import partial
 from pathlib import Path
@@ -36,6 +37,12 @@ REPORT_JSON = "sra_report.json"
 _GROUPS_EXAMPLE = json.dumps({"Group_A": ["SRR123456", "SRR123457"], "Group_B": ["SRR789012", "SRR789013"]})
 
 
+def _in_several_groups(groups: Dict[str, List[str]]) -> List[str]:
+    """Accessions listed in more than one group, sorted."""
+    counts = Counter(acc for accessions in groups.values() for acc in set(accessions))
+    return sorted(acc for acc, count in counts.items() if count > 1)
+
+
 def load_groups(path: str) -> Dict[str, List[str]]:
     """Accession groups from a JSON file mapping each group name to a list of accessions.
 
@@ -53,6 +60,9 @@ def load_groups(path: str) -> Dict[str, List[str]]:
     )
     if not valid or not groups:
         raise ValidationError(f"Groups file {path} must map group names to accession lists, e.g. {_GROUPS_EXAMPLE}")
+    shared = _in_several_groups(groups)
+    if shared:
+        raise ValidationError(f"Groups file {path} lists accessions in more than one group: {', '.join(shared)}")
     return groups
 
 
@@ -224,7 +234,10 @@ class SRAReportCommand(BaseCommand):
             if "total_reads" in col_stats:
                 self.emit(f"    Mean total reads (mates counted): {col_stats['total_reads']['mean']:,.0f}")
         for test_name, result in comparison.statistical_tests.items():
-            line = f"  {test_name}: {result.get('test', '')} p={result.get('p_value', 1.0):.4f}"
+            p_value = result.get("p_value")
+            line = f"  {test_name}: {result.get('test', '')}"
+            if p_value is not None and not math.isnan(p_value):
+                line += f" p={p_value:.4f}"
             if "p_adjusted" in result:
                 line += f" adjusted={result['p_adjusted']:.4f}"
             self.emit(line + (" *" if result.get("significant") else ""))

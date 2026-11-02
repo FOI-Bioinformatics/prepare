@@ -17,7 +17,7 @@ import pytest
 from prepare.cli.commands import sra_verdicts
 from prepare.cli.commands.sra import DownloadSraCommand
 from prepare.data import registry_blocks as rb
-from prepare.data.registry import Registry, load_registry, save_registry
+from prepare.data.registry import Registry, load_registry, record_exclusion, save_registry
 from prepare.store.layout import init_store
 
 from tests.helpers_processes import FAKE_READS, cli_env, install_fake_tools, run_cli
@@ -237,6 +237,16 @@ def test_registry_inputs_dry_run_is_empty(tmp_path):
     registry = load_registry(tmp_path / "prepare_registry.json")
 
     assert sra_verdicts.registry_inputs(_parse(tmp_path, "--dry-run"), registry, None) == (set(), {}, set(), {})
+
+
+def test_registry_inputs_dry_run_still_honours_exclusions(tmp_path):
+    """A dry run counts the same accessions a real run would, so registry exclusions apply."""
+    registry = load_registry(tmp_path / "prepare_registry.json")
+    record_exclusion(registry, "SRR1", "host reads")
+
+    excluded, _, _, _ = sra_verdicts.registry_inputs(_parse(tmp_path, "--dry-run"), registry, None)
+
+    assert excluded == {"SRR1"}
 
 
 # ------------------------------------------------------------------ present_verdicts

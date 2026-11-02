@@ -8,6 +8,7 @@ and validating downloaded datasets. Dataset statistics and quality profiles are
 
 import gzip
 import logging
+import zlib
 from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -279,7 +280,8 @@ class SRAValidateCommand(BaseCommand):
         for f in fastq_files(acc_dir):
             try:
                 issue = SRAValidateCommand._first_record_issue(f)
-            except (ValueError, OSError) as e:
+            # A truncated gzip raises EOFError and a corrupt deflate stream zlib.error.
+            except (ValueError, OSError, EOFError, zlib.error) as e:
                 issues.append(f"FASTQ format error in {f.name}: {e}")
                 continue
             if issue is not None:

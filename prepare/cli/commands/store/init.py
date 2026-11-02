@@ -10,7 +10,7 @@ from typing import Optional
 from prepare.cli.base import BaseCommand
 from prepare.cli.commands.store._shared import _now, _gitignore_guard
 from prepare.core.exceptions import DataAccessError, PrepareError
-from prepare.data.registry import registry_transaction
+from prepare.data.registry import project_root, registry_transaction
 from prepare.data.registry_blocks import StoreBlock, project_block, set_project_block, set_store_block, store_block
 from prepare.store.catalog import catalog_write
 from prepare.store.layout import init_store, read_marker
@@ -105,14 +105,15 @@ class StoreInitCommand(BaseCommand):
             with catalog_write(paths):
                 pass
 
-            cwd = Path.cwd()
             with registry_transaction(args.registry) as registry:
+                # The folder holding the registry, so a run from a subfolder names the project.
+                base = project_root(registry)
                 # Keys store_init does not own (e.g. "exports" from results_table) are kept.
                 project = project_block(registry)
                 project.id = project.id or str(uuid.uuid4())
                 project.created = project.created or _now()
-                project.name = args.project_name or cwd.name
-                project.path = str(cwd.resolve())
+                project.name = args.project_name or base.name
+                project.path = str(base)
                 set_project_block(registry, project)
                 previous_store = store_block(registry)
                 self._warn_on_rebinding(previous_store.root, root.resolve())
@@ -135,7 +136,7 @@ class StoreInitCommand(BaseCommand):
                 write_config_data_root(root.resolve())
                 self.logger.info("Recorded %s as the default store in the user config", root.resolve())
 
-            _gitignore_guard(cwd, self.logger)
+            _gitignore_guard(Path.cwd(), self.logger)
 
             self.logger.info("Store root: %s", root.resolve())
             self.logger.info("Project id: %s (%s)", project_snapshot["id"], project_snapshot["name"])
