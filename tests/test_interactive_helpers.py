@@ -28,6 +28,21 @@ class _GoodFigure:
         return '<div class="plotly-graph-div"></div>'
 
 
+class _TitledFigure(_GoodFigure):
+    class layout:  # noqa: N801 - mirrors plotly's fig.layout.title.text
+        class title:  # noqa: N801
+            text = "PCA & co<br><sub>Total variance explained: 45.0%</sub>"
+
+
+def test_write_figure_page_title_drops_plotly_markup(tmp_path):
+    """The PCA title carries <br>/<sub> for plotly; the page title shows the text, not the tags."""
+    target = tmp_path / "pca.html"
+    _write_figure(_TitledFigure(), target)
+    text = target.read_text()
+    assert "<title>PCA &amp; co Total variance explained: 45.0%</title>" in text
+    assert "&lt;br&gt;" not in text
+
+
 def test_write_figure_leaves_no_temp_file_on_failure(tmp_path):
     target = tmp_path / "sub" / "plot.html"
     with pytest.raises(RuntimeError):

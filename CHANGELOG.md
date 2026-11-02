@@ -45,6 +45,16 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 - `SRADatasetAnalyzer.profile_dataset_quality` raises `DataAccessError` for an accession without
   FASTQ files instead of returning an all-zero "poor" profile, so `compare_datasets`,
   `detect_dataset_anomalies` and the quality dashboard leave it out as a profiling failure.
+- `validate_taxonomy`: the lineage ends with the taxon's own rank and name (NCBI's LineageEx lists
+  only its ancestors), so `analyze_taxonomy` summarises a name validated at genus rank under that
+  genus instead of `Unclassified_genus`. A table written by an earlier version gets the same result
+  from its `rank` and `validated_name` columns.
+- `interactive_plot` PCA page: the page title shows the plot title as text, not plotly's
+  `<br><sub>` markup.
+- `store_init` run from a subfolder records the project's root (the registry's folder) as the
+  project path and name, not the subfolder.
+- `sra_profile` without named accessions skips a folder in `--fastq-folder` that is not named like an
+  SRA accession, as `sra_validate` does, instead of failing it with exit 1.
 
 ## [0.12.1] - 2026-10-25
 

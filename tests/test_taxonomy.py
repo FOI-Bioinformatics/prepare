@@ -104,6 +104,8 @@ class TestNCBITaxonomyClient:
         assert results[0]["tax_id"] == "12345"
         assert results[0]["scientific_name"] == "Escherichia coli"
         assert results[0]["rank"] == "species"
+        # LineageEx lists only the ancestors; the taxon's own rank ends the lineage.
+        assert results[0]["lineage"] == "superkingdom:Bacteria;species:Escherichia coli"
 
     def test_validate_species_name_mock(self):
         """Test species name validation with mocked data."""
@@ -269,6 +271,25 @@ class TestTaxonomyValidation:
 
         assert "Genus2" in default["genus"].columns
         assert "Genus2" not in strict["genus"].columns
+
+
+def test_a_name_validated_at_genus_rank_is_summarised_under_that_genus():
+    """A validation table written before the lineage carried the taxon itself still yields it."""
+    abundance_data = pd.DataFrame({"Escherichia": [0.5], "Salmonella enterica": [0.5]}, index=["Sample1"])
+    taxonomy_data = pd.DataFrame(
+        {
+            "original_name": ["Escherichia", "Salmonella enterica"],
+            "validated_name": ["Escherichia", "Salmonella enterica"],
+            "rank": ["genus", "species"],
+            "is_valid": [True, True],
+            "lineage": ["family:Enterobacteriaceae", "family:Enterobacteriaceae;genus:Salmonella"],
+        }
+    )
+
+    result = analyze_taxonomic_composition(abundance_data, taxonomy_data, levels=["genus", "species"])
+
+    assert result["genus"].loc["Sample1", "Escherichia"] == 0.5
+    assert result["species"].loc["Sample1", "Salmonella enterica"] == 0.5
 
 
 class TestTaxonomyEdgeCases:

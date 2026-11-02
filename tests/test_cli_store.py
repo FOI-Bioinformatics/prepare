@@ -374,6 +374,22 @@ class TestStoreInitCommand:
         assert not (project_dir / ".gitignore").exists()
 
 
+class TestStoreInitFromASubfolder:
+    def test_store_init_from_a_subfolder_records_the_project_root(self, tmp_path, monkeypatch):
+        """The project path is the registry's folder, so gc's link scan looks in the right place."""
+        root = tmp_path / "store"
+        project_dir = tmp_path / "project"
+        (project_dir / "subdir").mkdir(parents=True)
+        save_registry(load_registry(project_dir / "prepare_registry.json"), project_dir / "prepare_registry.json")
+        monkeypatch.chdir(project_dir / "subdir")
+
+        assert StoreInitCommand().execute(_init_args(root, project_dir, registry=None)) == 0
+
+        project = load_registry(project_dir / "prepare_registry.json").project
+        assert project["path"] == str(project_dir.resolve())
+        assert project["name"] == "project"
+
+
 class TestStoreStatusCommand:
     def test_command_properties(self):
         cmd = StoreStatusCommand()
