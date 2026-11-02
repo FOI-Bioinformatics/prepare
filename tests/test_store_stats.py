@@ -86,6 +86,35 @@ class TestComputeDatasetStatsCounts:
         assert stats["reads_total"] == 10
 
 
+    def test_per_read_figures_cover_every_file_not_just_the_orphan_file(self, tmp_path):
+        """--split-3 leaves the orphan reads in SRR1.fastq, which sorts first; it must not
+        stand for the whole dataset."""
+        orphans = tmp_path / "SRR1.fastq"
+        r1 = tmp_path / "SRR1_1.fastq"
+        r2 = tmp_path / "SRR1_2.fastq"
+        _write_fastq(orphans, ["G" * 30] * 2)
+        _write_fastq(r1, ["A" * 150] * 500)
+        _write_fastq(r2, ["T" * 150] * 500)
+
+        stats = compute_dataset_stats([orphans, r1, r2], sample_size=10000, use_seqkit=False)
+
+        assert stats["gc_content"] < 0.01
+        assert stats["n50"] == 150
+        assert stats["avg_read_length"] > 149
+        assert stats["bases_total"] == 2 * 30 + 1000 * 150
+
+    def test_a_record_from_before_the_all_file_sample_is_not_reused(self, tmp_path):
+        acc_dir = tmp_path / "SRR1"
+        acc_dir.mkdir()
+        _write_fastq(acc_dir / "SRR1.fastq", ["ACGT"] * 10)
+        stats = compute_dataset_stats([acc_dir / "SRR1.fastq"], use_seqkit=False)
+        stats.pop("sample_scope", None)
+        sidecar_path = acc_dir / "SRR1.json"
+        write_sidecar(sidecar_path, Sidecar(accession="SRR1", stats=stats))
+
+        assert cached_stats(acc_dir, sidecar_path) is None
+
+
 class TestComputeDatasetStatsFigures:
     """Length, base and GC figures of the record (moved here from the removed
     calculate_read_statistics tests, the second statistics path before 0.5.0)."""

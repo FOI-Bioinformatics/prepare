@@ -60,17 +60,20 @@ def _file_signature(files: List[Path]) -> Dict[str, List[Union[int, float]]]:
     return signature
 
 
-def _sample_reads(path: Path, sample_size: int, reads_in_file: Optional[int]) -> Tuple[List[str], List[bytes], int]:
-    """Sample up to ``sample_size`` (sequence, quality) pairs uniformly from ``path``.
+# Marks a record whose per-read figures are sampled over every file of the dataset. Records
+# written before 0.12.2 sampled only the first file (with ``--split-3`` the orphan reads), so
+# ``cached_stats`` does not reuse a record without it.
+SAMPLE_SCOPE = "all_files"
 
-    Returns ``(sequences, qualities, reads_in_file)``. ``reads_in_file`` is the count the
-    caller already has (counted here when None); the record indices are drawn from it with a
-    fixed seed, so repeated runs on the same file give the same sample.
+
+def _sample_reads(paths: List[Path], sample_size: int, total_reads: int) -> Tuple[List[str], List[bytes]]:
+    """Sample up to ``sample_size`` (sequence, quality) pairs uniformly from all of ``paths``.
+
+    ``total_reads`` is the count across the files; the record indices are drawn from it with a
+    fixed seed, so repeated runs on the same files give the same sample.
     """
-    if reads_in_file is None:
-        reads_in_file = count_fastq_reads(path)
-    records = sample_records([path], sample_size, total_records=reads_in_file, seed=0)
-    return [seq.decode("utf-8") for seq, _qual in records], [qual for _seq, qual in records], reads_in_file
+    records = sample_records(paths, sample_size, total_records=total_reads, seed=0)
+    return [seq.decode("utf-8") for seq, _qual in records], [qual for _seq, qual in records]
 
 
 def _gc_fraction(seq: str) -> float:
@@ -232,8 +235,8 @@ def compute_dataset_stats(
     rather than raising), otherwise from a streaming newline count, with the length figures
     then approximated from the sample below. Everything that needs per-read content
     (``gc_content``, ``n_content``, ``length_histogram``, ``n50``, ``quality_summary``,
-    ``duplication_rate``) comes from a uniform sample of ``sample_size`` reads over the first
-    file, drawn by record index from the count above; ``sampled`` is True when that file holds
+    ``duplication_rate``) comes from a uniform sample of ``sample_size`` reads over all the
+    files, drawn by record index from the count above; ``sampled`` is True when the files hold
     more reads than the sample.
 
     ``signature`` records each file's size and mtime so ``cached_stats`` can tell whether the
@@ -247,10 +250,8 @@ def compute_dataset_stats(
     seqkit_rows = _try_seqkit_stats(file_paths, use_seqkit)
     counts = _counts_from_seqkit(seqkit_rows) if seqkit_rows is not None else _counts_from_streaming(file_paths)
 
-    sequences, qualities, seen_in_sample_file = _sample_reads(
-        file_paths[0], sample_size, counts["reads_per_file"].get(file_paths[0].name)
-    )
-    sampled = seen_in_sample_file > sample_size
+    sequences, qualities = _sample_reads(file_paths, sample_size, counts["reads_total"])
+    sampled = counts["reads_total"] > sample_size
     sample_lengths = [len(s) for s in sequences]
 
     if seqkit_rows is None:
@@ -266,6 +267,7 @@ def compute_dataset_stats(
         "n_content": _mean([(s.count("N") / len(s)) if s else 0.0 for s in sequences]),
         "sample_size": sample_size,
         "sampled": sampled,
+        "sample_scope": SAMPLE_SCOPE,
         "computed": datetime.now(timezone.utc).isoformat(),
         "signature": signature,
     }
@@ -276,7 +278,7 @@ def cached_stats(acc_dir: Union[str, Path], sidecar_path: Optional[Union[str, Pa
 
     Returns None when there is no sidecar path, no readable sidecar, no stats recorded yet,
     or any file's size/mtime has changed since the stats were computed (a file added,
-    removed, resized, or rewritten in place).
+    removed, resized, or rewritten in place), or the record predates ``SAMPLE_SCOPE``.
     """
     if sidecar_path is None:
         return None
@@ -284,7 +286,7 @@ def cached_stats(acc_dir: Union[str, Path], sidecar_path: Optional[Union[str, Pa
     if sidecar is None or not sidecar.stats:
         return None
     signature = sidecar.stats.get("signature")
-    if not signature:
+    if not signature or sidecar.stats.get("sample_scope") != SAMPLE_SCOPE:
         return None
     current = _file_signature(fastq_files(acc_dir))
     if current != signature:

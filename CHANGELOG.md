@@ -15,6 +15,10 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
     again under the dataset lock (still there, verified, holding every non-FASTQ file of the
     folder), and it is renamed aside rather than removed, so a failed link puts it back. A
     dedup no longer deletes notes or QC files kept beside identical reads.
+- `sra_profile`/`sra_report`: GC, N50, the length histogram, quality and duplication (and, without
+  seqkit, the read lengths and total bases) are sampled over every FASTQ file of a dataset. They
+  came from the first file only, which after `fasterq-dump --split-3` is the few orphan reads in
+  `<ACC>.fastq`. Statistics cached by an earlier version are recomputed once.
 
 ## [0.12.1] - 2026-10-25
 
