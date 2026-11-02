@@ -37,6 +37,14 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   (exit 2); overlapping groups used to leave a group without data and fail while writing the page. A
   test that cannot run because fewer than 2 groups have profiled datasets is shown as skipped, and a
   skipped test shows its reason instead of "p nan" on the page and "p=nan" in the terminal.
+- `sra_profile`/`sra_report`: the complexity score divides a read's distinct 3-mers by the most it
+  could hold (at most 64) instead of by its length, so it no longer falls with read length. Long
+  random reads were flagged as low-complexity anomalies and 250 bp reads got a PCR-duplicate
+  recommendation; scores, grades and group tests on complexity from earlier versions should be
+  recomputed.
+- `SRADatasetAnalyzer.profile_dataset_quality` raises `DataAccessError` for an accession without
+  FASTQ files instead of returning an all-zero "poor" profile, so `compare_datasets`,
+  `detect_dataset_anomalies` and the quality dashboard leave it out as a profiling failure.
 
 ## [0.12.1] - 2026-10-25
 

@@ -23,6 +23,19 @@ from prepare.data.taxonomy import (
 logger = logging.getLogger(__name__)
 
 
+def _write_permanova(path: Path, permanova_results: dict) -> Path:
+    """Write the PERMANOVA results as a plain-text table; return ``path``."""
+    with open_atomic(path) as f:
+        f.write("PERMANOVA Results\n")
+        f.write("=================\n\n")
+        for variable, results in permanova_results.items():
+            f.write(f"Variable: {variable}\n")
+            f.write(f"F-statistic: {results['F_statistic']:.4f}\n")
+            f.write(f"P-value: {results['p_value']:.4f}\n")
+            f.write(f"Significant: {results['significant']}\n\n")
+    return path
+
+
 class DiversityAnalysisCommand(BaseCommand):
     """Command for calculating diversity metrics."""
 
@@ -112,21 +125,11 @@ class DiversityAnalysisCommand(BaseCommand):
             write_csv(beta_div, beta_output)
             logger.info(f"Beta diversity results saved to {beta_output}")
 
-            # PERMANOVA if requested
+            # PERMANOVA if requested (execute refused a formula without a metadata table)
             if args.permanova_formula and metadata_df is not None:
                 logger.info("Performing PERMANOVA...")
                 permanova_results = perform_permanova(beta_div, metadata_df, args.permanova_formula)
-
-                permanova_output = output_dir / "permanova_results.txt"
-                with open_atomic(permanova_output) as f:
-                    f.write("PERMANOVA Results\n")
-                    f.write("=================\n\n")
-                    for variable, results in permanova_results.items():
-                        f.write(f"Variable: {variable}\n")
-                        f.write(f"F-statistic: {results['F_statistic']:.4f}\n")
-                        f.write(f"P-value: {results['p_value']:.4f}\n")
-                        f.write(f"Significant: {results['significant']}\n\n")
-
+                permanova_output = _write_permanova(output_dir / "permanova_results.txt", permanova_results)
                 logger.info(f"PERMANOVA results saved to {permanova_output}")
 
             logger.info("Diversity analysis completed successfully!")

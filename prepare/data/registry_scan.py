@@ -152,21 +152,32 @@ def _screening_from_matches(registry: "Registry", matches_folder: Path) -> None:
     for csv_path in visible_files(matches_folder, "*.csv"):
         with open(csv_path, newline="") as handle:
             for row in csv.DictReader(handle):
-                acc = (row.get("acc") or row.get("SRA accession") or "").strip()
-                if not acc:
+                parsed = _match_row(row)
+                if parsed is None:
                     continue
-                try:
-                    # A short row has None in its missing columns (csv.DictReader).
-                    containment = float(row.get("containment") or "")
-                except ValueError:
-                    continue
-                cani_raw = row.get("cANI") or ""
-                try:
-                    cani = float(cani_raw) if cani_raw.strip() else None
-                except ValueError:
-                    cani = None
+                acc, containment, cani = parsed
                 _r.record_screening(registry, acc, csv_path.stem, containment, cani, "matches", 0.0, csv_path)
                 rb.mark_inferred(registry, acc, "screening")
+
+
+def _match_row(row: Dict[str, Optional[str]]) -> Optional[Tuple[str, float, Optional[float]]]:
+    """``(accession, containment, cANI)`` from one match-CSV row, or None for a row without them.
+
+    A short row has None in its missing columns (``csv.DictReader``).
+    """
+    acc = (row.get("acc") or row.get("SRA accession") or "").strip()
+    try:
+        containment = float(row.get("containment") or "")
+    except ValueError:
+        return None
+    if not acc:
+        return None
+    cani_raw = row.get("cANI") or ""
+    try:
+        cani = float(cani_raw) if cani_raw.strip() else None
+    except ValueError:
+        cani = None
+    return acc, containment, cani
 
 
 def _bootstrap_selection(

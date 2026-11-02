@@ -37,6 +37,12 @@ REPORT_JSON = "sra_report.json"
 _GROUPS_EXAMPLE = json.dumps({"Group_A": ["SRR123456", "SRR123457"], "Group_B": ["SRR789012", "SRR789013"]})
 
 
+def _in_several_groups(groups: Dict[str, List[str]]) -> List[str]:
+    """Accessions listed in more than one group, sorted."""
+    counts = Counter(acc for accessions in groups.values() for acc in set(accessions))
+    return sorted(acc for acc, count in counts.items() if count > 1)
+
+
 def load_groups(path: str) -> Dict[str, List[str]]:
     """Accession groups from a JSON file mapping each group name to a list of accessions.
 
@@ -54,11 +60,7 @@ def load_groups(path: str) -> Dict[str, List[str]]:
     )
     if not valid or not groups:
         raise ValidationError(f"Groups file {path} must map group names to accession lists, e.g. {_GROUPS_EXAMPLE}")
-    seen: Dict[str, int] = {}
-    for accessions in groups.values():
-        for accession in set(accessions):
-            seen[accession] = seen.get(accession, 0) + 1
-    shared = sorted(acc for acc, count in seen.items() if count > 1)
+    shared = _in_several_groups(groups)
     if shared:
         raise ValidationError(f"Groups file {path} lists accessions in more than one group: {', '.join(shared)}")
     return groups

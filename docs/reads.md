@@ -149,7 +149,7 @@ prepare sra_profile \
     --detailed-reports
 ```
 
-Each dataset is profiled once. Read and base totals, mean read length, N50 and GC content come from the dataset's statistics record. Read counts are exact, from `seqkit stats` when it is installed and otherwise from a streaming count. GC content comes from a uniform sample of the first mate file's reads. The record is cached in the store sidecar and reused by `sra_profile`, `sra_report` and `sra_validate --check-pairs` until a file's size or modification time changes. Per-read quality, complexity, duplication and adapter figures come from a sample of `--sample-size` reads per dataset (default 10000) drawn from every mate file. The sample is uniform across each file by default, or taken from the start of each file with `--sampler head`.
+Each dataset is profiled once. Read and base totals, mean read length, N50 and GC content come from the dataset's statistics record. Read counts are exact, from `seqkit stats` when it is installed and otherwise from a streaming count. GC content, N50 and the length histogram come from a uniform sample over all of the dataset's FASTQ files (mates and the orphan-read file alike). The record is cached in the store sidecar and reused by `sra_profile`, `sra_report` and `sra_validate --check-pairs` until a file's size or modification time changes. Per-read quality, complexity, duplication and adapter figures come from a sample of `--sample-size` reads per dataset (default 10000) drawn from every mate file. The sample is uniform across each file by default, or taken from the start of each file with `--sampler head`.
 
 The command writes three things:
 
@@ -157,7 +157,7 @@ The command writes three things:
 - One `<accession>_quality_profile.json` per accession in `--output-dir` (default `sra_quality_profiles`), together with `quality_summary.json`.
 - A `profile` analysis per accession in the project registry.
 
-GC content is given in percent (0 to 100) under `gc_percent` in all three, and the profile JSON carries the complexity score under `complexity_score`. Printed read totals are labelled "(mates counted)". A paired-end run's two mate files are counted separately, so the figure is twice the spot count NCBI reports for the run. The command exits with status 1 when any accession has no readable FASTQ files. The other accessions are still profiled and written.
+GC content is given in percent (0 to 100) under `gc_percent` in all three, and the profile JSON carries the complexity score under `complexity_score`: the mean, over the sampled reads, of each read's distinct 3-mers divided by the most it could hold (its number of 3-mers, at most 64), so it does not fall with read length. Printed read totals are labelled "(mates counted)". A paired-end run's two mate files are counted separately, so the figure is twice the spot count NCBI reports for the run. The command exits with status 1 when any accession has no readable FASTQ files. The other accessions are still profiled and written.
 
 ## sra_sketch
 

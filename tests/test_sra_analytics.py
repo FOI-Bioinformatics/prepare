@@ -111,6 +111,20 @@ class TestSequenceQualityAnalyzer:
 
         assert complexity_low["homopolymer_rate_mean"] > 0
 
+    def test_complexity_score_does_not_fall_with_read_length(self):
+        """Random reads score high at any length; a 1 kb random read is not low-complexity."""
+        import random
+
+        rng = random.Random(0)
+        scores = {}
+        for length in (100, 250, 1000, 5000):
+            reads = ["".join(rng.choice("ACGT") for _ in range(length)) for _ in range(20)]
+            scores[length] = self.analyzer._analyze_sequence_complexity(reads)["complexity_score"]
+        assert min(scores.values()) > 0.7, scores
+        assert max(scores.values()) <= 1.0
+        homopolymer = self.analyzer._analyze_sequence_complexity(["A" * 1000])["complexity_score"]
+        assert homopolymer < 0.05
+
     def test_trailing_homopolymer_run_is_counted(self):
         """A run of four or more bases that ends the read counts like one inside it."""
         for seq in ("ACGTAAAA", "AAAACGTA"):
@@ -540,6 +554,35 @@ class TestSRADatasetAnalyzer:
         # Without a shared statistics record the totals can only be the sample's own.
         assert profile.reads_sampled == 10000
         assert profile.sampled is True
+
+    def test_profile_dataset_quality_without_fastq_files_is_an_error(self):
+        """A missing dataset is a failure the callers exclude, not an all-zero 'poor' profile."""
+        with patch.object(self.analyzer, "find_fastq_files", return_value=[]):
+            with pytest.raises(DataAccessError, match="No FASTQ files"):
+                self.analyzer.profile_dataset_quality("SRR123456")
+
+    def test_compare_datasets_leaves_out_an_accession_without_fastq_files(self):
+        profile = QualityProfile(
+            accession="SRR1",
+            total_reads=10000,
+            total_bases=1500000,
+            avg_read_length=150,
+            read_length_distribution={},
+            gc_percent=45.0,
+            gc_histogram={},
+            quality_distribution={},
+            n_content=0.01,
+            contamination_indicators={},
+            complexity_score=0.7,
+            duplication_rate=0.1,
+            technology_confidence=0.5,
+            quality_grade="good",
+            recommendations=[],
+        )
+        with patch.object(self.analyzer, "find_fastq_files", return_value=[]):
+            comparison = self.analyzer.compare_datasets({"A": ["SRR1", "SRR2"]}, profiles={"SRR1": profile})
+        assert "SRR2" not in comparison.visualization_data.get("accessions", ["SRR1"])
+        assert any("SRR2" in line for line in comparison.recommendations)
 
     @patch.object(SequenceQualityAnalyzer, "analyze_fastq_quality")
     def test_profile_dataset_quality_prefers_the_shared_statistics_record(self, mock_analyze):
