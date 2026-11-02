@@ -280,6 +280,41 @@ def test_report_shows_raw_and_adjusted_p(tmp_path):
     assert "p 1.0000" in html and "adjusted" not in html.split("p 1.0000")[1].split("</p>")[0]
 
 
+def test_report_shows_a_skipped_tests_note_not_p_nan(tmp_path, capsys):
+    """A skipped test carries p NaN; the page shows its note and the console no p-value."""
+    from prepare.sra.reporting import _render_page
+
+    note = "Each group needs at least 2 datasets for a statistical comparison"
+    comparison = ComparativeAnalysis(
+        dataset_groups={"A": ["SRR1"], "B": ["SRR2", "SRR3"]},
+        summary_statistics={},
+        statistical_tests={
+            "gc_percent": {"test": "skipped", "p_value": float("nan"), "significant": False, "note": note},
+            "total_reads": {"test": "skipped", "p_value": None, "significant": False, "note": "no data"},
+        },
+        outlier_datasets=[],
+        clustering_results=None,
+        batch_effects={},
+        recommendations=[],
+        visualization_data={},
+    )
+    html = _render_page(
+        "t", "t", "now", quality=None, comparative={"comparison": comparison, "plots": {}, "group_counts": {}}
+    )
+    assert note in html and "p nan" not in html
+    SRAReportCommand()._print_comparison(comparison)
+    out = capsys.readouterr().out
+    assert "gc_percent: skipped" in out and "p=" not in out
+
+
+def test_load_groups_rejects_an_accession_in_two_groups(tmp_path):
+    """Overlapping groups cannot be compared (each accession is tested in one group only)."""
+    path = tmp_path / "groups.json"
+    path.write_text('{"all": ["SRR1", "SRR2", "SRR3"], "subset": ["SRR2", "SRR3"]}')
+    with pytest.raises(ValidationError, match="SRR2, SRR3"):
+        load_groups(str(path))
+
+
 def test_report_json_is_numpy_safe(tmp_path):
     comparison = ComparativeAnalysis(
         dataset_groups={"a": ["A1"], "b": ["B1"]},

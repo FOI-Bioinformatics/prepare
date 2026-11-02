@@ -695,7 +695,16 @@ class SRADatasetAnalyzer:
                 if not data.empty:
                     group_data.append(data.values)
 
-            if len(group_data) >= 2 and min(len(values) for values in group_data) < 2:
+            if len(group_data) < 2:
+                # Every other group's accessions failed profiling or lack this figure.
+                tests[col] = {
+                    "test": "skipped (fewer than 2 groups have data)",
+                    "statistic": None,
+                    "p_value": None,
+                    "significant": False,
+                    "note": "At least 2 groups need profiled datasets for a statistical comparison",
+                }
+            elif min(len(values) for values in group_data) < 2:
                 # A group of one has no variance of its own; the test would give NaN and warnings.
                 logger.info("Not testing %s: a group has fewer than 2 values", col)
                 tests[col] = {

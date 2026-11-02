@@ -9,6 +9,7 @@ figures in ``sra_report.json``, and a ``"report"`` analysis is recorded per acce
 
 import argparse
 import json
+import math
 from collections import Counter
 from functools import partial
 from pathlib import Path
@@ -53,6 +54,13 @@ def load_groups(path: str) -> Dict[str, List[str]]:
     )
     if not valid or not groups:
         raise ValidationError(f"Groups file {path} must map group names to accession lists, e.g. {_GROUPS_EXAMPLE}")
+    seen: Dict[str, int] = {}
+    for accessions in groups.values():
+        for accession in set(accessions):
+            seen[accession] = seen.get(accession, 0) + 1
+    shared = sorted(acc for acc, count in seen.items() if count > 1)
+    if shared:
+        raise ValidationError(f"Groups file {path} lists accessions in more than one group: {', '.join(shared)}")
     return groups
 
 
@@ -224,7 +232,10 @@ class SRAReportCommand(BaseCommand):
             if "total_reads" in col_stats:
                 self.emit(f"    Mean total reads (mates counted): {col_stats['total_reads']['mean']:,.0f}")
         for test_name, result in comparison.statistical_tests.items():
-            line = f"  {test_name}: {result.get('test', '')} p={result.get('p_value', 1.0):.4f}"
+            p_value = result.get("p_value")
+            line = f"  {test_name}: {result.get('test', '')}"
+            if p_value is not None and not math.isnan(p_value):
+                line += f" p={p_value:.4f}"
             if "p_adjusted" in result:
                 line += f" adjusted={result['p_adjusted']:.4f}"
             self.emit(line + (" *" if result.get("significant") else ""))

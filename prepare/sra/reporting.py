@@ -445,7 +445,8 @@ _PAGE_TEMPLATE = """
             {% for test_name, test_result in comparison.statistical_tests.items() %}
             <div class="pre-note{% if test_result.significant %} warn{% endif %}">
                 <h3>{{ test_name.replace('_', ' ').title() }}</h3>
-                {% if test_result.p_value is none %}
+                {# A skipped test carries no p-value (None) or NaN, which is not equal to itself. #}
+                {% if test_result.p_value is none or test_result.p_value != test_result.p_value %}
                 <p>{{ test_result.test }}{% if test_result.note %} &middot; {{ test_result.note }}{% endif %}</p>
                 {% else %}
                 <p>{{ test_result.test }} &middot; p {{ "%.4f"|format(test_result.p_value) }}

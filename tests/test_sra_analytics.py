@@ -814,6 +814,25 @@ class TestSRADatasetAnalyzer:
         assert math.isnan(tests["gc_percent"]["p_value"]) and tests["gc_percent"]["significant"] is False
         assert "a group has fewer than 2 values" in caplog.text
 
+    def test_statistical_tests_with_one_group_holding_no_data_are_skipped_not_empty(self):
+        """A group whose accessions all failed profiling leaves one group with data: every
+        test is a skipped entry with a note, never an empty dict the report cannot render."""
+        df = pd.DataFrame(
+            {
+                "accession": ["SRR1", "SRR2"],
+                "group": ["A", "A"],
+                "avg_read_length": [150.0, 152.0],
+                "gc_percent": [45.0, 47.0],
+                "total_reads": [10000, 12000],
+                "complexity_score": [0.7, 0.75],
+            }
+        )
+        tests = self.analyzer._perform_statistical_tests(df, {"A": ["SRR1", "SRR2"], "B": ["SRR3"]})
+        assert tests
+        for result in tests.values():
+            assert result["test"].startswith("skipped")
+            assert result["p_value"] is None and result["significant"] is False and result["note"]
+
     def test_compare_datasets_profiles_a_group_accession_missing_from_supplied_profiles(self):
         """A partial ``profiles`` dict must not silently drop the accessions it lacks:
         the gap is profiled fresh, and the comparison holds every accession."""

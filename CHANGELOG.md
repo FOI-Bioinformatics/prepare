@@ -33,6 +33,10 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 - `download_sra --dry-run` leaves out the accessions the registry excludes, as a real run does.
 - `diversity_analysis --permanova-formula` without `--metadata-file` is a usage error (exit 2); it
   used to be ignored silently with exit 0.
+- `sra_report --groups-file`: a groups file listing an accession in more than one group is refused
+  (exit 2); overlapping groups used to leave a group without data and fail while writing the page. A
+  test that cannot run because fewer than 2 groups have profiled datasets is shown as skipped, and a
+  skipped test shows its reason instead of "p nan" on the page and "p=nan" in the terminal.
 
 ## [0.12.1] - 2026-10-25
 
