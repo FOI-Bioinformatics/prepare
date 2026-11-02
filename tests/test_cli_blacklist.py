@@ -56,3 +56,20 @@ def test_registered():
 
     args = create_parser().parse_args(["blacklist", "--list"])
     assert args.list is True and args.blacklist_file == "blacklist.txt"
+
+
+def test_from_file_reads_the_blacklist_format_with_trailing_reasons(tmp_path, capsys):
+    """A file in blacklist.txt's own format excludes the accession, not the comment text."""
+    (tmp_path / "bad.txt").write_text("SRR000002  # host reads\n   # indented comment\nSRR000003\n")
+    rc = BlacklistCommand().execute(_args(tmp_path, from_file=str(tmp_path / "bad.txt"), reason="host"))
+    assert rc == 0
+    data = json.loads((tmp_path / "prepare_registry.json").read_text())
+    assert sorted(data["datasets"]) == ["SRR000002", "SRR000003"]
+    assert (tmp_path / "blacklist.txt").read_text().splitlines() == ["SRR000002  # host", "SRR000003  # host"]
+
+
+def test_a_malformed_accession_is_refused(tmp_path):
+    rc = BlacklistCommand().execute(_args(tmp_path, add=["../x"], reason="test"))
+    assert rc == 2
+    assert not (tmp_path / "prepare_registry.json").exists()
+    assert not (tmp_path / "blacklist.txt").exists()

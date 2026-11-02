@@ -19,6 +19,15 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   seqkit, the read lengths and total bases) are sampled over every FASTQ file of a dataset. They
   came from the first file only, which after `fasterq-dump --split-3` is the few orphan reads in
   `<ACC>.fastq`. Statistics cached by an earlier version are recomputed once.
+- `sra_validate`: a truncated or corrupt `.fastq.gz` is a FAILED accession with a format error
+  instead of ending the whole run with a traceback.
+- `blacklist --from-file` reads a file in `blacklist.txt`'s own format: a trailing `# reason` and an
+  indented comment line are no longer stored as accessions. `--add` and `--from-file` refuse a value
+  that is not an SRA accession (exit 2).
+- `download_metadata`: a batch reply that is not XML (an HTML error page with HTTP 200) is retried
+  and reported as a network failure instead of ending the run with a traceback; a local write error
+  (a full disk) is reported as such (exit 1) instead of being retried as "network" with exit 4.
+- `status --init`: a truncated row in a match CSV is skipped instead of failing with a `TypeError`.
 
 ## [0.12.1] - 2026-10-25
 

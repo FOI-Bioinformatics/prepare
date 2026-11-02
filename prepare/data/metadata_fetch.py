@@ -143,9 +143,6 @@ def _download_single_metadata(
                 package = _split_efetch_packages(metadata, {accession}).get(accession)
             except ET.ParseError:
                 return False, f"NCBI returned a non-XML body for {accession}"
-            if package is None:
-                return False, f"NCBI returned no package for {accession}"
-            return True, _write_metadata_file(metadata_path, accession, package)
 
         except HTTPError as e:
             if e.code in (400, 404):
@@ -160,6 +157,12 @@ def _download_single_metadata(
             last_error_message = f"network: {e}"
             logger.warning(f"Error downloading {accession}, retrying ({attempt}/{MAX_RETRIES}): {e}")
             time.sleep(2**attempt)
+
+        else:
+            # Written outside the try: a local write error (a full disk) is not a network failure.
+            if package is None:
+                return False, f"NCBI returned no package for {accession}"
+            return True, _write_metadata_file(metadata_path, accession, package)
 
     return False, last_error_message
 
@@ -213,15 +216,15 @@ def _download_batch_metadata(
                     xml_text = handle.read().decode()
                 finally:
                     handle.close()
-
             packages = _split_efetch_packages(xml_text, wanted)
-            successes = {
-                accession: _write_metadata_file(metadata_path, accession, packages[accession])
-                for accession in batch
-                if accession in packages
+
+        except ET.ParseError as e:
+            # An HTML error page or a cut-off body with HTTP 200: retried like a 5xx reply.
+            last_failures = {
+                acc: f"network: NCBI returned a non-XML body after {MAX_RETRIES} attempts" for acc in batch
             }
-            failures = {accession: "not in the NCBI response" for accession in batch if accession not in packages}
-            return successes, failures
+            logger.warning(f"Non-XML reply for a batch, retrying ({attempt}/{MAX_RETRIES}): {e}")
+            time.sleep(2**attempt)
 
         except HTTPError as e:
             if e.code in (400, 404):
@@ -240,5 +243,15 @@ def _download_batch_metadata(
             last_failures = {accession: f"network: {e}" for accession in batch}
             logger.warning(f"Error fetching batch, retrying ({attempt}/{MAX_RETRIES}): {e}")
             time.sleep(2**attempt)
+
+        else:
+            # Written outside the try: a local write error (a full disk) is not a network failure.
+            successes = {
+                accession: _write_metadata_file(metadata_path, accession, packages[accession])
+                for accession in batch
+                if accession in packages
+            }
+            failures = {accession: "not in the NCBI response" for accession in batch if accession not in packages}
+            return successes, failures
 
     return {}, last_failures

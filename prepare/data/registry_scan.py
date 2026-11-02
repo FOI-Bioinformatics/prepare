@@ -156,7 +156,8 @@ def _screening_from_matches(registry: "Registry", matches_folder: Path) -> None:
                 if not acc:
                     continue
                 try:
-                    containment = float(row.get("containment", ""))
+                    # A short row has None in its missing columns (csv.DictReader).
+                    containment = float(row.get("containment") or "")
                 except ValueError:
                     continue
                 cani_raw = row.get("cANI") or ""

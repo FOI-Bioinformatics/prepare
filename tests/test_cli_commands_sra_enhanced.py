@@ -459,6 +459,25 @@ class TestSRAValidateCommand:
         assert result["status"] == "FAILED"
         assert "sequence/quality length mismatch" in result["issues"]
 
+    @pytest.mark.parametrize("damage", ["truncated", "corrupt"])
+    def test_validate_directory_reports_a_broken_gzip_instead_of_crashing(self, tmp_path, damage):
+        """A truncated gzip raises EOFError and a corrupt one zlib.error; both are a FAILED file."""
+        import gzip as gzip_module
+
+        acc_dir = tmp_path / "SRR1"
+        acc_dir.mkdir()
+        data = gzip_module.compress(b"@read1\nACGT\n+\nIIII\n" * 50)
+        if damage == "truncated":
+            data = data[: len(data) // 2]
+        else:
+            data = data[:10] + bytes(len(data) - 10)
+        (acc_dir / "SRR1.fastq.gz").write_bytes(data)
+
+        result = SRAValidateCommand()._validate_directory(acc_dir)
+
+        assert result["status"] == "FAILED"
+        assert "FASTQ format error in SRR1.fastq.gz" in result["issues"]
+
     def test_validate_directory_md5_without_a_sidecar_is_a_no_op(self, tmp_path):
         """A plain project folder has no recorded md5 to compare against, so --md5 passes
         rather than failing every file."""

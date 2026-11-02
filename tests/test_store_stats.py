@@ -85,7 +85,6 @@ class TestComputeDatasetStatsCounts:
         assert stats["reads_per_file"][f2.name] == 3
         assert stats["reads_total"] == 10
 
-
     def test_per_read_figures_cover_every_file_not_just_the_orphan_file(self, tmp_path):
         """--split-3 leaves the orphan reads in SRR1.fastq, which sorts first; it must not
         stand for the whole dataset."""
