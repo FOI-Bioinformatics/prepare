@@ -58,9 +58,10 @@ from prepare.data.sra import (
     fastq_stem,
     is_transient_folder,
 )
+from prepare.store.adopt_link import link_blocker, restore_set_aside, swap_for_link
 from prepare.store.catalog import catalog_write
 from prepare.store.layout import StorePaths, lock_path, sidecar_path, sra_dir
-from prepare.store.link import link_dataset, room_shortfall
+from prepare.store.link import room_shortfall
 from prepare.store.locks import LockHeld, dataset_lock, lock_holder, lock_is_held
 from prepare.store.sidecar import (
     Sidecar,
@@ -258,18 +259,23 @@ def _write_staged_sidecar(accession: str, staged: Path, metadata_folders: Sequen
 
 def _finish_sidecar(
     accession: str,
+    entry: Path,
     store_dir: Path,
     sc_path: Path,
     paths: StorePaths,
     metadata_folders: Sequence[Union[str, Path]],
-) -> Sidecar:
+) -> Optional[Sidecar]:
     """Write the sidecar and catalogue entry for a dataset whose files already sit in the store.
 
     Finishes an adoption that an earlier version interrupted after publishing the files but
     before writing their sidecar (a fresh adoption writes the sidecar into the staging folder
-    instead, see ``_write_staged_sidecar``).
+    instead, see ``_write_staged_sidecar``). The store's files are trusted only when they hold
+    the same reads as the project's folder ``entry``; otherwise nothing is written and None is
+    returned, since a truncated or foreign copy must never be blessed over the project's own.
     """
     sidecar = _adopted_sidecar(accession, store_dir, metadata_folders)
+    if not _files_match(entry, store_dir, sidecar):
+        return None
     write_sidecar(sc_path, sidecar)
     with catalog_write(paths) as catalog:
         catalog.upsert_dataset(sidecar)
@@ -512,10 +518,12 @@ def _dedup_or_conflict(
             logger.info("%s: identical copy already in the store; project copy kept (--copy)", accession)
             _notify(on_progress, accession, "deduplicated")
             return
-        if _replace_with_link(accession, entry, paths, project_dir, on_progress, report):
-            report.deduplicated.append(accession)
-            _notify(on_progress, accession, "deduplicated")
+        _replace_with_link(accession, entry, paths, project_dir, on_progress, report, "deduplicated")
         return
+    _report_conflict(accession, on_progress, report)
+
+
+def _report_conflict(accession: str, on_progress: Optional[Callable[[str, str], None]], report: AdoptReport) -> None:
     report.conflicts.append(accession)
     logger.warning(
         "%s: project and store copies differ; leaving both in place (store copy left untouched)",
@@ -544,9 +552,7 @@ def _apply_move_or_copy(
         _notify(on_progress, accession, "copied")
         return
 
-    if _replace_with_link(accession, entry, paths, project_dir, on_progress, report):
-        report.adopted.append(accession)
-        _notify(on_progress, accession, "adopted")
+    _replace_with_link(accession, entry, paths, project_dir, on_progress, report, "adopted")
 
 
 def _replace_with_link(
@@ -556,20 +562,31 @@ def _replace_with_link(
     project_dir: Path,
     on_progress: Optional[Callable[[str, str], None]],
     report: AdoptReport,
-) -> bool:
-    """Replace the project's folder ``entry`` with a link to the store's copy; return whether it was.
+    outcome: str,
+) -> None:
+    """Replace the project's folder ``entry`` with a link to the store's copy.
 
-    The removal and the link run under one hold of the dataset lock, taken without waiting, so
-    no other run (``store_gc`` in particular) can act on the store's copy in between. When the
-    lock is held elsewhere the accession is reported in ``failed`` and the project's folder is
-    left in place.
+    The checks and the link run under one hold of the dataset lock, taken without waiting, so
+    no other run (``store_gc`` in particular) can act on the store's copy in between. Under the
+    lock the store copy is checked again (still there, ready, holding every non-FASTQ file of
+    ``entry``; see ``adopt_link.link_blocker``) and the folder is renamed aside rather than
+    removed, so a failed link puts it back. On success the accession is added to the report
+    list ``outcome`` (``"adopted"`` or ``"deduplicated"``) before the set-aside copy is removed.
+    When the lock is held elsewhere or a check fails, the accession is reported in ``failed``
+    and the project's folder is left in place.
     """
     try:
         with dataset_lock(paths, accession, blocking=False):
-            if entry.exists():
-                shutil.rmtree(entry)
-            link_dataset(project_dir, accession, paths, locked=True)
-            return True
+            blocker = link_blocker(accession, entry, paths, _copy_ignores)
+            if blocker:
+                logger.error("%s: %s; project copy kept", accession, blocker)
+                report.failed.append(accession)
+                _notify(on_progress, accession, "failed")
+                return
+            aside = swap_for_link(accession, entry, paths, project_dir)
+            getattr(report, outcome).append(accession)
+        _notify(on_progress, accession, outcome)
+        shutil.rmtree(aside)
     except LockHeld:
         logger.error(
             "%s: %s is being written by %s; retry later (project copy kept)",
@@ -579,7 +596,6 @@ def _replace_with_link(
         )
         report.failed.append(accession)
         _notify(on_progress, accession, "failed")
-        return False
 
 
 def _adopt_one(
@@ -624,7 +640,9 @@ def _adopt_one(
             published_elsewhere = sc_path.is_file()
             if not published_elsewhere:
                 if store_dir.is_dir():
-                    _finish_sidecar(accession, store_dir, sc_path, paths, metadata_folders)
+                    if _finish_sidecar(accession, entry, store_dir, sc_path, paths, metadata_folders) is None:
+                        _report_conflict(accession, on_progress, report)
+                        return
                 else:
                     _stage_into_store(entry, accession, paths, compress, metadata_folders, report)
     except LockLost as e:
@@ -663,6 +681,7 @@ def adopt(
     metadata_folders: Sequence[Union[str, Path]] = (),
     lock_wait: float = 0.0,
     should_stop: Optional[Callable[[], bool]] = None,
+    report: Optional[AdoptReport] = None,
 ) -> AdoptReport:
     """Fold every real accession folder in ``project_fastq`` into the shared store.
 
@@ -711,9 +730,16 @@ def adopt(
     folder is replaced with a link (``--move``) only after the store's copy is verified, so a
     caller that stops the run here never has to distinguish a finished accession from one that
     was merely in flight.
+
+    ``report``, when given, is filled in place as each accession finishes, so a caller whose run
+    is interrupted by an exception can still record every accession already adopted. A project
+    folder an interrupted run left set aside (see ``prepare.store.adopt_link``) is restored or
+    cleaned up first, except on a dry run.
     """
-    report = AdoptReport()
+    report = AdoptReport() if report is None else report
     project_dir = Path(project_fastq)
+    if not dry_run:
+        restore_set_aside(project_dir)
 
     real_dirs = _scan_project_dir(project_dir, report)
     report.foreign.extend(_scan_foreign_incomplete(paths, real_dirs))

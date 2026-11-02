@@ -13,7 +13,7 @@ from prepare.cli.commands.store._shared import _gitignore_guard, _required_store
 from prepare.core.exceptions import DataAccessError
 from prepare.core.settings import setting_for
 from prepare.data.registry import load_registry, record_download, registry_transaction, update_linked
-from prepare.store.adopt import adopt
+from prepare.store.adopt import AdoptReport, adopt
 from prepare.store.layout import StorePaths, store_paths
 from prepare.store.locks import touch_dataset_use
 from prepare.store.usage import ensure_project_identity, record_usage_many
@@ -116,18 +116,28 @@ class StoreAdoptCommand(BaseCommand):
         root = ctx.root
 
         term = getattr(args, "_termination", None)
+        paths = store_paths(root)
+        report = AdoptReport()
+        completed = False
         try:
-            paths = store_paths(root)
-            report = adopt(
-                args.fastq_folder,
-                paths,
-                move=args.move,
-                dry_run=args.dry_run,
-                compress=args.compress,
-                metadata_folders=[Path(args.metadata_folder), paths.metadata],
-                lock_wait=setting_for(args, "lock_wait"),
-                should_stop=None if term is None else term.stop.is_set,
-            )
+            try:
+                adopt(
+                    args.fastq_folder,
+                    paths,
+                    move=args.move,
+                    dry_run=args.dry_run,
+                    compress=args.compress,
+                    metadata_folders=[Path(args.metadata_folder), paths.metadata],
+                    lock_wait=setting_for(args, "lock_wait"),
+                    should_stop=None if term is None else term.stop.is_set,
+                    report=report,
+                )
+                completed = True
+            finally:
+                # Whatever finished before an error is already linked or copied; record it, or
+                # store_gc would later see those store copies as unused and remove them.
+                if not completed and not args.dry_run:
+                    self._record_partial(args, paths, report)
         except DataAccessError as e:
             return self.fail(e, self.name)
 
@@ -146,6 +156,20 @@ class StoreAdoptCommand(BaseCommand):
             self._raise_if_stopped(term)
             return 0
 
+        self._record_outcome(args, paths, report)
+        self._print_report(report)
+        self._raise_if_stopped(term)
+        return 0
+
+    def _record_partial(self, args: argparse.Namespace, paths: StorePaths, report: AdoptReport) -> None:
+        """Record what an interrupted ``adopt`` finished; a failure here never hides the original error."""
+        try:
+            self._record_outcome(args, paths, report)
+        except Exception as e:  # noqa: B902 - the run is already failing with another error
+            self.logger.error("Could not record the accessions adopted before the error: %s", e)
+
+    def _record_outcome(self, args: argparse.Namespace, paths: StorePaths, report: AdoptReport) -> None:
+        """Record the linked and copied accessions of ``report`` in the registry and catalogue."""
         # Only an accession the project now links to needs its download record pointed at the
         # store: one freshly adopted or deduplicated under --move (both replace the project's
         # folder with a link). Under --copy, report.adopted is always empty and a dedup leaves
@@ -160,10 +184,6 @@ class StoreAdoptCommand(BaseCommand):
         copied = sorted(set(report.copied) | (set(report.deduplicated) if not args.move else set()))
         if copied:
             self._record_copied(args, paths, copied)
-
-        self._print_report(report)
-        self._raise_if_stopped(term)
-        return 0
 
     @staticmethod
     def _raise_if_stopped(term: Any) -> None:

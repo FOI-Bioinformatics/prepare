@@ -1,6 +1,7 @@
 """Tests for `prepare.store.adopt`: folding project-owned FASTQ folders into the store."""
 
 import gzip
+import importlib
 import shutil
 from pathlib import Path
 from unittest.mock import patch
@@ -924,3 +925,96 @@ class TestRebuildMissingSidecar:
                 rebuild_missing_sidecar("SRR1", store_dir, paths)
 
         assert sidecar_path(paths, "SRR1").read_text() == "{ not json"
+
+
+class TestAdoptNeverLosesTheOnlyCopy:
+    """Regressions: adopt must never remove the project's copy unless the store holds all of it."""
+
+    def test_a_sidecar_less_store_folder_that_differs_is_a_conflict(self, tmp_path):
+        """A sidecar-less store folder holding other reads is never blessed as this project's copy."""
+        paths = init_store(tmp_path / "store")
+        _write_fastq(sra_dir(paths, "SRR1") / "SRR1.fastq")
+        project_fastq = tmp_path / "project" / "fastq"
+        entry = project_fastq / "SRR1"
+        _write_fastq(entry / "SRR1.fastq", "@r1\nACGT\n+\nIIII\n@r2\nGGGG\n+\nIIII\n" * 50)
+
+        report = adopt(project_fastq, paths, move=True, dry_run=False)
+
+        assert report.adopted == []
+        assert report.conflicts == ["SRR1"]
+        assert not sidecar_path(paths, "SRR1").exists()
+        assert entry.is_dir() and not entry.is_symlink()
+        assert (entry / "SRR1.fastq").read_text().count("@r") == 100
+
+    def test_dedup_keeps_the_project_copy_when_the_store_copy_vanished(self, tmp_path):
+        """A store copy removed (by store_gc) after the comparison leaves the project's folder in place."""
+        paths = init_store(tmp_path / "store")
+        store_dir = sra_dir(paths, "SRR1")
+        _write_fastq_gz(store_dir / "SRR1.fastq.gz")
+        write_sidecar(sidecar_path(paths, "SRR1"), build_sidecar("SRR1", store_dir, {}, "3.0", "gzip"))
+        project_fastq = tmp_path / "project" / "fastq"
+        entry = project_fastq / "SRR1"
+        _write_fastq_gz(entry / "SRR1.fastq.gz")
+
+        adopt_mod = importlib.import_module("prepare.store.adopt")
+
+        real_match = adopt_mod._files_match
+
+        def match_then_gc(*args, **kwargs):
+            result = real_match(*args, **kwargs)
+            shutil.rmtree(store_dir)
+            sidecar_path(paths, "SRR1").unlink(missing_ok=True)
+            return result
+
+        with patch.object(adopt_mod, "_files_match", side_effect=match_then_gc):
+            report = adopt(project_fastq, paths, move=True, dry_run=False)
+
+        assert report.deduplicated == []
+        assert report.failed == ["SRR1"]
+        assert entry.is_dir() and not entry.is_symlink()
+        assert (entry / "SRR1.fastq.gz").is_file()
+
+    def test_a_failed_link_puts_the_project_folder_back(self, tmp_path):
+        paths = init_store(tmp_path / "store")
+        project_fastq = tmp_path / "project" / "fastq"
+        entry = project_fastq / "SRR1"
+        _write_fastq(entry / "SRR1.fastq")
+
+        with patch("prepare.store.adopt_link.link_dataset", side_effect=OSError("no symlinks here")):
+            with pytest.raises(OSError):
+                adopt(project_fastq, paths, move=True, dry_run=False)
+
+        assert entry.is_dir() and not entry.is_symlink()
+        assert (entry / "SRR1.fastq").is_file()
+
+    def test_dedup_keeps_a_folder_holding_files_the_store_lacks(self, tmp_path):
+        """Non-FASTQ files beside identical reads are not in the store, so the folder is kept."""
+        paths = init_store(tmp_path / "store")
+        store_dir = sra_dir(paths, "SRR1")
+        _write_fastq_gz(store_dir / "SRR1.fastq.gz")
+        write_sidecar(sidecar_path(paths, "SRR1"), build_sidecar("SRR1", store_dir, {}, "3.0", "gzip"))
+        project_fastq = tmp_path / "project" / "fastq"
+        entry = project_fastq / "SRR1"
+        _write_fastq_gz(entry / "SRR1.fastq.gz")
+        (entry / "notes.txt").write_text("keep me")
+
+        report = adopt(project_fastq, paths, move=True, dry_run=False)
+
+        assert report.deduplicated == []
+        assert report.failed == ["SRR1"]
+        assert (entry / "notes.txt").read_text() == "keep me"
+        assert not entry.is_symlink()
+
+    def test_a_fresh_adoption_with_extra_files_still_links(self, tmp_path):
+        """A fresh adoption copies every file into the store, so extra files do not block the link."""
+        paths = init_store(tmp_path / "store")
+        project_fastq = tmp_path / "project" / "fastq"
+        entry = project_fastq / "SRR1"
+        _write_fastq(entry / "SRR1.fastq")
+        (entry / "notes.txt").write_text("keep me")
+
+        report = adopt(project_fastq, paths, move=True, dry_run=False)
+
+        assert report.adopted == ["SRR1"]
+        assert entry.is_symlink()
+        assert (entry / "notes.txt").read_text() == "keep me"

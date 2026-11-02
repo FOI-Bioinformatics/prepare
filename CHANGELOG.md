@@ -2,6 +2,20 @@
 
 All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM-DD format.
 
+## [Unreleased]
+
+### Fixed
+
+- `store_adopt` never loses the only copy of a dataset:
+  - an adopt interrupted partway (Ctrl-C, a `--lock-wait` timeout, an I/O error) records every
+    accession it already linked or copied, so `store_gc` no longer sees those store copies as unused;
+  - a sidecar-less store folder is finished only when it holds the same reads as the project's
+    folder; one that differs is a conflict and both copies are kept;
+  - under `--move` the project folder is replaced by a link only after the store copy is checked
+    again under the dataset lock (still there, verified, holding every non-FASTQ file of the
+    folder), and it is renamed aside rather than removed, so a failed link puts it back. A
+    dedup no longer deletes notes or QC files kept beside identical reads.
+
 ## [0.12.1] - 2026-10-25
 
 The seven Minor findings the 0.12.0 review deferred (`docs/superpowers/plans/2026-10-25-review-minors.md`).

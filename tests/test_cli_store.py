@@ -7,6 +7,7 @@ tests/test_store_resolve.py.
 
 import argparse
 import gzip
+import importlib
 import json
 import logging
 import subprocess
@@ -622,6 +623,38 @@ class TestStoreAdoptCommand:
         assert registry.datasets["SRR1"]["download"]["state"] == "downloaded"
         assert registry.datasets["SRR1"]["download"]["source"] == "store"
         assert registry.store["linked"] == ["SRR1"]
+
+    def test_an_interrupted_adopt_records_the_accessions_it_already_linked(self, tmp_path, monkeypatch):
+        """An adopt stopped partway still records every accession it already turned into a link,
+        so store_gc never sees that store copy as unused."""
+        adopt_mod = importlib.import_module("prepare.store.adopt")
+
+        root = tmp_path / "store"
+        init_store(root)
+        project_dir = tmp_path / "project"
+        for acc in ("SRR1", "SRR2"):
+            (project_dir / "fastq" / acc).mkdir(parents=True)
+            (project_dir / "fastq" / acc / f"{acc}.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        monkeypatch.chdir(project_dir)
+        registry_path = project_dir / "prepare_registry.json"
+        real_stage = adopt_mod._stage_into_store
+
+        def stage_then_interrupt(entry, accession, *args, **kwargs):
+            if accession == "SRR2":
+                raise KeyboardInterrupt
+            return real_stage(entry, accession, *args, **kwargs)
+
+        with patch.object(adopt_mod, "_stage_into_store", side_effect=stage_then_interrupt):
+            with pytest.raises(KeyboardInterrupt):
+                StoreAdoptCommand().execute(_adopt_args(data_root=str(root), registry=str(registry_path)))
+
+        assert (project_dir / "fastq" / "SRR1").is_symlink()
+        registry = load_registry(registry_path)
+        assert registry.store["linked"] == ["SRR1"]
+        assert registry.datasets["SRR1"]["download"]["source"] == "store"
+        with Catalog(store_paths(root)) as cat:
+            row = cat.conn.execute("SELECT stage FROM usage WHERE accession = ?", ("SRR1",)).fetchone()
+        assert row["stage"] == "linked"
 
     def test_adopt_copies_sidecar_completeness_and_records_usage(self, tmp_path, monkeypatch):
         """A newly adopted accession's registry record carries its sidecar's completeness
