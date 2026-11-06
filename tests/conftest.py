@@ -56,12 +56,15 @@ def isolate_store_discovery(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def forget_probed_tool_versions():
-    """The fasterq-dump version is probed once per process; each test starts without that memory."""
+    """Tool versions are probed once per process; each test starts without that memory."""
     from prepare.data.sra.accession import fasterq_dump_version
+    from prepare.utils.tools import forget_optional_tools
 
     fasterq_dump_version.cache_clear()
+    forget_optional_tools()
     yield
     fasterq_dump_version.cache_clear()
+    forget_optional_tools()
 
 
 @pytest.fixture(autouse=True)

@@ -8,7 +8,6 @@ import hashlib
 import json
 import logging
 import re
-import shutil
 import subprocess
 import threading
 import zlib
@@ -20,6 +19,7 @@ from prepare.core.constants import FASTQ_GLOBS
 from prepare.core.exceptions import SecurityError
 from prepare.data.file_io import open_atomic, visible_files
 from prepare.utils.security import SecureSubprocess
+from prepare.utils.tools import usable_optional_tool
 
 logger = logging.getLogger(__name__)
 
@@ -411,7 +411,8 @@ def compress_fastq(path: Path, threads: int, stop: Optional[threading.Event] = N
     """
     target = path.with_suffix(path.suffix + ".gz")
 
-    if shutil.which("pigz"):
+    # An optional pigz older than its floor (or not runnable) is skipped for Python's gzip.
+    if usable_optional_tool("pigz"):
         try:
             SecureSubprocess.run_secure("pigz", ["-p", str(threads), "-f", str(path)], stop=stop)
         except _TOOL_ERRORS:

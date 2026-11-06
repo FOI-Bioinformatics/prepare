@@ -232,7 +232,7 @@ def test_compress_fastq_fallback_is_atomic(tmp_path):
 
     source = tmp_path / "SRR1_1.fastq"
     source.write_text("@r\nACGT\n+\nIIII\n")
-    with patch("prepare.data.sra.fastq.shutil.which", return_value=None):
+    with patch("prepare.data.sra.fastq.usable_optional_tool", return_value=False):
         with patch.object(file_io.os, "replace", side_effect=KeyboardInterrupt):
             with pytest.raises(KeyboardInterrupt):
                 compress_fastq(source, 1)

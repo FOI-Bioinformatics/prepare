@@ -55,10 +55,16 @@ from helpers_extraction import _fake_tools
 from _sra_fixtures import (
     _staging_download,
     _slow_download_tools,
-    _no_prefetch_with_pigz,
     _with_prefetch,
     _scratch_recording_tools,
 )
+
+
+@pytest.fixture(autouse=True)
+def optional_tools_on_path_are_usable(monkeypatch):
+    """These tests fake ``shutil.which`` and ``run_secure``: a prefetch or pigz they put on PATH
+    is taken as usable without a version probe (``tests/test_tools.py`` covers that check)."""
+    monkeypatch.setattr("prepare.utils.tools._optional_tool_verdict", lambda name, path: True)
 
 
 class TestReadBlacklistFiles:
@@ -1507,7 +1513,7 @@ class TestCompressFastq:
         path = tmp_path / "SRR1_1.fastq"
         path.write_text("@r\nACGT\n+\nIIII\n" * 3)
 
-        with patch("prepare.data.sra.fastq.shutil.which", return_value=None):
+        with patch("prepare.data.sra.fastq.usable_optional_tool", return_value=False):
             result = compress_fastq(path, threads=4)
 
         assert result == tmp_path / "SRR1_1.fastq.gz"
@@ -1520,7 +1526,7 @@ class TestCompressFastq:
         path.write_text("@r\nACGT\n+\nIIII\n")
         state = {}
 
-        with patch("prepare.data.sra.fastq.shutil.which", return_value="/usr/bin/pigz"):
+        with patch("prepare.data.sra.fastq.usable_optional_tool", return_value=True):
             with patch(
                 "prepare.data.sra.fastq.SecureSubprocess.run_secure", side_effect=_fake_tools(state)
             ) as mock_run:
@@ -1553,7 +1559,7 @@ class TestCompressFastq:
             handle.write = flaky_write
             return handle
 
-        with patch("prepare.data.sra.fastq.shutil.which", return_value=None):
+        with patch("prepare.data.sra.fastq.usable_optional_tool", return_value=False):
             with patch("prepare.data.sra.fastq.gzip.GzipFile", side_effect=flaky_open):
                 with pytest.raises(OSError):
                     compress_fastq(path, threads=4)
@@ -1575,7 +1581,7 @@ class TestCompressFastq:
             target.write_bytes(b"partial-garbage")
             raise SecurityError("pigz failed")
 
-        with patch("prepare.data.sra.fastq.shutil.which", return_value="/usr/bin/pigz"):
+        with patch("prepare.data.sra.fastq.usable_optional_tool", return_value=True):
             with patch("prepare.data.sra.fastq.SecureSubprocess.run_secure", side_effect=failing_run):
                 with pytest.raises(SecurityError):
                     compress_fastq(path, threads=4)
@@ -2500,7 +2506,7 @@ class TestProjectDownload:
 
     def _run(self, fastq, state, **kwargs):
         with patch("prepare.data.sra.accession.shutil.which", side_effect=lambda tool: None):
-            with patch("prepare.data.sra.fastq.shutil.which", side_effect=_no_prefetch_with_pigz):
+            with patch("prepare.data.sra.fastq.usable_optional_tool", return_value=True):
                 with patch(
                     "prepare.utils.security.SecureSubprocess.run_secure", side_effect=_slow_download_tools(state)
                 ):
@@ -2639,7 +2645,7 @@ class TestProjectDownload:
             results.append(accession_mod._project_download("SRR1", fastq, 1, compress=True))
 
         with patch("prepare.data.sra.accession.shutil.which", side_effect=lambda tool: None):
-            with patch("prepare.data.sra.fastq.shutil.which", side_effect=_no_prefetch_with_pigz):
+            with patch("prepare.data.sra.fastq.usable_optional_tool", return_value=True):
                 with patch(
                     "prepare.utils.security.SecureSubprocess.run_secure", side_effect=_slow_download_tools(state)
                 ):
@@ -2927,7 +2933,7 @@ class TestProjectScratchFolder:
 
     def _run(self, fastq, state, **kwargs):
         with patch("prepare.data.sra.accession.shutil.which", side_effect=lambda tool: None):
-            with patch("prepare.data.sra.fastq.shutil.which", side_effect=_no_prefetch_with_pigz):
+            with patch("prepare.data.sra.fastq.usable_optional_tool", return_value=True):
                 with patch(
                     "prepare.utils.security.SecureSubprocess.run_secure", side_effect=_scratch_recording_tools(state)
                 ):

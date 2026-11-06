@@ -58,11 +58,6 @@ def _slow_download_tools(state, dump_seconds=0.2, pigz_seconds=0.05):
     return run
 
 
-def _no_prefetch_with_pigz(tool):
-    """``shutil.which`` stand-in: no prefetch (fasterq-dump runs directly), pigz present."""
-    return "/usr/bin/pigz" if tool == "pigz" else None
-
-
 @pytest.fixture
 def fast_project_lock_poll(monkeypatch):
     """Poll a held project lock every 0.05 s so contention tests stay short."""

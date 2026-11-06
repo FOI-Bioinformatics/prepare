@@ -248,3 +248,62 @@ def test_genome_prepare_without_datasets_exits_3(tmp_path, caplog):
     rc = main(["genome_prepare", "--accession-file", str(accessions), "--output-dir", str(tmp_path / "genomes")])
     assert rc == 3
     assert "datasets not found on PATH" in caplog.text
+
+
+# ------------------------------------------------------------------ optional tools
+
+
+def test_a_missing_optional_tool_is_not_usable_and_not_warned_about(caplog):
+    assert tools.usable_optional_tool("pigz") is False
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_an_optional_tool_below_its_floor_is_not_used_and_warned_about_once(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("PATH", str(fake_tool(tmp_path, "pigz", "pigz 2.3")))
+    assert tools.usable_optional_tool("pigz") is False
+    assert tools.usable_optional_tool("pigz") is False
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "pigz 2.3" in warnings[0] and "2.4" in warnings[0] and "compressed with gzip" in warnings[0]
+
+
+def test_an_optional_tool_that_cannot_run_is_not_used(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(fake_tool(tmp_path, "prefetch", "", stderr="libssl.so missing", rc=127)))
+    assert tools.usable_optional_tool("prefetch") is False
+
+
+@pytest.mark.parametrize("output", ["prefetch : 3.0.10", "no version printed"])
+def test_an_optional_tool_new_enough_or_of_unknown_version_is_used(tmp_path, monkeypatch, output):
+    monkeypatch.setenv("PATH", str(fake_tool(tmp_path, "prefetch", output)))
+    assert tools.usable_optional_tool("prefetch") is True
+
+
+def test_compress_fastq_falls_back_to_gzip_when_pigz_is_too_old(tmp_path, monkeypatch):
+    """A pigz below 2.4 is never run; the Python gzip path compresses the file instead."""
+    import gzip
+
+    from prepare.data.sra.fastq import compress_fastq
+
+    monkeypatch.setenv("PATH", str(fake_tool(tmp_path, "pigz", "pigz 2.3")))
+    fastq = tmp_path / "reads.fastq"
+    fastq.write_text("@r\nACGT\n+\nIIII\n")
+
+    target = compress_fastq(fastq, threads=1)
+
+    assert gzip.decompress(target.read_bytes()) == b"@r\nACGT\n+\nIIII\n"
+    assert not fastq.exists()
+
+
+def test_download_skips_a_prefetch_below_its_floor(tmp_path, monkeypatch, caplog):
+    """An old prefetch is not run; fasterq-dump downloads the accession directly."""
+    from unittest.mock import patch
+
+    from prepare.data.sra import accession as accession_mod
+
+    monkeypatch.setenv("PATH", str(fake_tool(tmp_path, "prefetch", "prefetch : 2.11.0")))
+    with patch.object(accession_mod, "_run_download_tool", side_effect=RuntimeError("stop here")) as run_tool:
+        with pytest.raises(RuntimeError, match="stop here"):
+            accession_mod.download_accession("SRR123", tmp_path / "downloads", compress=False)
+
+    assert run_tool.call_args_list[0].args[0] == "fasterq-dump"
+    assert any("prefetch 2.11.0" in r.getMessage() and "3.0" in r.getMessage() for r in caplog.records)
