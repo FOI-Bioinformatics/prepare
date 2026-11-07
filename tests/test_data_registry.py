@@ -1477,7 +1477,7 @@ def test_bom_files_are_read_like_any_other(tmp_path):
     from prepare.processing.status_report import _wanted_accessions
 
     accessions = tmp_path / "accessions.txt"
-    accessions.write_bytes("﻿SRR1001\nSRR1002\n".encode("utf-8"))
+    accessions.write_bytes("\ufeffSRR1001\nSRR1002\n".encode("utf-8"))
     assert read_accessions_file(accessions) == ["SRR1001", "SRR1002"]
     assert _read_accession_list(accessions) == ["SRR1001", "SRR1002"]
     assert _wanted_accessions(argparse.Namespace(accessions_file=str(accessions), parsed_containment=None)) == [
@@ -1493,6 +1493,6 @@ def test_bom_files_are_read_like_any_other(tmp_path):
         matches=tmp_path / "matches",
     )
     paths.matches.mkdir()
-    (paths.matches / "G1.csv").write_bytes("﻿acc,containment\nSRR1001,0.5\n".encode("utf-8"))
+    (paths.matches / "G1.csv").write_bytes("\ufeffacc,containment\nSRR1001,0.5\n".encode("utf-8"))
     registry = reg.bootstrap_from_disk(paths)
     assert registry.datasets["SRR1001"]["screening"]["genomes"]["G1"]["containment"] == 0.5
