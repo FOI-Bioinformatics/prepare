@@ -14,44 +14,27 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 import pandas as pd
 
 from prepare.core.exceptions import DataAccessError, PrepareError, ProcessingError, TransientError
-from prepare.data.assembly import (  # noqa: F401 - re-exported; the assembly code moved there
-    _megahit_args,
-    assemble_extracted_reads,
-    fasta_length,
-    megahit_version,
-    resolve_assembly_threads,
-    summarise_contigs,
-)
+
+# Re-exported; the assembly code moved to prepare.data.assembly.
+from prepare.data.assembly import _megahit_args, assemble_extracted_reads, fasta_length  # noqa: F401
+from prepare.data.assembly import megahit_version, resolve_assembly_threads, summarise_contigs  # noqa: F401
 from prepare.data.extraction_locks import LockHeld, index_build_lock, sample_extraction_lock
 from prepare.data.extraction_staging import publish_staged, remove_published, require_nonempty, staged_sample_outputs
 from prepare.data.file_io import atomic_path, ensure_directory, write_text_atomic
 from prepare.data.project_selection import selection_for_genome
-from prepare.data.read_extraction_export import (  # noqa: F401 - re-exported; the export and coverage code moved there
-    FILTER_FLAGS,
-    MINIMAP2_MIN_VERSION,
-    UNEQUAL_MATES_MARKER,
-    _align_and_count_mapped,
-    _average_read_length,
-    _count_records,
-    _export_mapped_fastq,
-    _fastq_is_empty,
-    _filter_and_merge_bam,
-    _run_minimap2,
-    _minimap2_index_args,
-    _minimap2_map_args,
-    _refuse_old_minimap2,
-    _samtools_cat_args,
-    _samtools_count_args,
-    _samtools_coverage_args,
-    _samtools_fastq_paired_args,
-    _samtools_fastq_single_args,
-    _samtools_sort_args,
-    _samtools_view_args,
-    assembly_coverage,
-    coverage_table_path,
-    reference_coverage,
-    summarise_coverage_table,
-)
+
+# Re-exported; the export and coverage code moved to read_extraction_export.
+from prepare.data.read_extraction_export import FILTER_FLAGS, MINIMAP2_MIN_VERSION, UNEQUAL_MATES_MARKER  # noqa: F401
+from prepare.data.read_extraction_export import _align_and_count_mapped, _average_read_length  # noqa: F401
+from prepare.data.read_extraction_export import _count_records, _export_mapped_fastq, _fastq_is_empty  # noqa: F401
+from prepare.data.read_extraction_export import _filter_and_merge_bam, _run_minimap2  # noqa: F401
+from prepare.data.read_extraction_export import _minimap2_index_args, _minimap2_map_args  # noqa: F401
+from prepare.data.read_extraction_export import _refuse_old_minimap2, _samtools_cat_args  # noqa: F401
+from prepare.data.read_extraction_export import _samtools_count_args, _samtools_coverage_args  # noqa: F401
+from prepare.data.read_extraction_export import _samtools_fastq_paired_args, _samtools_fastq_single_args  # noqa: F401
+from prepare.data.read_extraction_export import _samtools_sort_args, _samtools_view_args  # noqa: F401
+from prepare.data.read_extraction_export import assembly_coverage, coverage_table_path  # noqa: F401
+from prepare.data.read_extraction_export import reference_coverage, summarise_coverage_table  # noqa: F401
 from prepare.data.sra import MATE1_SUFFIXES, fastq_files, fastq_stem, orphan_fastq, primary_fastq
 from prepare.utils.security import SecureSubprocess
 
@@ -227,6 +210,20 @@ _PARAMETERS_DIFFER = "recorded parameters differ from this call"
 _OUTPUT_FILE_MISSING = "recorded output file missing"
 
 
+def genome_signature(genome_path: Path) -> List[float]:
+    """``[size, mtime]`` of the genome FASTA, recorded with an extraction to notice a replaced file."""
+    st = Path(genome_path).stat()
+    return [st.st_size, st.st_mtime]
+
+
+def _other_genome(record: Dict[str, Any], genome_path: Path) -> bool:
+    """Whether the record names another FASTA, or the same path holding another assembly."""
+    fasta, signature = record.get("genome_fasta"), record.get("genome_signature")
+    if fasta is not None and Path(fasta).resolve() != genome_path.resolve():
+        return True
+    return signature is not None and list(signature) != genome_signature(genome_path)
+
+
 def _record_mismatch_reason(
     record: Dict[str, Any], genome_path: Path, preset: str, threshold: float, min_mapq: int = 0
 ) -> Optional[str]:
@@ -240,8 +237,7 @@ def _record_mismatch_reason(
     parameter mismatch from a recorded output file that has since been removed from disk, so
     a caller can log which one triggered the redo instead of always blaming the parameters.
     """
-    recorded_fasta = record.get("genome_fasta")
-    if recorded_fasta is not None and Path(recorded_fasta).resolve() != genome_path.resolve():
+    if _other_genome(record, genome_path):
         return _PARAMETERS_DIFFER
     recorded_preset = record.get("preset")
     if recorded_preset is not None and recorded_preset != preset:
@@ -338,6 +334,9 @@ def _map_and_extract(
     ``out_dir``) go once the BAM exists unless ``keep_sam``; the BAM goes after the export."""
     ensure_directory(out_dir)
     sam_root = ensure_directory(sam_dir) if sam_dir is not None else out_dir
+    # --temp-folder can be shared by jobs on other samples of this genome, so every scratch name
+    # carries the accession as well as the genome.
+    scratch = f"{accession}.{genome_id}"
     bam_path = out_dir / f"{genome_id}.mapped.bam"
     filter_args = ["-F", FILTER_FLAGS]
     if min_mapq:
@@ -346,7 +345,7 @@ def _map_and_extract(
     unequal = force_single_end and len(reads) >= 2
     if unequal:
         mate_groups: List[List[Path]] = [[read] for read in reads[:2]]
-        sam_paths = [sam_root / f"{genome_id}.mate1.sam", sam_root / f"{genome_id}.mate2.sam"]
+        sam_paths = [sam_root / f"{scratch}.mate1.sam", sam_root / f"{scratch}.mate2.sam"]
         logger.warning(
             "%s: the mate files are recorded with different read counts, so each is mapped "
             "independently as single-end reads; re-download with fasterq-dump (which keeps mates "
@@ -355,7 +354,7 @@ def _map_and_extract(
         )
     else:
         mate_groups = [reads]
-        sam_paths = [sam_root / f"{genome_id}.sam"]
+        sam_paths = [sam_root / f"{scratch}.sam"]
 
     mapped_total, stderr_marker_seen = _align_and_count_mapped(
         accession, preset, threads, reference, genome_fasta, sam_paths, mate_groups

@@ -952,6 +952,38 @@ class TestStoreVerifyCommand:
         assert "SRR1" in out
         assert "ok" in out
 
+    def test_a_corrupt_gzip_is_marked_failed_and_the_next_dataset_still_checked(self, tmp_path, monkeypatch, capsys):
+        """A corrupt deflate stream used to end store_verify with a zlib.error before any report."""
+        root = tmp_path / "store"
+        paths = init_store(root)
+        for acc in ("SRR1", "SRR2"):
+            acc_dir = sra_dir(paths, acc)
+            _write_fastq_gz(acc_dir / f"{acc}.fastq.gz", text="@r\nACGT\n+\nIIII\n" * 50)
+            if acc == "SRR1":
+                data = (acc_dir / "SRR1.fastq.gz").read_bytes()
+                (acc_dir / "SRR1.fastq.gz").write_bytes(data[:10] + bytes(len(data) - 10))
+            sidecar = _sidecar(acc, state="complete")
+            sidecar.files = [
+                {"name": f"{acc}.fastq.gz", "bytes": (acc_dir / f"{acc}.fastq.gz").stat().st_size, "md5": "x"}
+            ]
+            write_sidecar(sidecar_path(paths, acc), sidecar)
+            with catalog_write(paths) as cat:
+                cat.upsert_dataset(sidecar)
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+
+        rc = StoreVerifyCommand().execute(
+            _verify_args(
+                data_root=str(root), registry=str(project_dir / "prepare_registry.json"), spots=True, fix_state=True
+            )
+        )
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "SRR2" in out
+        assert read_sidecar(sidecar_path(paths, "SRR1")).state == "failed"
+
     def test_verify_flags_truncated_dataset_and_fix_state_updates_sidecar(self, tmp_path, monkeypatch, capsys):
         root = tmp_path / "store"
         paths = init_store(root)

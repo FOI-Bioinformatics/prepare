@@ -117,6 +117,21 @@ def _drop_screening(registry: reg.Registry, accession: str, genome: str) -> None
     _store_screening(registry, accession, screening)
 
 
+def _drop_zero_cells(registry: reg.Registry, table: pd.DataFrame) -> None:
+    """Remove the screening entry of every accession/genome cell the table now holds as 0 or less.
+
+    A cell that is not a number says nothing and leaves its entry alone.
+    """
+    frame = table[[column for column in table.columns if column not in _NOT_GENOMES]]
+    values = frame.apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+    genomes = [str(column) for column in frame.columns]
+    for row, col in zip(*np.nonzero(values <= 0)):
+        accession, genome = str(table.index[row]), genomes[col]
+        screening = rb.screening_block(registry, accession)
+        if screening is not None and genome in screening.genomes:
+            _drop_screening(registry, accession, genome)
+
+
 def _write_row(
     registry: reg.Registry,
     accession: str,
@@ -172,6 +187,7 @@ def record_screening_table(
         if loaded is None:
             return 0
         table = loaded
+    _drop_zero_cells(registry, table)
     accessions, genomes, rows, cols, rounded = _positive_cells(table)
     if not len(rows):
         return 0

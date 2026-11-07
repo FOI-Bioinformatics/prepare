@@ -262,7 +262,12 @@ def _read_count(verdict: Optional[Mapping[str, Any]]) -> Optional[int]:
 
 
 def recorded_verdict(
-    registry: Registry, accession: str, new: Optional[Mapping[str, Any]], expected: Optional[int], linked: bool
+    registry: Registry,
+    accession: str,
+    new: Optional[Mapping[str, Any]],
+    expected: Optional[int],
+    linked: bool,
+    fresh: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """The verdict to record for ``accession``, merged with the one ``registry`` holds; call under the lock.
 
@@ -271,10 +276,15 @@ def recorded_verdict(
     carries and ``expected`` both known the verdict is recomputed (a complete redownload replaces
     ``truncated``); otherwise a recorded ``complete`` or ``truncated`` verdict is kept over an
     ``unverified`` one. None (no ``new``) leaves the verdict on file as it is. Reads no file.
+
+    ``fresh`` marks files a download has just written in place of the earlier ones: the verdict on
+    file described those earlier files, so it is not kept over ``new`` (an unverified redownload of
+    a truncated dataset is unverified, not truncated, or ``--redownload-truncated`` fetches it on
+    every run).
     """
     if new is None:
         return None
+    previous = None if fresh else rb.download_verdict(registry, accession)
     if linked:
-        return store_verdict(registry, accession, new, expected)
-    previous = rb.download_verdict(registry, accession)
+        return linked_verdict(previous, new, expected)
     return merged_verdict(previous, new, _read_count(new), positive_int(expected))

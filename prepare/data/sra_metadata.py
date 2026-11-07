@@ -250,13 +250,20 @@ class SRAMetadataClient:
 
         # _extract_dataset_info logs and skips a package whose values cannot be read.
         for package in matched:
-            for info in self._extract_dataset_info(package):
+            infos = self._extract_dataset_info(package)
+            # A package found only through a requested run reports that run, not its sibling
+            # runs; one found through its experiment, study or sample reports every run.
+            if requested_upper is not None and not self._package_matches_requested(
+                package, requested_upper, include_runs=False
+            ):
+                infos = [info for info in infos if info.accession.upper() in requested_upper] or infos
+            for info in infos:
                 results[info.accession] = info
 
         return results
 
     @staticmethod
-    def _package_matches_requested(package, requested_upper: Set[str]) -> bool:
+    def _package_matches_requested(package, requested_upper: Set[str], include_runs: bool = True) -> bool:
         """True when any accession this EXPERIMENT_PACKAGE carries is in ``requested_upper``
         (already uppercased).
 
@@ -265,9 +272,11 @@ class SRAMetadataClient:
         SECONDARY_ID under those elements, which is where a BioProject (PRJNA...) or BioSample
         (SAMN...) accession appears. Comparison is case-insensitive on this side too, since an
         accession's own casing in the XML is not guaranteed to match how a caller wrote it.
+        ``include_runs=False`` leaves the RUN elements out of the comparison.
         """
         elements = [package.find(".//EXPERIMENT"), package.find(".//STUDY"), package.find(".//SAMPLE")]
-        elements.extend(package.findall(".//RUN_SET/RUN"))
+        if include_runs:
+            elements.extend(package.findall(".//RUN_SET/RUN"))
         candidates = []
         for element in elements:
             if element is None:
@@ -316,7 +325,14 @@ class SRAMetadataClient:
         return spots, bases, size_bytes / (1024 * 1024), run.get("published", "") or ""
 
     def _extract_biosample(self, package) -> str:
-        """Return the BioSample accession from SAMPLE_ATTRIBUTE tags, or ''."""
+        """Return the BioSample accession, or ''.
+
+        efetch puts it in ``SAMPLE/IDENTIFIERS/EXTERNAL_ID[@namespace="BioSample"]``; a
+        ``biosample`` SAMPLE_ATTRIBUTE is read when that is absent.
+        """
+        for node in package.findall(".//SAMPLE/IDENTIFIERS/EXTERNAL_ID"):
+            if (node.get("namespace") or "").lower() == "biosample" and (node.text or "").strip():
+                return (node.text or "").strip()
         for attr in package.findall(".//SAMPLE_ATTRIBUTE"):
             if self._get_text(attr, ".//TAG", "").lower() == "biosample":
                 return self._get_text(attr, ".//VALUE", "")

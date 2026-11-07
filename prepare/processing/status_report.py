@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 from prepare.core.constants import GENOME_FASTA_GLOBS
 from prepare.core.exceptions import DataAccessError, PrepareError
 from prepare.data import registry_blocks as rb
-from prepare.data.file_io import is_hidden_name, visible_files
+from prepare.data.file_io import accession_lines, is_hidden_name, visible_files
 from prepare.data.registry import (
     ProjectPaths,
     Registry,
@@ -48,7 +48,7 @@ def _wanted_accessions(args: argparse.Namespace) -> List[str]:
         path = Path(args.accessions_file)
         if not path.exists():
             raise PrepareError(f"Accessions file not found: {path}")
-        wanted += [ln.strip() for ln in path.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+        wanted += accession_lines(path.read_text())
     if args.parsed_containment:
         import pandas as pd
 
@@ -247,10 +247,16 @@ def _drift_report(drift: StoreReconcileReport) -> Dict[str, Any]:
 
 
 def download_verdicts(registry: Registry) -> Dict[str, List[str]]:
-    """Accessions whose recorded completeness verdict is "truncated" or "unverified"."""
+    """Downloaded accessions whose recorded completeness verdict is "truncated" or "unverified".
+
+    A download reconcile marked missing keeps its last verdict, but its files are gone, so it is
+    not listed (as ``project_report`` does not list it either).
+    """
     truncated = []
     unverified = []
     for acc in registry.datasets:
+        if rb.raw(registry, acc, "download", "state") != "downloaded":
+            continue
         complete = rb.raw(registry, acc, "download", "complete")
         verdict = complete.get("verdict") if isinstance(complete, dict) else None
         if verdict == "truncated":

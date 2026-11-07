@@ -1496,3 +1496,12 @@ def test_download_metadata_lists_the_metadata_folder_once(tmp_path):
 
     assert sorted(download.call_args.args[0]) == ["SRR1", "SRR3"]
     assert [Path(c.args[0]) for c in listdir_spy.call_args_list] == [metadata_dir]
+
+
+def test_unique_accessions_skip_an_empty_or_malformed_acc(tmp_path, caplog):
+    """A match row without an accession is skipped (as parse_containment does), not passed on as NaN."""
+    matches = tmp_path / "matches"
+    matches.mkdir()
+    (matches / "G1.csv").write_text("acc,containment\nSRR0000001,0.5\n,0.4\n../x,0.3\n")
+
+    assert _get_unique_accessions(matches, 0) == {"SRR0000001"}

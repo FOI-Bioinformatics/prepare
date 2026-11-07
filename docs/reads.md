@@ -40,7 +40,7 @@ prepare sra_info --accessions-file accessions.txt --email you@example.org --outp
 
 NCBI asks for an email address. It comes from `--email`, from the `PREPARE_NCBI_EMAIL` variable or from `ncbi_email` under `[runtime]` in the config file. `--api-key` raises the rate limit and `--bandwidth-mbps` sets the bandwidth used for the download estimate (default 100).
 
-`sra_info` filters per experiment package, not per run. It lists every run of each experiment package that a requested run, experiment, sample, study, BioProject or BioSample accession matches. This includes sibling lanes or replicates of the same experiment as a requested run. Runs of packages that match none of the requested accessions are dropped. If a reply would be filtered down to nothing, the command lists every run returned and logs a warning instead.
+`sra_info` lists every run of each experiment package that a requested experiment, sample, study, BioProject or BioSample accession matches. A requested run accession lists that run only, not the sibling lanes or replicates of its experiment, so the dataset count, size and download time cover what was asked for. Runs of packages that match none of the requested accessions are dropped. If a reply would be filtered down to nothing, the command lists every run returned and logs a warning instead.
 
 ## download_sra
 
@@ -98,7 +98,7 @@ Each download's read count is compared with NCBI's recorded spot count and a ver
 
 A dataset held in the shared store carries the store's own verdict instead: `complete`, `partial` or `unverified` (see [shared_store.md](shared_store.md)).
 
-`--redownload-truncated` fetches an accession whose registry verdict is `truncated` instead of skipping it on a rerun. A recorded verdict is never downgraded to `unverified`. If a redownload keeps coming back `unverified`, run `download_metadata` for the accession so that an expected spot count exists. Otherwise a `truncated` record without a spot count is fetched again on every run.
+`--redownload-truncated` fetches an accession whose registry verdict is `truncated` instead of skipping it on a rerun. A redownload records the verdict of its own files: one that comes back `unverified` (no spot count, or `--no-verify-downloads`) replaces the `truncated` verdict, so the next run does not fetch it again. Run `download_metadata` for the accession so that an expected spot count exists and the new copy can be judged.
 
 An accession found on disk without a download record, as a killed run leaves it, is verified against its spot count before it is recorded. It is recorded `unverified` when no count is known, and a truncated one is reported with a pointer to `--redownload-truncated`. `--no-verify-downloads` skips the check of the project's own downloads and of a download into the shared store, whose copy is then recorded as unverified. A partial store copy is still refused without `--accept-partial`.
 
@@ -117,7 +117,7 @@ Verdict rules that follow from this lookup:
 
 - Linking a dataset from the store (by `download_sra`, `store_link` or `store_adopt`), or reconciling, never replaces a recorded `complete` or `truncated` verdict with `unverified` when no count is known.
 - When the sidecar's read count and a spot count are both known, the verdict is computed again. A relink to a short copy therefore records `truncated`.
-- A plain redownload that comes back `unverified` keeps a recorded `truncated` verdict. One that comes back `complete` replaces it.
+- A redownload records its own files' verdict: one that comes back `unverified` or `complete` replaces a recorded `truncated` (or `complete`) verdict.
 - In a project linked with `--link-mode copy`, a store copy that a later `download_sra` run finds short is recorded with the store's verdict, so `extract_target_reads` skips the project's copy even though that copy's own sidecar still reads complete.
 - `status --reconcile` re-checks every `unverified` verdict once a spot count is known. A plain project download is counted again from its mate-1 file and its file of unpaired reads. A link into the store is compared with the read count its sidecar records, without reading any FASTQ file. Before that, reconcile fills a metadata block that lacks a spot count from `metadata/<ACCESSION>_metadata.xml`, so one run fills both. An XML file without a spot count leaves the block unchanged.
 

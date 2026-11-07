@@ -20,6 +20,7 @@ from prepare.data.read_extraction import (
     _record_matches,
     _sample_reads,
     extract_target_reads,
+    genome_signature,
     resolve_index_path,
     selected_samples,
 )
@@ -419,6 +420,7 @@ class ExtractTargetReadsCommand(BaseCommand):
                 outcome.unequal_mates,
                 {
                     "genome_fasta": str(Path(args.genome_fasta)),
+                    "genome_signature": genome_signature(Path(args.genome_fasta)),
                     "preset": args.preset,
                     "threshold": args.threshold,
                     "filter_flags": "0x904",

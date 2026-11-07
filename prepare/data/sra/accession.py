@@ -222,7 +222,7 @@ def _handle_download_output(
     found = fastq_mod.fastq_files(temp_path)
     if not found:
         logger.error("No FASTQ files created despite successful command execution")
-        # Kept for inspection, consistent with download_accession's failure paths.
+        # download_accession removes the build folder (or keeps it with keep_temp), as on any failure.
         message = "No FASTQ files created"
         return False, f"{classify_download_error(message)}: {message}"
 
@@ -554,16 +554,14 @@ def download_accession(
             stop=stop,
             accept_partial=accept_partial,
         )
-
-        # A truncated failure drops the archive too: prefetch would otherwise treat the short
-        # archive as fetched and the retry would dump the same reads again.
-        if using_prefetch and (success or "truncated" in message):
-            _discard_cached_archive(cache_path, accession, message, keep=keep_sra)
-
+        _after_dump(accession, success, message, temp_path, keep_temp, cache_path if using_prefetch else None, keep_sra)
         return success, message
 
     except _DownloadInterrupted:
         logger.info(f"Download of {accession} not started or continued: the run was interrupted")
+        # The stopped tool's partial output (often many GB) would otherwise stay until a later
+        # download of the same accession.
+        _settle_temp_folder(temp_path, keep_temp)
         return False, "interrupted"
 
     except subprocess.CalledProcessError as e:
@@ -588,6 +586,27 @@ def download_accession(
         # Clean up auto-created temp directory (from tempfile.mkdtemp)
         if temp_folder_path and not temp_folder:
             cleanup_mod._safe_rmtree(temp_folder_path)
+
+
+def _after_dump(
+    accession: str,
+    success: bool,
+    message: str,
+    temp_path: Path,
+    keep_temp: bool,
+    cache_path: Optional[Path],
+    keep_sra: bool,
+) -> None:
+    """Tidy up after fasterq-dump's output was handled: the failed build folder and the archive.
+
+    ``cache_path`` is the prefetch cache when prefetch was used, else None. A truncated failure
+    drops the archive too: prefetch would otherwise treat the short archive as fetched and the
+    retry would dump the same reads again.
+    """
+    if not success:
+        _settle_temp_folder(temp_path, keep_temp)
+    if cache_path is not None and (success or "truncated" in message):
+        _discard_cached_archive(cache_path, accession, message, keep=keep_sra)
 
 
 def _settle_temp_folder(temp_path: Path, keep: bool) -> None:

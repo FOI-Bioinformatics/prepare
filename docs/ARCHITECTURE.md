@@ -313,9 +313,10 @@ A download's verdict compares the reads on disk with NCBI's spot count: `complet
 more, `truncated` below it, `unverified` when no count is known. `prepare/data/sra/spots.py` holds two
 rules. `download_sra` (`cli/commands/sra_verdicts.py`, `registry_inputs`), the store hand-off,
 `store_link`, `store_adopt` and `status --reconcile` use the lookup, with the project's and then the store's
-`metadata/` folder as the XML folders. A plain redownload that comes back `unverified` keeps a recorded
-`truncated` verdict, one that comes back `complete` replaces it, and a present download without a known
-count is recorded `unverified`. For a store dataset, `sra_verdicts.store_verdict` is the one rule
+`metadata/` folder as the XML folders. A download that writes new files records their own verdict, so one
+that comes back `unverified` replaces a recorded `truncated` or `complete` verdict (that verdict described
+the files it replaced; `recorded_verdict(..., fresh=True)`), and a present download without a known count
+is recorded `unverified`. For a store dataset, `sra_verdicts.store_verdict` is the one rule
 `download_sra` (a link, or a copy kept but not linked: a result starting with one of
 `store_handoff.SETTLED_PREFIXES`), `store_link` and `store_adopt` record: the sidecar's read count judged
 against the spot count (`store_spot_count`; the sidecar and the count are read before the registry lock is
@@ -333,7 +334,8 @@ dataset lock.
   count are both known, the verdict is computed again from them, so it may change in either direction;
   otherwise a missing new verdict keeps the previous one, and a previous `complete` or `truncated` verdict is
   never replaced by `unverified` or by a verdict without a value. A known verdict is never downgraded to
-  unknown, since the absence of a count is not evidence about the reads.
+  unknown, since the absence of a count is not evidence about the same reads. A fresh download is not
+  merged at all: its files are new, so the previous verdict does not apply to them.
 
 In the store, a copy that is `partial` or `failed`, or `unverified` but short against a count known since,
 is never linked into a project without `--accept-partial`; such a copy is refetched, and a refetch that is

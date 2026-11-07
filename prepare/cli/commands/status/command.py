@@ -181,18 +181,15 @@ class StatusCommand(BaseCommand):
             )
             existed = registry_file.exists()
             if existed and args.init:
-                self.logger.error(
-                    "Registry already exists at %s; run status --reconcile to update it from disk, "
-                    "or remove the file to rebuild it",
-                    registry_file,
+                raise PrepareError(
+                    f"Registry already exists at {registry_file}; run status --reconcile to update it "
+                    "from disk, or remove the file to rebuild it"
                 )
-                return 1
-            if args.reconcile and not existed:
-                self.logger.error(
-                    "No registry at %s to reconcile; create one first with: prepare status --init",
-                    registry_file,
+            # With --init as well, the registry is built first and then reconciled.
+            if args.reconcile and not existed and not args.init:
+                raise PrepareError(
+                    f"No registry at {registry_file} to reconcile; create one first with: prepare status --init"
                 )
-                return 1
             if existed:
                 registry = load_registry(registry_file)
             else:

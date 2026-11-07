@@ -209,6 +209,11 @@ class TestMetadataAlignment:
         assert {trace.name for trace in fig.data} == {"a", "b"}
         assert self._samples_by_trace(fig) == {"a": ["s1", "s3"], "b": ["s2"]}
 
+    def test_tsne_with_the_default_perplexity_runs_on_a_few_samples(self):
+        """scikit-learn needs perplexity below the sample count; the default must fit 3 samples."""
+        fig = create_interactive_tsne(self.data, n_iter=250, show_plot=False)
+        assert len(fig.data[0].x) == 3
+
     def test_pca_names_a_sample_missing_from_metadata(self):
         metadata = self.metadata.drop(index="s3")
         with pytest.raises(ValidationError, match="s3"):

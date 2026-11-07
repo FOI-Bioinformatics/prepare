@@ -403,3 +403,19 @@ def test_a_summary_that_cannot_be_written_does_not_change_the_exit_code(tmp_path
     with patch("prepare.cli.commands.sra.write_run_document", side_effect=OSError("read-only")):
         assert _execute(fake, _args(tmp_path)) == 0
     assert "Could not write the download run summary" in caplog.text
+
+
+def test_a_refetch_that_kept_the_earlier_store_copy_counts_as_a_download():
+    """_keep_previous links the earlier copy after a full download ran: an attempt with its time,
+    not a plain link to a copy the store already had."""
+    from prepare.data.sra.run_report import attempt_timing, started_download
+    from prepare.data.sra.store_handoff import STORE_LINKED_PREFIX, STORE_REFETCHED_SUFFIX
+
+    refetched = f"{STORE_LINKED_PREFIX} (kept the earlier copy), 2 files{STORE_REFETCHED_SUFFIX}"
+    plain = f"{STORE_LINKED_PREFIX}, 2 files"
+    timings = {"SRR1": ("2026-11-07T00:00:00+00:00", 12.0)}
+
+    assert started_download(True, refetched) is True
+    assert attempt_timing("SRR1", True, refetched, timings) == timings["SRR1"]
+    assert started_download(True, plain) is False
+    assert attempt_timing("SRR1", True, plain, timings) is None

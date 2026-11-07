@@ -303,12 +303,16 @@ class SRAValidateCommand(BaseCommand):
         if mate1 is None or mate2 is None:
             return []
         reads_per_file = (cached or {}).get("reads_per_file") or {}
-        n1 = reads_per_file.get(mate1.name)
-        if n1 is None:
-            n1 = count_fastq_reads(mate1)
-        n2 = reads_per_file.get(mate2.name)
-        if n2 is None:
-            n2 = count_fastq_reads(mate2)
+        counts = []
+        for mate in (mate1, mate2):
+            count = reads_per_file.get(mate.name)
+            if count is None:
+                try:
+                    count = count_fastq_reads(mate)
+                except (OSError, EOFError) as e:  # a truncated (EOFError) or corrupt gzip
+                    return [f"cannot count the reads of {mate.name}: {e}"]
+            counts.append(count)
+        n1, n2 = counts
         if n1 != n2:
             return [f"mate files differ ({n1} vs {n2})"]
         return []

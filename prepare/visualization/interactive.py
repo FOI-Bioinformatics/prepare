@@ -261,7 +261,7 @@ def create_interactive_tsne(
     data: Union[pd.DataFrame, np.ndarray],
     metadata: Optional[pd.DataFrame] = None,
     color_by: Optional[str] = None,
-    perplexity: float = 30.0,
+    perplexity: Optional[float] = None,
     n_iter: int = 1000,
     title: str = "Interactive t-SNE Plot",
     output_file: Optional[Union[str, Path]] = None,
@@ -274,7 +274,8 @@ def create_interactive_tsne(
         data: Sample x Features matrix
         metadata: Sample metadata for coloring points
         color_by: Metadata column for point colors
-        perplexity: t-SNE perplexity parameter
+        perplexity: t-SNE perplexity parameter; by default 30, or (samples - 1) / 3 when that is
+            smaller (scikit-learn requires it below the sample count)
         n_iter: Number of iterations (max_iter parameter in sklearn)
         title: Plot title
         output_file: HTML file to save plot
@@ -290,6 +291,8 @@ def create_interactive_tsne(
     manifold = require("sklearn.manifold", "analysis", "An interactive t-SNE plot")
     try:
         X, sample_names = _prepare_matrix(data, method="t-SNE")
+        if perplexity is None:
+            perplexity = min(30.0, max(1.0, (len(sample_names) - 1) / 3))
 
         # Perform t-SNE (use max_iter parameter for sklearn compatibility)
         tsne = manifold.TSNE(n_components=2, perplexity=perplexity, max_iter=n_iter, random_state=42)

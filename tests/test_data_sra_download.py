@@ -3030,3 +3030,50 @@ class TestPrefetchMaxSize:
         monkeypatch.setenv("PREPARE_PREFETCH_MAX_SIZE", "lots")
         with pytest.raises(ConfigurationError, match="PREPARE_PREFETCH_MAX_SIZE"):
             self._prefetch_args(tmp_path)
+
+
+class TestBuildFolderIsRemovedAfterAFailedAttempt:
+    """Without --keep-temp, no <ACC>_temp build folder outlives an interrupted or empty attempt."""
+
+    @staticmethod
+    def _fasterq_writing(content, then_raise=None):
+        def run(executable, args, stop=None):
+            out = Path(args[args.index("-O") + 1])
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "SRR123_1.fastq").write_text(content)
+            if then_raise is not None:
+                raise then_raise
+
+        return run
+
+    def test_an_interrupted_download_removes_its_partial_output(self, tmp_path):
+        from prepare.data.sra import accession as accession_mod
+
+        tool = self._fasterq_writing("@r\nACGT\n", then_raise=accession_mod._DownloadInterrupted())
+        with patch.object(accession_mod, "_run_download_tool", side_effect=tool):
+            success, message = download_accession("SRR123", tmp_path / "downloads", compress=False, use_prefetch=False)
+
+        assert (success, message) == (False, "interrupted")
+        assert [p for p in tmp_path.rglob("*_temp")] == []
+
+    def test_a_download_that_wrote_no_reads_removes_its_build_folder(self, tmp_path):
+        from prepare.data.sra import accession as accession_mod
+
+        with patch.object(accession_mod, "_run_download_tool", side_effect=self._fasterq_writing("")):
+            success, message = download_accession("SRR123", tmp_path / "downloads", compress=False, use_prefetch=False)
+
+        assert success is False and "No FASTQ files created" in message
+        assert [p for p in tmp_path.rglob("*_temp")] == []
+
+
+def test_a_failed_accessions_file_that_cannot_be_written_does_not_fail_the_run(tmp_path, caplog):
+    """The list is a convenience for a rerun; a full disk when writing it is a warning, not an error
+    that discards the finished run's results."""
+    from prepare.data.sra import retry as retry_mod
+
+    with patch.object(retry_mod, "write_text_atomic", side_effect=OSError(28, "No space left on device")):
+        retry_mod._handle_download_failure(tmp_path, ["SRR1"], ["SRR1"])
+    (tmp_path / "failed_accessions.txt").mkdir()  # unreadable as a file
+    retry_mod._handle_download_failure(tmp_path, [], ["SRR1"])
+
+    assert sum("failed_accessions.txt" in r.getMessage() for r in caplog.records if r.levelname == "WARNING") == 2

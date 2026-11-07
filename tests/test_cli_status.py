@@ -650,7 +650,8 @@ class TestStatusWithRegistry:
         StatusCommand().execute(_status_args(tmp_path, next=True))
         out = json.loads(capsys.readouterr().out)
         extract = next(s for s in out["next"] if "extract_target_reads" in s["command"])
-        assert f"--parsed-containment {table}" in extract["command"]
+        # Recorded relative to the project root, which is where the suggested command runs.
+        assert "--parsed-containment tables/containment.txt" in extract["command"]
         assert f"--genome-fasta {tmp_path / 'genomes' / 'GCF_1.fasta'}" in extract["command"]
 
     def test_next_uses_the_recorded_genome_fasta(self, tmp_path, capsys):
@@ -1791,9 +1792,10 @@ class TestNextStepsAreRunnableAndRelevant:
         steps = next_steps(registry, ProjectPaths.anchored(tmp_path))
         assert [s["accessions"] for s in steps] == [["SRR1"]]
 
-    def test_suggestions_quote_paths_and_ids(self, tmp_path):
+    def test_suggestions_quote_paths_and_ids(self, tmp_path, monkeypatch):
         from prepare.data.registry import ProjectPaths, record_download
 
+        monkeypatch.chdir(tmp_path)  # record_selection takes paths relative to where it runs
         registry = self._registry(tmp_path, ["L crispatus"])
         record_download(registry, "SRR1", "downloaded", tmp_path / "fastq" / "SRR1")
         record_selection(registry, ["SRR1", "SRR2"], {"table": "my tables/parsed.txt"}, "my lists/acc.txt")
@@ -1834,3 +1836,10 @@ class TestInitRegistersGenomesWithEvidence:
         (root / "targeted" / "SRR1").mkdir(parents=True)
         (root / "targeted" / "SRR1" / "Y_assembly").mkdir()
         assert "Y" in self._init(root)["genomes"]
+
+
+def test_init_and_reconcile_together_initialise_then_reconcile(tmp_path):
+    """--init --reconcile on a project without a registry builds it, then reconciles it."""
+    _project_tree(tmp_path)
+    assert StatusCommand().execute(_status_args(tmp_path, init=True, reconcile=True)) == 0
+    assert (tmp_path / "prepare_registry.json").exists()

@@ -156,7 +156,7 @@ def _log_download_run_summary(
     linked_count = sum(
         1
         for message in download_results.values()
-        if accession_mod.result_body(message).startswith(store_handoff_mod.STORE_LINKED_PREFIX)
+        if store_handoff_mod.plain_store_link(accession_mod.result_body(message))
     )
 
     logger.info("Download summary:")

@@ -16,6 +16,24 @@ from prepare.core.optional import require
 logger = logging.getLogger(__name__)
 
 
+def _matrix_and_names(abundance_matrix: Union[pd.DataFrame, np.ndarray]) -> Tuple[np.ndarray, List[Any]]:
+    """The values and sample names of a samples x features matrix; a missing value is refused.
+
+    An empty cell (NaN) would make a sample's distances 0 to every other sample and its indices
+    empty, so it is a ``ValidationError`` naming the samples rather than a silently wrong result.
+    """
+    if isinstance(abundance_matrix, pd.DataFrame):
+        data, sample_names = abundance_matrix.to_numpy(dtype=float), list(abundance_matrix.index)
+    else:
+        data = np.asarray(abundance_matrix, dtype=float)
+        sample_names = [f"Sample_{i}" for i in range(data.shape[0])]
+    if data.size and np.isnan(data).any():
+        missing = [str(sample_names[i]) for i in np.nonzero(np.isnan(data).any(axis=1))[0]]
+        shown = ", ".join(missing[:10]) + (f" and {len(missing) - 10} more" if len(missing) > 10 else "")
+        raise ValidationError(f"The abundance matrix has empty cells for sample(s) {shown}; fill them with 0")
+    return data, sample_names
+
+
 def calculate_alpha_diversity(
     abundance_matrix: Union[pd.DataFrame, np.ndarray],
     metrics: List[str] = ["shannon", "simpson", "chao1", "observed_species"],
@@ -36,12 +54,7 @@ def calculate_alpha_diversity(
         ProcessingError: If calculation fails
     """
     try:
-        if isinstance(abundance_matrix, pd.DataFrame):
-            data = abundance_matrix.values
-            sample_names = abundance_matrix.index
-        else:
-            data = abundance_matrix
-            sample_names = [f"Sample_{i}" for i in range(data.shape[0])]
+        data, sample_names = _matrix_and_names(abundance_matrix)
 
         # Handle empty data
         if data.size == 0:
@@ -68,6 +81,8 @@ def calculate_alpha_diversity(
         logger.info(f"Calculated alpha diversity for {len(sample_names)} samples")
         return result_df
 
+    except ValidationError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Failed to calculate alpha diversity: {e}")
 
@@ -98,12 +113,7 @@ def calculate_beta_diversity(
     if metric not in ("bray_curtis", "jaccard"):
         sklearn_metrics = require("sklearn.metrics", "analysis", f"The {metric} beta diversity metric")
     try:
-        if isinstance(abundance_matrix, pd.DataFrame):
-            data = abundance_matrix.values
-            sample_names = abundance_matrix.index
-        else:
-            data = abundance_matrix
-            sample_names = [f"Sample_{i}" for i in range(data.shape[0])]
+        data, sample_names = _matrix_and_names(abundance_matrix)
 
         # Calculate distance matrix
         if metric == "bray_curtis":
@@ -121,6 +131,8 @@ def calculate_beta_diversity(
         else:
             return distances
 
+    except ValidationError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Failed to calculate beta diversity: {e}")
 
@@ -249,7 +261,15 @@ def _calculate_simpson_diversity(data: np.ndarray) -> np.ndarray:
 
 
 def _calculate_chao1_diversity(data: np.ndarray) -> np.ndarray:
-    """Calculate Chao1 richness estimator."""
+    """Calculate Chao1 richness estimator.
+
+    Chao1 counts singletons and doubletons, so it is defined for whole-number counts only. For
+    other values (containment fractions, relative abundances) every sample gets NaN with one
+    warning, rather than an estimate that counts each fraction of exactly 1 as a singleton.
+    """
+    if data.size and not np.all(np.mod(data, 1) == 0):
+        logger.warning("Chao1 needs whole-number counts; the matrix holds fractions, so chao1 is left empty")
+        return np.full(data.shape[0], np.nan)
     chao1 = np.zeros(data.shape[0])
 
     for i in range(data.shape[0]):

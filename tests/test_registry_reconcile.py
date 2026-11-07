@@ -360,3 +360,46 @@ class TestRegistryUpdate:
         with pytest.raises(DataAccessError):
             registry_update(path, mutation)
         assert path.read_text() == before
+
+
+class TestReconcileKeepsWhatTheRegistryRecorded:
+    def test_a_download_in_another_folder_is_not_marked_missing(self, tmp_path, fixed_clock, monkeypatch):
+        """Reads downloaded into reads/ are where the registry recorded them; reconcile with the
+        default fastq/ folder must not turn them missing."""
+        monkeypatch.chdir(tmp_path)
+        paths = _project(tmp_path)
+        _fastq(tmp_path / "reads" / "SRR1" / "SRR1_1.fastq")
+        registry = reg.Registry()
+        reg.record_download(registry, "SRR1", "downloaded", tmp_path / "reads")
+        assert rb.download_block(registry, "SRR1").files
+
+        report = apply_reconcile(registry, scan_reconcile(registry, paths))
+
+        assert report.recorded_missing == []
+        assert rb.download_block(registry, "SRR1").state == "downloaded"
+
+    def test_a_failed_download_found_on_disk_drops_the_failed_attempts_timing(self, tmp_path, fixed_clock, monkeypatch):
+        from prepare.data.registry_timing import set_download_timing
+
+        monkeypatch.chdir(tmp_path)
+        paths = _project(tmp_path)
+        _fastq(paths.fastq / "SRR1" / "SRR1_1.fastq")
+        registry = reg.Registry()
+        reg.record_download(registry, "SRR1", "failed", paths.fastq, message="timed out")
+        set_download_timing(registry, "SRR1", "2026-09-29T00:00:00+00:00", 3600.0)
+
+        apply_reconcile(registry, scan_reconcile(registry, paths))
+
+        download = rb.download_block(registry, "SRR1")
+        assert download.state == "downloaded"
+        assert download.started is None and download.seconds is None
+
+
+def test_status_does_not_list_a_missing_download_as_truncated():
+    from prepare.processing.status_report import download_verdicts
+
+    registry = reg.Registry()
+    registry.datasets["SRR1"] = {"download": {"state": "missing", "complete": {"verdict": "truncated"}}}
+    registry.datasets["SRR2"] = {"download": {"state": "downloaded", "complete": {"verdict": "truncated"}}}
+
+    assert download_verdicts(registry)["truncated"] == ["SRR2"]

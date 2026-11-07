@@ -6,6 +6,64 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `diversity_analysis`: an abundance matrix with empty cells is refused (exit 2, naming the samples)
+  instead of giving those samples a Bray-Curtis distance of 0 to every other one and empty indices.
+  `chao1` is left empty, with a warning, for a matrix of fractions (a containment table), where it
+  counted every value of exactly 1 as a singleton.
+- `interactive_plot --plot-type tsne` works with 30 samples or fewer: the perplexity is lowered to
+  (samples - 1) / 3 when 30 would not fit below the sample count.
+- `store_init --set-default` replaces a `[store]` table whose header has spaces or a comment
+  (`[ store ]`, `[store]  # lab`); it appended a second `[store]` table, after which every command
+  exited 3.
+- `parse_containment`: a table that now holds 0 for an accession and genome removes the earlier
+  screening entry from the registry; `results_table` and `status` kept reporting the old containment.
+- `download_metadata`: a match row with an empty or malformed accession is skipped with a warning
+  (as `parse_containment` skips it); an empty one ended the run with a `TypeError`.
+- `extract_branchwater_metadata` accepts a CSV that starts with a UTF-8 BOM (Excel's "CSV UTF-8"), as
+  the other commands that read match files do.
+- `sra_info`: a requested run accession reports that run only, not the sibling runs of its
+  experiment, so the dataset count, size and download estimate cover what was asked for (an
+  experiment, sample, study or project accession still reports every run). The `biosample` column is
+  read from the sample's BioSample identifier, where NCBI puts it; it was almost always empty.
+- `download_sra`: a download that writes new files records their own verdict. An `unverified`
+  redownload (no spot count, or `--no-verify-downloads`) replaced nothing before: the old files'
+  `truncated` verdict was kept, so `--redownload-truncated` fetched the accession again on every run,
+  and a forced redownload kept an old `complete` verdict for a copy that may be short.
+- `download_sra`: an interrupted download, or one whose tool wrote no reads, removes its `<ACC>_temp`
+  build folder (kept with `--keep-temp`); the partial output, often many GB, used to stay behind.
+- `download_sra`: a final registry write that still times out on the lock after its retry exits 4
+  (retry later), not 1. A `failed_accessions.txt` that cannot be written or read (a disk this run
+  filled) is a warning instead of failing the finished run.
+- `download_sra` with a shared store: a refetch that kept the earlier store copy is recorded as a
+  download attempt with its time and counted as downloaded, not as a plain link to a copy the store
+  already held.
+- `select_datasets --skip-downloaded` keeps the downloaded accessions of an earlier selection
+  selected; it unselected them, so `extract_target_reads`, `status` and `results_table` lost them. The
+  summary's "excluded" and "already downloaded" counts are those dropped from this table, not every
+  one the registry names.
+- `select_datasets` records `--output` and the containment table relative to the project root, so
+  `status --next` suggests files that exist when run from a subfolder.
+- `status --accessions-file` and `status --init --accessions-file` skip an indented `#` comment line
+  instead of taking it as an accession.
+- `status --reconcile` does not mark a download missing while the files it recorded are still on
+  disk (a download into a folder other than `--fastq-folder`). A failed download that reconcile finds
+  on disk is recorded without the failed attempt's start and duration. `status` no longer lists a
+  download marked missing among the truncated or unverified ones, matching `project_report`.
+- `status --init --reconcile` on a project without a registry builds it and then reconciles it; it
+  used to fail asking for `--init`.
+- `extract_target_reads --temp-folder`: the SAM and sorted-BAM scratch files are named after the
+  accession as well as the genome. Two jobs on different samples of one genome sharing a temp folder
+  (a config-wide `PREPARE_TEMP_FOLDER`, a node-shared `$TMPDIR`) overwrote each other's alignments, so
+  one sample could be given the other's reads.
+- `extract_target_reads`: an extraction records the genome FASTA's size and modification time, and a
+  sample is extracted again when the FASTA at the same path has been replaced (the index was already
+  rebuilt in that case; the samples were skipped as current). Records from earlier versions carry no
+  signature and are not redone for its absence.
+- A `.fastq.gz` with a corrupt deflate stream no longer ends a run with a bare `zlib.error`:
+  `count_fastq_reads` reports it as a bad gzip file. `download_sra` records such a folder on disk as
+  unverified instead of failing after every download with no report; `store_verify --spots`/`--fix-state`
+  marks the dataset corrupt (and `failed`) and goes on to the next one; `sra_validate --check-pairs`
+  reports a truncated or corrupt mate file as a FAILED accession instead of stopping.
 - `download_sra` and `store_adopt` check the version of the optional `prefetch` and `pigz` before
   using them. One that cannot run or is older than its floor in the tool table (3.0 and 2.4) is not
   used: one warning names it with the `conda install` command, and the run falls back to running
@@ -59,6 +117,10 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   project path and name, not the subfolder.
 - `sra_profile` without named accessions skips a folder in `--fastq-folder` that is not named like an
   SRA accession, as `sra_validate` does, instead of failing it with exit 1.
+
+### Documentation
+
+- `runs` exits 2 (not 1) for a run selector that matches no run or more than one.
 
 ## [0.12.1] - 2026-10-25
 

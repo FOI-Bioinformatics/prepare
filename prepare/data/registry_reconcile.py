@@ -57,6 +57,7 @@ from prepare.data.registry import (
     record_assembly,
     record_download,
     record_extraction,
+    resolve_project_path,
     scan_assemblies,
     scan_downloads,
     scan_extractions,
@@ -64,6 +65,7 @@ from prepare.data.registry import (
     update_linked,
 )
 from prepare.data.registry_assembly import assembly_predates_extraction
+from prepare.data.registry_timing import set_download_timing
 from prepare.data.sra import accession_has_fastq, count_fastq_reads, verify_download
 from prepare.data.sra.spots import expected_spots, merged_verdict
 
@@ -253,8 +255,9 @@ def _mark_missing(registry: Registry, plan: ReconcilePlan, report: StoreReconcil
             left_alone.append(acc)
             continue
         # A download another process finished after the scan is not in the scan's listing;
-        # one look at its folder (a few stat calls) keeps it from being marked missing.
-        if accession_has_fastq(plan.paths.fastq / acc):
+        # one look at its folder (a few stat calls) keeps it from being marked missing. So do the
+        # files the download recorded, when they live outside the folder this reconcile scans.
+        if accession_has_fastq(plan.paths.fastq / acc) or _recorded_files_present(registry, download):
             continue
         download.state, download.date = "missing", _registry._now()
         rb.set_download_block(registry, acc, download)
@@ -271,6 +274,12 @@ def _mark_missing(registry: Registry, plan: ReconcilePlan, report: StoreReconcil
             named,
             f" and {more} more" if more > 0 else "",
         )
+
+
+def _recorded_files_present(registry: Registry, download: rb.DownloadBlock) -> bool:
+    """True when the download records its files and every one of them is still on disk."""
+    files = [entry.path for entry in download.files or [] if entry.path]
+    return bool(files) and all(resolve_project_path(registry, path).is_file() for path in files)
 
 
 def _links_into_store(registry: Registry, entry: Path) -> bool:
@@ -312,6 +321,8 @@ def _record_untracked(registry: Registry, plan: ReconcilePlan, report: StoreReco
         else:
             record_download(registry, acc, "downloaded", plan.paths.fastq, attempt=False)
         rb.mark_inferred(registry, acc, "download", attempts=0)
+        # A failed attempt's start and duration are not this inferred download's.
+        set_download_timing(registry, acc, None, None)
 
 
 def _count_extraction(files: List[Path], genome_id: str) -> Tuple[int, Optional[Dict[str, Any]]]:

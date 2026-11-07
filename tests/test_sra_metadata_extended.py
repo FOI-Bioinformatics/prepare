@@ -729,17 +729,25 @@ def test_parse_real_efetch_shape_reports_runs():
     assert abs(run.avg_length - 300.0) < 0.01
 
 
-def test_parse_sra_xml_requested_one_run_of_a_shared_package_keeps_its_sibling_run():
+def test_parse_sra_xml_requested_one_run_of_a_shared_package_leaves_out_its_sibling_run():
     """SRR100 and SRR101 sit in the same EXPERIMENT_PACKAGE (two lanes/runs of one
-    experiment). Filtering happens at the package level, not per RUN: a request naming only
-    SRR100 is a request for that package, so its sibling run SRR101 comes back too, rather
-    than being dropped as "not requested". A request list may also legitimately hold an
-    experiment, study or sample accession instead of a RUN accession (nothing about
-    --accessions-file rules that out); per-RUN filtering would silently return nothing at all
-    for such a request, which is the regression this rule avoids."""
+    experiment). A request naming only the run SRR100 reports SRR100 alone: its sibling would
+    add a dataset, its size and its download time that nobody asked for. A request naming the
+    package's experiment, study or sample accession still returns every run (tests below)."""
     client = SRAMetadataClient(email="a@b.c")
     results = client._parse_sra_xml(REAL_EFETCH_XML, requested={"SRR100"})
-    assert set(results) == {"SRR100", "SRR101"}
+    assert set(results) == {"SRR100"}
+
+
+def test_parse_sra_xml_reads_the_biosample_from_the_sample_identifiers():
+    """efetch puts the BioSample in SAMPLE/IDENTIFIERS/EXTERNAL_ID[@namespace="BioSample"]."""
+    xml = REAL_EFETCH_XML.replace(
+        '<SAMPLE accession="SRS1">',
+        '<SAMPLE accession="SRS1"><IDENTIFIERS><EXTERNAL_ID namespace="BioSample">SAMN00000001'
+        "</EXTERNAL_ID></IDENTIFIERS>",
+    )
+    client = SRAMetadataClient(email="a@b.c")
+    assert client._parse_sra_xml(xml, requested={"SRR100"})["SRR100"].biosample == "SAMN00000001"
 
 
 def test_parse_sra_xml_requested_experiment_accession_keeps_whole_package():
@@ -768,7 +776,7 @@ def test_parse_sra_xml_requested_matches_case_insensitively():
     """A lowercase (or any-case) requested accession still matches the XML's own casing."""
     client = SRAMetadataClient(email="a@b.c")
     results = client._parse_sra_xml(REAL_EFETCH_XML, requested={"srr100"})
-    assert set(results) == {"SRR100", "SRR101"}
+    assert set(results) == {"SRR100"}
 
 
 def test_parse_sra_xml_without_requested_keeps_every_run():
@@ -856,10 +864,10 @@ def test_parse_sra_xml_package_inspection_failure_is_isolated_per_package(caplog
     client = SRAMetadataClient(email="a@b.c")
     real_matches = SRAMetadataClient._package_matches_requested
 
-    def flaky_matches(package, requested_upper):
+    def flaky_matches(package, requested_upper, **kwargs):
         if package.find(".//EXPERIMENT").get("accession") == "SRX200":
             raise ValueError("boom")
-        return real_matches(package, requested_upper)
+        return real_matches(package, requested_upper, **kwargs)
 
     with patch.object(SRAMetadataClient, "_package_matches_requested", side_effect=flaky_matches):
         with caplog.at_level("WARNING"):
@@ -878,10 +886,10 @@ def test_parse_sra_xml_inspection_failure_with_no_match_stays_empty(caplog):
     client = SRAMetadataClient(email="a@b.c")
     real_matches = SRAMetadataClient._package_matches_requested
 
-    def flaky_matches(package, requested_upper):
+    def flaky_matches(package, requested_upper, **kwargs):
         if package.find(".//EXPERIMENT").get("accession") == "SRX100":
             raise ValueError("boom")
-        return real_matches(package, requested_upper)
+        return real_matches(package, requested_upper, **kwargs)
 
     with patch.object(SRAMetadataClient, "_package_matches_requested", side_effect=flaky_matches):
         with caplog.at_level("WARNING"):

@@ -17,7 +17,7 @@ from lxml import etree
 
 from prepare.core import settings
 from prepare.core.exceptions import DataAccessError, PrepareError, NetworkError
-from prepare.core.validation import validate_folder
+from prepare.core.validation import validate_accession, validate_folder
 from prepare.data.accessions import read_accessions_file
 from prepare.data.metadata_fetch import (  # noqa: F401 - re-exported; the Entrez download code moved there
     _ENTREZ_LOCK,
@@ -82,8 +82,7 @@ def _get_unique_accessions(matches_folder, threshold):
             if threshold > 0:
                 df = df[df[containment_col] >= threshold]
 
-            # Add accessions to set
-            unique_accessions.update(df[accession_col].tolist())
+            unique_accessions.update(_valid_accessions(df[accession_col], csv_file.name))
 
         # pandas' ParserError and EmptyDataError are ValueErrors; KeyError is a missing
         # containment column; TypeError is a containment column holding text.
@@ -91,6 +90,19 @@ def _get_unique_accessions(matches_folder, threshold):
             raise DataAccessError(f"Cannot read match file {csv_file}: {e}") from e
 
     return unique_accessions
+
+
+def _valid_accessions(column: pd.Series, file_name: str) -> List[str]:
+    """The SRA accessions in a match file's accession column.
+
+    An empty or malformed accession (NaN for an empty cell) is skipped with a warning, as
+    parse_containment skips it, rather than sent to NCBI.
+    """
+    values = [str(value).strip() for value in column.dropna()]
+    valid = [value for value in values if validate_accession(value)]
+    if len(valid) < len(column):
+        logger.warning("%s: skipped %d row(s) without a valid SRA accession", file_name, len(column) - len(valid))
+    return valid
 
 
 def _read_accessions_file(path: Union[str, Path]) -> List[str]:

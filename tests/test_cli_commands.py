@@ -3733,6 +3733,24 @@ class TestDownloadSraTerminationAndFinalFlush:
         assert not Path(args.registry).exists()
 
 
+class TestDownloadSraFinalFlushLockTimeout:
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
+    def test_a_final_flush_that_times_out_on_the_lock_exits_4(self, mock_download, _which, tmp_path, monkeypatch):
+        """A registry lock wait that runs out twice is a transient error (exit 4: retry later), not 1."""
+        import prepare.data.registry_batch as batch_mod
+        from prepare.utils.lockfile import LockWaitTimeout
+
+        def locked(path):
+            raise LockWaitTimeout(f"Timed out waiting for {path}.lock")
+
+        monkeypatch.setattr(batch_mod, "registry_transaction", locked)
+        monkeypatch.setattr("prepare.cli.commands.sra.FINAL_FLUSH_RETRY_SECONDS", 0)
+        mock_download.side_effect = TestDownloadSraTerminationAndFinalFlush._three_failed_results
+
+        assert DownloadSraCommand().execute(TestDownloadSraRegistryWrites._args(tmp_path)) == 4
+
+
 class TestDownloadSraMaxDownloadsArgument:
     """--max-downloads takes a positive integer; 0 is refused rather than read as no limit."""
 
