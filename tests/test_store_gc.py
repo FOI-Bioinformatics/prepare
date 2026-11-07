@@ -1177,3 +1177,83 @@ class TestStoreGcLoadsRegistriesOnceAndPrunesTheJournal:
         with Catalog(paths) as cat:
             names = dict(cat.conn.execute("SELECT project_id, name FROM projects").fetchall())
         assert names == {"p1": "third", "p2": "other"}
+
+
+def test_a_usage_line_recorded_while_gc_removes_folders_survives_the_journal_prune(tmp_path, monkeypatch):
+    """gc deletes the catalogue rows, removes the folders, and prunes the journal: a project that
+    records usage of the same accession while the folders are removed keeps its journal line, or
+    store_reindex after a lost catalogue forgets that the project uses the dataset."""
+    import prepare.cli.commands.store.gc as gc_mod
+    from prepare.store import journal
+
+    paths = init_store(tmp_path / "store")
+    _write_dataset_dir(paths, "SRR1")
+    with catalog_write(paths) as cat:
+        cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
+        cat.upsert_dataset(_sidecar("SRR1"))
+    real_remove = gc_mod._remove_path
+
+    def remove_while_another_project_records(path):
+        if path.name == "SRR1_gc" and path.exists():
+            with catalog_write(paths) as cat:
+                cat.upsert_project("p2", "Other", str(tmp_path / "p2"), str(tmp_path / "p2" / "prepare_registry.json"))
+                cat.record_usage("SRR1", "p2", "", "downloaded", "fetched again")
+        real_remove(path)
+
+    monkeypatch.setattr(gc_mod, "_remove_path", remove_while_another_project_records)
+    assert StoreGcCommand().execute(_gc_args(data_root=str(paths.root), yes=True)) == 0
+
+    lines = [r for r in journal._lines(paths.journal / "usage.jsonl") if r.get("accession") == "SRR1"]
+    assert [r["project_id"] for r in lines] == ["p2"]
+
+
+def test_a_catalogue_lock_timeout_during_removal_exits_4_and_restores(tmp_path, monkeypatch):
+    """A lock wait that runs out is retryable (exit 4), like the same timeout while classifying."""
+    from prepare.cli.commands.store.gc import StoreGcCommand as Gc
+    from prepare.utils.lockfile import LockWaitTimeout
+
+    paths = init_store(tmp_path / "store")
+    acc_dir = _write_dataset_dir(paths, "SRR1")
+    with catalog_write(paths) as cat:
+        cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
+        cat.upsert_dataset(_sidecar("SRR1"))
+    real_remove_one = Gc._remove_one_dataset
+
+    def remove_then_lock_out(self, *args, **kwargs):
+        real_remove_one(self, *args, **kwargs)
+
+        def timed_out(paths):
+            raise LockWaitTimeout("timed out waiting for the catalogue lock")
+
+        monkeypatch.setattr("prepare.cli.commands.store.gc.catalog_write", timed_out)
+
+    monkeypatch.setattr(Gc, "_remove_one_dataset", remove_then_lock_out)
+    rc = StoreGcCommand().execute(_gc_args(data_root=str(paths.root), yes=True))
+
+    assert rc == 4
+    assert acc_dir.is_dir()
+
+
+def test_an_interrupt_before_the_catalogue_delete_puts_the_folders_back(tmp_path, monkeypatch):
+    """Ctrl-C after a dataset was renamed aside but before its row was deleted must not leave the
+    catalogue naming a folder that is gone."""
+    from prepare.cli.commands.store.gc import StoreGcCommand as Gc
+
+    paths = init_store(tmp_path / "store")
+    acc_dir = _write_dataset_dir(paths, "SRR1")
+    with catalog_write(paths) as cat:
+        cat.upsert_project("p1", "Proj", str(tmp_path / "proj"), str(tmp_path / "proj" / "prepare_registry.json"))
+        cat.upsert_dataset(_sidecar("SRR1"))
+    real_remove_one = Gc._remove_one_dataset
+
+    def remove_then_interrupt(self, *args, **kwargs):
+        real_remove_one(self, *args, **kwargs)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(Gc, "_remove_one_dataset", remove_then_interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        StoreGcCommand().execute(_gc_args(data_root=str(paths.root), yes=True))
+
+    assert acc_dir.is_dir()
+    with Catalog(paths) as cat:
+        assert cat.get_dataset("SRR1") is not None

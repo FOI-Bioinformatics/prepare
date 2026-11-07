@@ -6,6 +6,23 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `store_gc` no longer removes a dataset that a moved project still links: the catalogue records a
+  project where its registry is now, not the folder it was created in, and the link check also looks
+  beside the registry and in the registry's list of linked datasets (a link made with another
+  `--fastq-folder`).
+- `store_gc` prunes the usage journal in the same locked session as the catalogue delete, so a usage
+  line another project records while the folders are being removed is no longer dropped (a later
+  `store_reindex` would have forgotten that project's use).
+- The store journal starts a record on a new line when the file ends in a line cut short (a crash, a
+  full disk), so the damage stays in that line instead of also losing the next record.
+- `store_verify --rescan --fix-state` keeps a dataset's refetch and sketch records; losing the first
+  reset the refetch limit of an incomplete copy.
+- `store_gc --yes` exits 4 (retry later) when the catalogue lock wait runs out during removal, as it
+  already did during classification, and an interrupt before the catalogue delete puts back the
+  folders it had renamed aside.
+- `store_link` refuses, without `--accept-partial`, a dataset whose sidecar has a state other than
+  complete or unverified (an "unknown" one was linked). `store_unlink` refuses a link that does not
+  point into the project's store.
 - `select_datasets --skip-downloaded` keeps selected only the downloaded accessions it left out of
   this ranking; a downloaded accession the new criteria reject is unselected, as without the flag
   (the earlier fix kept every downloaded accession selected).

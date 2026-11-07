@@ -13,6 +13,7 @@ keeps only the latest line per project).
 
 import json
 import logging
+import os
 import socket
 import sqlite3
 from datetime import datetime, timezone
@@ -37,8 +38,27 @@ def _append(paths: StorePaths, name: str, record: Dict[str, Any], at: Optional[s
     own to preserve)."""
     paths.journal.mkdir(parents=True, exist_ok=True)
     record = dict(record, at=at or datetime.now(timezone.utc).isoformat())
-    with open(paths.journal / name, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    path = paths.journal / name
+    line = json.dumps(record, sort_keys=True) + "\n"
+    # A write cut short (a crash, a full disk) leaves the last line without its newline; starting
+    # on a fresh line keeps the damage to that one line instead of joining this record onto it.
+    if _ends_unterminated(path):
+        line = "\n" + line
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(line)
+
+
+def _ends_unterminated(path: Path) -> bool:
+    """Whether ``path`` exists, is not empty and does not end with a newline."""
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                return False
+            handle.seek(-1, os.SEEK_END)
+            return handle.read(1) != b"\n"
+    except FileNotFoundError:
+        return False
 
 
 def append_project(

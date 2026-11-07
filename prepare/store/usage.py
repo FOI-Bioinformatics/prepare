@@ -12,11 +12,14 @@ functions here are the only way any CLI command touches the catalogue for this p
 neither ever raises.
 """
 
+import functools
+import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import AbstractSet, Any, Dict, Iterable, List, Optional, Tuple
+from typing import AbstractSet, Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 from prepare.core.exceptions import DataAccessError
 from prepare.data.registry import Registry, load_registry, project_root
@@ -31,7 +34,10 @@ def _upsert_project_row(catalog, registry: Registry, project_id: str) -> None:
     project = project_block(registry)
     # Absolute, so the row still names the same registry when read from another working directory.
     registry_file = str(Path(registry.path).resolve()) if registry.path else ""
-    catalog.upsert_project(project_id, project.name or "", project.path or "", registry_file)
+    # Where the project is now (the registry's folder), not the path recorded when its identity was
+    # minted: a moved project would otherwise be looked for in its old folder by linked_by.
+    path = str(project_root(registry)) if registry.path else project.path or ""
+    catalog.upsert_project(project_id, project.name or "", path, registry_file)
 
 
 def ensure_project_identity(registry: Registry) -> Dict[str, Any]:
@@ -197,17 +203,48 @@ def linked_by(
         stale_ids = {row["project_id"] for row in stale_projects(catalog)}
     target = (paths.sra / accession).resolve()
 
-    rows = catalog.conn.execute("SELECT project_id, name, path FROM projects ORDER BY project_id").fetchall()
+    rows = catalog.conn.execute("SELECT project_id, name, path, registry FROM projects ORDER BY project_id").fetchall()
     linked: List[str] = []
     for row in rows:
-        project_path = row["path"]
-        if not project_path:
-            continue
-        link_path = Path(project_path) / "fastq" / accession
+        if _project_links(row["path"], row["registry"], accession, target):
+            name = row["name"] or row["project_id"]
+            linked.append(f"{name} (stale)" if row["project_id"] in stale_ids else name)
+    return sorted(linked)
+
+
+def _project_links(project_path: str, registry_file: str, accession: str, target: Path) -> bool:
+    """Whether one catalogued project links ``accession``.
+
+    True for a ``fastq/<accession>`` symlink to ``target`` under the recorded path or beside the
+    registry (a moved project), or when the registry lists the accession in ``store.linked`` (a
+    link made with another ``--fastq-folder``). Anything unreadable counts as not linking it.
+    """
+    folders = {Path(p) for p in (project_path, str(Path(registry_file).parent) if registry_file else "") if p}
+    for folder in folders:
+        link_path = folder / "fastq" / accession
         try:
             if link_path.is_symlink() and link_path.resolve() == target:
-                name = row["name"] or row["project_id"]
-                linked.append(f"{name} (stale)" if row["project_id"] in stale_ids else name)
+                return True
         except OSError:
             continue
-    return sorted(linked)
+    return bool(registry_file) and accession in _registry_linked(registry_file)
+
+
+def _registry_linked(registry_file: str) -> FrozenSet[str]:
+    """The ``store.linked`` accessions a project registry lists, read once per file version."""
+    try:
+        mtime_ns = os.stat(registry_file).st_mtime_ns
+    except OSError:
+        return frozenset()
+    return _registry_linked_at(registry_file, mtime_ns)
+
+
+@functools.lru_cache(maxsize=256)
+def _registry_linked_at(registry_file: str, mtime_ns: int) -> FrozenSet[str]:
+    try:
+        data = json.loads(Path(registry_file).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return frozenset()
+    store = data.get("store") if isinstance(data, dict) else None
+    linked = store.get("linked") if isinstance(store, dict) else None
+    return frozenset(acc for acc in linked or [] if isinstance(acc, str))

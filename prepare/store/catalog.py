@@ -164,6 +164,8 @@ class Catalog:
         # Suspended by journal.replay() while it feeds journaled records back in, so a
         # rebuilt catalogue does not duplicate the lines it is replaying.
         self.journal_enabled: bool = True
+        # Set by catalog_write to the lock it holds, so commit_now can check it is still ours.
+        self._held_lock: Any = None
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -472,6 +474,18 @@ class Catalog:
                 last_used=latest if last_used is not None else None,
             )
 
+    def commit_now(self) -> None:
+        """Commit inside a ``catalog_write`` session, once the lock is checked to be still ours.
+
+        For a caller that must act on committed rows before the session (and its lock) ends.
+        """
+        if self._held_lock is not None:
+            verify_held(self._held_lock)
+        try:
+            self.conn.commit()
+        except sqlite3.Error as e:
+            raise DataAccessError(f"Cannot commit catalog write: {e}") from e
+
     # ----------------------------------------------------------------- queries
 
     @_wrap_sqlite_errors
@@ -602,6 +616,7 @@ def catalog_write(paths: StorePaths) -> Iterator[Catalog]:
             from prepare.store import journal
 
             journal.backfill_from_catalog(paths, catalog)
+            catalog._held_lock = lock
             yield catalog
             verify_held(lock)
             try:
