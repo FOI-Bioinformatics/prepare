@@ -39,7 +39,11 @@ def test_plot_map_writes_the_figure_and_closes_it(tmp_path, monkeypatch):
 
     plugin = visualizer_registry.get("map")
     monkeypatch.setattr(plugin, "create_plot", staticmethod(create_plot))
-    assert PlotMapCommand().execute(_args(tmp_path, lat_lon_column="coords")) == 0
+    args = _args(tmp_path, lat_lon_column="coords")
+    pd.DataFrame({"acc": ["SRR1", "SRR2"], "coords": ["10 N 20 E", "5 S 3 W"]}).to_csv(
+        args.metadata_file, sep="\t", index=False
+    )
+    assert PlotMapCommand().execute(args) == 0
     assert (tmp_path / "map.png").stat().st_size > 0
     assert seen["rows"] == 2 and seen["kwargs"]["lat_lon_column"] == "coords"
     assert not plt.fignum_exists(seen["fig"].number)
@@ -47,3 +51,24 @@ def test_plot_map_writes_the_figure_and_closes_it(tmp_path, monkeypatch):
 
 def test_plot_map_missing_input_fails_cleanly(tmp_path):
     assert PlotMapCommand().execute(_args(tmp_path, metadata_file=str(tmp_path / "none.tsv"))) == ExitCode.FAILURE
+
+
+def test_plot_map_refuses_a_coordinate_column_the_table_lacks(tmp_path):
+    """A typo in --lat-lon-column is a usage error (exit 2), not an empty world map with exit 0."""
+    assert PlotMapCommand().execute(_args(tmp_path, lat_lon_column="coords")) == ExitCode.USAGE
+    assert not (tmp_path / "map.png").exists()
+
+
+def test_plot_map_writes_a_jpeg_name_as_jpeg(tmp_path, monkeypatch):
+    seen = {}
+
+    def create_plot(data, **kwargs):
+        seen["format"] = kwargs["output_format"]
+        fig = plt.figure()
+        fig.savefig(kwargs["output_file"], format=kwargs["output_format"])
+        return fig
+
+    plugin = visualizer_registry.get("map")
+    monkeypatch.setattr(plugin, "create_plot", staticmethod(create_plot))
+    assert PlotMapCommand().execute(_args(tmp_path, output=str(tmp_path / "map.jpeg"))) == 0
+    assert seen["format"] == "jpg"

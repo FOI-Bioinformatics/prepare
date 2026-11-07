@@ -330,6 +330,19 @@ class TestStoreInitCommand:
         mock_run.assert_called_once()
         assert mock_run.call_args.args[0] == ["git", "ls-files", "fastq"]
 
+    def test_gitignore_guard_runs_at_the_project_root_from_a_subfolder(self, tmp_path, monkeypatch):
+        root = tmp_path / "store"
+        project_dir = tmp_path / "project"
+        (project_dir / "analysis").mkdir(parents=True)
+        (project_dir / ".git").mkdir()
+        monkeypatch.chdir(project_dir / "analysis")
+
+        with patch("prepare.cli.commands.store._shared.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            assert StoreInitCommand().execute(_init_args(root, project_dir)) == 0
+
+        assert "fastq/" in (project_dir / ".gitignore").read_text().splitlines()
+
     def test_gitignore_guard_skips_when_already_present(self, tmp_path, monkeypatch):
         root = tmp_path / "store"
         project_dir = tmp_path / "project"
@@ -1199,6 +1212,25 @@ class TestStoreVerifyCommand:
         fixed = read_sidecar(sidecar_path(paths, "SRR1"))
         assert [f["name"] for f in fixed.files] == ["SRR1_1.fastq.gz"]
         assert fixed.state == "complete"
+
+    def test_rescan_keeps_the_refetch_and_sketch_records(self, tmp_path, monkeypatch):
+        """Losing refetch would reset the refetch limit; losing sketch, the cached signature."""
+        paths = init_store(tmp_path / "store")
+        monkeypatch.chdir(tmp_path)
+        acc_dir = paths.sra / "SRR1"
+        acc_dir.mkdir(parents=True)
+        _write_fastq_gz(acc_dir / "SRR1_1.fastq.gz")
+        sc = _sidecar_matching_disk(acc_dir, "SRR1", state="partial", reads=1)
+        sc.ncbi = {"spots": 1}
+        sc.refetch = {"attempts": 2, "unchanged": 2}
+        sc.sketch = {"file": "SRR1.sig.gz", "ksizes": [21]}
+        write_sidecar(sidecar_path(paths, "SRR1"), sc)
+
+        StoreVerifyCommand().execute(_verify_args(data_root=str(paths.root), rescan=True, fix_state=True))
+
+        fixed = read_sidecar(sidecar_path(paths, "SRR1"))
+        assert fixed.refetch == {"attempts": 2, "unchanged": 2}
+        assert fixed.sketch == {"file": "SRR1.sig.gz", "ksizes": [21]}
 
     def test_fix_state_without_spots_requires_a_read_through(self, tmp_path, monkeypatch, capsys):
         """A file that matches its recorded size can still be a corrupt gzip stream that was
@@ -2101,7 +2133,8 @@ class TestStoreLinkGuardsIncompleteDatasets:
             write_sidecar(sidecar_path(paths, "SRR1"), Sidecar(accession="SRR1", state=state))
         return root, paths
 
-    @pytest.mark.parametrize("state", ["partial", "failed", None])
+    # "unknown" (a sidecar without a state) is not ready either, as the download hand-off treats it.
+    @pytest.mark.parametrize("state", ["partial", "failed", "unknown", None])
     def test_an_incomplete_dataset_needs_accept_partial(self, tmp_path, monkeypatch, capsys, state):
         root, paths = self._store_with(tmp_path, state)
         project_dir = tmp_path / "project"
@@ -2711,3 +2744,23 @@ class TestStoreScannersSkipNonAccessionFolders:
         out = capsys.readouterr().out
         assert "SRR1" in out and "junk" not in out
         assert [r for r in caplog.records if r.levelno == logging.WARNING and "junk" in r.getMessage()]
+
+
+class TestStoreUnlinkOnlyRemovesStoreLinks:
+    def test_a_link_that_does_not_point_into_the_store_is_left_alone(self, tmp_path, monkeypatch):
+        root = tmp_path / "store"
+        paths = init_store(root)
+        elsewhere = tmp_path / "my_reads" / "SRR1"
+        elsewhere.mkdir(parents=True)
+        project_dir = tmp_path / "project"
+        (project_dir / "fastq").mkdir(parents=True)
+        (project_dir / "fastq" / "SRR1").symlink_to(elsewhere, target_is_directory=True)
+        registry = load_registry(project_dir / "prepare_registry.json")
+        registry.store = {"root": str(paths.root), "linked": []}
+        save_registry(registry)
+        monkeypatch.chdir(project_dir)
+
+        rc = StoreUnlinkCommand().execute(_unlink_args(["SRR1"]))
+
+        assert rc == 1
+        assert (project_dir / "fastq" / "SRR1").is_symlink()

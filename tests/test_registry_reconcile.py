@@ -403,3 +403,40 @@ def test_status_does_not_list_a_missing_download_as_truncated():
     registry.datasets["SRR2"] = {"download": {"state": "downloaded", "complete": {"verdict": "truncated"}}}
 
     assert download_verdicts(registry)["truncated"] == ["SRR2"]
+
+
+class TestReconcileSurvivesBrokenGzip:
+    """One truncated .fastq.gz must not stop the whole reconcile (or the status bootstrap)."""
+
+    @staticmethod
+    def _truncated(path: Path) -> Path:
+        _fastq(path, reads=2000, gz=True)
+        data = path.read_bytes()
+        path.write_bytes(data[: len(data) // 2])
+        return path
+
+    def test_a_truncated_download_keeps_its_verdict_and_the_rest_is_reconciled(
+        self, tmp_path, fixed_clock, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        paths = _project(tmp_path)
+        self._truncated(paths.fastq / "SRR1" / "SRR1.fastq.gz")
+        _fastq(paths.fastq / "SRR2" / "SRR2_1.fastq")
+        registry = reg.Registry()
+        reg.record_download(registry, "SRR1", "downloaded", paths.fastq, complete={"verdict": "unverified"})
+        registry.datasets["SRR1"]["metadata"] = {"run_total_spots": 2000}
+
+        report = apply_reconcile(registry, scan_reconcile(registry, paths))
+
+        assert rb.download_block(registry, "SRR1").complete.verdict == "unverified"
+        assert report.untracked_fastq == ["SRR2"]
+
+    def test_a_truncated_extraction_is_skipped_by_the_bootstrap(self, tmp_path, fixed_clock):
+        paths = _project(tmp_path)
+        self._truncated(paths.targeted / "SRR1" / "GCF_1_1.fastq.gz")
+        _fastq(paths.targeted / "SRR2" / "GCF_1_1.fastq.gz", gz=True)
+
+        registry = reg.bootstrap_from_disk(paths)
+
+        assert "GCF_1" in registry.datasets["SRR2"]["extractions"]
+        assert "extractions" not in registry.datasets.get("SRR1", {})

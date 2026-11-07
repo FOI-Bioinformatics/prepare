@@ -143,7 +143,10 @@ def count_metadata(
 
         # Skip if no data frames created
         if not df_list:
-            logger.warning("No count data generated")
+            # The previous run's tables would otherwise be read (and plotted) as this run's.
+            for stale in (Path(output_file), Path(stat_file)):
+                stale.unlink(missing_ok=True)
+            logger.warning("No count data generated; removed any earlier %s and %s", output_file, stat_file)
             return pd.DataFrame()
 
         # Combine all dataframes

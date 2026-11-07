@@ -267,6 +267,8 @@ class MapVisualizerPlugin(VisualizerPlugin):
             plot_df = _extract_coordinates(data, lat_lon_column)
             _log_country_only_rows(data, plot_df, country_column)
 
+            if plot_df is None or plot_df.empty:
+                logger.warning("No row has coordinates in %r that can be read; the map has no points", lat_lon_column)
             # Plot points
             _plot_points(ax, plot_df, value_column, marker_size, cmap, **kwargs)
 

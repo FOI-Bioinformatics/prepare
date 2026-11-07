@@ -72,27 +72,30 @@ class TestRecordUsageSafe:
         assert row["genome_id"] == ""
 
     def test_upserts_project_row(self, paths, tmp_path):
-        registry = _registry(tmp_path, name="my-project", path=str(tmp_path / "proj"))
+        (tmp_path / "proj").mkdir()
+        registry = _registry(tmp_path / "proj", name="my-project")
         record_usage_safe(paths, registry, "SRR1", "GCF_1", "extracted")
 
         with Catalog(paths, create=True) as catalog:
             catalog.migrate()
             row = catalog.conn.execute("SELECT * FROM projects WHERE project_id = ?", ("proj1",)).fetchone()
         assert row["name"] == "my-project"
-        assert row["path"] == str(tmp_path / "proj")
+        assert row["path"] == str((tmp_path / "proj").resolve())
 
     def test_moved_project_refreshes_the_projects_row(self, paths, tmp_path):
-        """A project whose path changed between two calls has its catalogue row refreshed."""
-        registry = _registry(tmp_path, path=str(tmp_path / "old"))
+        """A project whose registry moved between two calls has its catalogue row refreshed."""
+        for folder in ("old", "new"):
+            (tmp_path / folder).mkdir()
+        registry = _registry(tmp_path / "old")
         record_usage_safe(paths, registry, "SRR1", "GCF_1", "downloaded")
 
-        registry.project["path"] = str(tmp_path / "new")
+        registry.path = tmp_path / "new" / "prepare_registry.json"
         record_usage_safe(paths, registry, "SRR2", "GCF_1", "downloaded")
 
         with Catalog(paths, create=True) as catalog:
             catalog.migrate()
             row = catalog.conn.execute("SELECT path FROM projects WHERE project_id = ?", ("proj1",)).fetchone()
-        assert row["path"] == str(tmp_path / "new")
+        assert row["path"] == str((tmp_path / "new").resolve())
 
     def test_catalog_write_raising_is_caught_and_logged(self, paths, tmp_path, caplog):
         registry = _registry(tmp_path)
@@ -274,3 +277,32 @@ class TestLinkedBy:
         with Catalog(paths, create=True) as cat:
             cat.migrate()
             assert linked_by(paths, cat, "SRR1") == []
+
+
+class TestMovedOrCustomFolderProjects:
+    def test_the_catalogue_records_the_project_where_its_registry_is_now(self, paths, tmp_path):
+        """registry.project.path is set once; after a move the catalogue must name the new folder."""
+        moved = tmp_path / "moved"
+        moved.mkdir()
+        registry = _registry(moved, path=str(tmp_path / "old"))
+        with catalog_write(paths) as cat:
+            _upsert_project_row(cat, registry, "proj1")
+            row = cat.conn.execute("SELECT path FROM projects WHERE project_id = 'proj1'").fetchone()
+        assert row["path"] == str(moved.resolve())
+
+    def test_a_link_in_a_non_default_fastq_folder_protects_the_dataset(self, paths, tmp_path):
+        """A project linking from reads/ instead of fastq/ lists the accession in its registry's
+        store.linked; gc must not see the dataset as unused."""
+        acc_dir = paths.sra / "SRR1"
+        acc_dir.mkdir(parents=True)
+        project_dir = tmp_path / "proj"
+        (project_dir / "reads").mkdir(parents=True)
+        (project_dir / "reads" / "SRR1").symlink_to(acc_dir, target_is_directory=True)
+        registry_file = project_dir / "prepare_registry.json"
+        registry_file.write_text(json.dumps({"project": {"id": "proj1"}, "store": {"linked": ["SRR1"]}}))
+        with catalog_write(paths) as cat:
+            cat.upsert_project("proj1", "Custom", str(project_dir), str(registry_file))
+
+        with Catalog(paths, create=True) as cat:
+            cat.migrate()
+            assert linked_by(paths, cat, "SRR1") == ["Custom"]

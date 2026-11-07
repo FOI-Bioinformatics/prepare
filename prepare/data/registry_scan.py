@@ -142,7 +142,7 @@ def empty_assembly_dirs(targeted_folder: Path, genome_ids: Sequence[str]) -> Lis
 def _read_accession_list(path: Optional[Union[str, Path]]) -> List[str]:
     if not path or not Path(path).exists():
         return []
-    return accession_lines(Path(path).read_text())
+    return accession_lines(Path(path).read_text(encoding="utf-8-sig"))
 
 
 def _screening_from_matches(registry: "Registry", matches_folder: Path) -> None:
@@ -150,7 +150,7 @@ def _screening_from_matches(registry: "Registry", matches_folder: Path) -> None:
     import csv
 
     for csv_path in visible_files(matches_folder, "*.csv"):
-        with open(csv_path, newline="") as handle:
+        with open(csv_path, newline="", encoding="utf-8-sig") as handle:
             for row in csv.DictReader(handle):
                 parsed = _match_row(row)
                 if parsed is None:
@@ -217,7 +217,11 @@ def _infer_extraction(registry: "Registry", acc: str, genome_id: str, files: Seq
     otherwise (or when it cannot be read) they are None.
     """
     _r = _registry_module()
-    reads = sum(count_fastq_reads(f) for f in files)
+    try:
+        reads = sum(count_fastq_reads(f) for f in files)
+    except (OSError, EOFError, ValueError) as e:  # a truncated (EOFError) or corrupt gzip
+        logger.warning("%s/%s: cannot count the extracted reads (%s); not recorded", acc, genome_id, e)
+        return
     coverage = _infer_coverage(coverage_table_path(files[0].parent, genome_id)) if files else None
     _r.record_extraction(registry, acc, genome_id, files, reads, False, {}, coverage=coverage)
     rb.mark_inferred(registry, acc, "extractions", genome_id=genome_id)

@@ -6,12 +6,13 @@ This module provides functions for analyzing genome containment data.
 
 import logging
 import gzip
+import urllib.error
 import urllib.request
 import pandas as pd
 from pathlib import Path
 from typing import Dict, Union
 
-from prepare.core.exceptions import ProcessingError
+from prepare.core.exceptions import NetworkError, ProcessingError
 from prepare.data.file_io import ensure_directory, write_bytes_atomic
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,9 @@ def download_test_genome(output_folder: Union[str, Path]) -> Path:
         logger.info(f"Downloaded test genome to {output_path}")
         return output_path
 
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+        # No network or NCBI unreachable: retryable (exit 4).
+        raise NetworkError(f"Error downloading test genome: {e}") from e
     except Exception as e:
         raise ProcessingError(f"Error downloading test genome: {e}")
 

@@ -48,7 +48,7 @@ def _wanted_accessions(args: argparse.Namespace) -> List[str]:
         path = Path(args.accessions_file)
         if not path.exists():
             raise PrepareError(f"Accessions file not found: {path}")
-        wanted += accession_lines(path.read_text())
+        wanted += accession_lines(path.read_text(encoding="utf-8-sig"))
     if args.parsed_containment:
         import pandas as pd
 

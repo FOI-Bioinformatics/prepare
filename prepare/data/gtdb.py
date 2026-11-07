@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Set
 
 import requests
 
-from prepare.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError, NetworkError
 from prepare.utils.http import retrying_session
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,20 @@ def _api_error_message(kind: str, name: str, e: requests.exceptions.RequestExcep
     return message
 
 
+def _api_error(kind: str, name: str, e: requests.exceptions.RequestException) -> DataAccessError:
+    """The error to raise for a failed GTDB request.
+
+    A connection failure, a timeout, a 5xx or a 429 is a ``NetworkError`` (exit 4: retry later);
+    any other failure (a 400 for a stale name, a reply that is not JSON) is a ``DataAccessError``.
+    """
+    message = _api_error_message(kind, name, e)
+    status = getattr(getattr(e, "response", None), "status_code", None)
+    transient_status = isinstance(status, int) and (status == 429 or status >= 500)
+    if isinstance(e, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)) or transient_status:
+        return NetworkError(message)
+    return DataAccessError(message)
+
+
 def search_species(species_name: str) -> List[Dict]:
     """Search GTDB for a species, return list of genome records with accessions."""
     url = f"{GTDB_API_BASE}/species/search/{requests.utils.quote(species_name)}"
@@ -76,7 +90,7 @@ def search_species(species_name: str) -> List[Dict]:
         response.raise_for_status()
         data = response.json()
     except requests.exceptions.RequestException as e:
-        raise DataAccessError(_api_error_message("species", species_name, e))
+        raise _api_error("species", species_name, e) from e
 
     if not data:
         logger.warning("No results found for species '%s'", species_name)
@@ -104,7 +118,7 @@ def _fetch_taxon_page(url: str, taxon_name: str, limit: int, page: int) -> List[
         response.raise_for_status()
         data = response.json()
     except requests.exceptions.RequestException as e:
-        raise DataAccessError(_api_error_message("taxon", taxon_name, e))
+        raise _api_error("taxon", taxon_name, e) from e
 
     if not data:
         return []

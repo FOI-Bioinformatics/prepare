@@ -1018,3 +1018,19 @@ class TestAdoptNeverLosesTheOnlyCopy:
         assert report.adopted == ["SRR1"]
         assert entry.is_symlink()
         assert (entry / "notes.txt").read_text() == "keep me"
+
+
+def test_a_leftover_set_aside_folder_fails_only_its_accession(tmp_path):
+    """A '.SRR1.adopt-old' beside a re-created SRR1 must not stop the adoption of SRR2."""
+    paths = init_store(tmp_path / "store")
+    project_fastq = tmp_path / "project" / "fastq"
+    _write_fastq(project_fastq / "SRR1" / "SRR1.fastq")
+    _write_fastq(project_fastq / "SRR2" / "SRR2.fastq")
+    _write_fastq(project_fastq / ".SRR1.adopt-old" / "SRR1.fastq", "@old\nACGT\n+\nIIII\n")
+
+    report = adopt(project_fastq, paths, move=True, dry_run=False)
+
+    assert report.adopted == ["SRR2"]
+    assert report.failed == ["SRR1"]
+    assert (project_fastq / "SRR1").is_dir() and not (project_fastq / "SRR1").is_symlink()
+    assert (project_fastq / ".SRR1.adopt-old" / "SRR1.fastq").is_file()

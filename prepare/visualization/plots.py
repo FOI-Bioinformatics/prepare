@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import List, Optional, Type, Union, cast
+from typing import Any, List, Optional, Type, Union, cast
 
 from prepare.core.exceptions import VisualizationError
 from prepare.plugins.base import visualizer_registry
@@ -310,6 +310,20 @@ def _metadata_plot_path(file_path: Union[str, Path], plot_type: str, save_format
     return _beside_input(file_path, f"_{plot_type}", save_format)
 
 
+def _metadata_colors(colors: Optional[Union[str, List[str]]], count: int) -> Optional[List[Any]]:
+    """The colours for ``count`` categories from ``--colors``.
+
+    A matplotlib colormap name gives one colour per category, a comma-separated string gives those
+    colours, and a single colour (or a list, as given) is passed on unchanged.
+    """
+    if colors is None or not isinstance(colors, str):
+        return colors
+    if colors in plt.colormaps():
+        cmap = plt.get_cmap(colors)
+        return [cmap(i / max(count - 1, 1)) for i in range(count)]
+    return [part.strip() for part in colors.split(",") if part.strip()]
+
+
 def plot_metadata_counts(
     file_path: Union[str, Path, pd.DataFrame],
     title: Optional[str] = None,
@@ -340,7 +354,7 @@ def plot_metadata_counts(
     try:
         df = _load_counts_df(file_path, limit)
 
-        colors = [colors] if isinstance(colors, str) else colors
+        colors = _metadata_colors(colors, len(df))
 
         # A title given explicitly is kept; the default one follows show_title.
         if title is None and show_title:

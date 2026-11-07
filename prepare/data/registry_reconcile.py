@@ -325,9 +325,16 @@ def _record_untracked(registry: Registry, plan: ReconcilePlan, report: StoreReco
         set_download_timing(registry, acc, None, None)
 
 
-def _count_extraction(files: List[Path], genome_id: str) -> Tuple[int, Optional[Dict[str, Any]]]:
-    """Reads in every file of one extraction, and the coverage its table records (or None)."""
-    reads = sum(count_fastq_reads(f) for f in files)
+def _count_extraction(files: List[Path], genome_id: str) -> Optional[Tuple[int, Optional[Dict[str, Any]]]]:
+    """Reads in every file of one extraction, and the coverage its table records (or None).
+
+    None, with a warning, when a file cannot be read (a truncated or corrupt gzip).
+    """
+    try:
+        reads = sum(count_fastq_reads(f) for f in files)
+    except (OSError, EOFError, ValueError) as e:
+        logger.warning("Cannot count the reads of %s (%s); not recorded", files[0].parent if files else "", e)
+        return None
     coverage = _infer_coverage(coverage_table_path(files[0].parent, genome_id)) if files else None
     return reads, coverage
 
@@ -343,7 +350,7 @@ def _infer_extraction(
     counted = plan.value(
         ("extraction", acc, genome_id), (lambda: _count_extraction(files, genome_id)) if compute else None
     )
-    if counted is _NOT_SCANNED:
+    if counted is _NOT_SCANNED or counted is None:
         return False
     reads, coverage = counted
     record_extraction(registry, acc, genome_id, files, reads, False, {}, coverage=coverage)
@@ -436,6 +443,15 @@ def _fill_verdicts(registry: Registry, plan: ReconcilePlan, compute: bool) -> Li
     return rechecked
 
 
+def _reads_r1(acc: str, acc_dir: Path, spots: int) -> Optional[int]:
+    """The mate-1 read count of a download on disk, or None (with a warning) when a file cannot be read."""
+    try:
+        return verify_download(acc, acc_dir, spots)["reads_r1"]
+    except (OSError, EOFError, ValueError) as e:  # a truncated (EOFError) or corrupt gzip
+        logger.warning("%s: cannot count its reads (%s); its verdict is left as recorded", acc, e)
+        return None
+
+
 def _plain_recheck(
     registry: Registry, plan: ReconcilePlan, acc: str, download: rb.DownloadBlock, compute: bool
 ) -> Optional[Dict[str, Any]]:
@@ -453,9 +469,9 @@ def _plain_recheck(
         return None
     reads = plan.value(
         ("spots", acc, str(spots), str(download.date)),
-        (lambda: verify_download(acc, acc_dir, spots)["reads_r1"]) if compute else None,
+        (lambda: _reads_r1(acc, acc_dir, spots)) if compute else None,
     )
-    if reads is _NOT_SCANNED:
+    if reads is _NOT_SCANNED or reads is None:
         return None
     return merged_verdict(download.complete, None, reads, spots)
 

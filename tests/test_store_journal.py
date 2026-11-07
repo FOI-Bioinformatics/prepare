@@ -345,3 +345,18 @@ def test_journal_rewrites_are_fsynced(tmp_path, monkeypatch):
     assert journal.prune_usage(paths, {"SRR1"}) == 1
     assert journal.compact_projects(paths) == 1
     assert calls == [True, True]
+
+
+def test_a_torn_last_line_does_not_swallow_the_next_record(tmp_path):
+    """A crash or full disk can leave the journal without its final newline; the next record must
+    start on its own line so only the damaged one is skipped."""
+    from prepare.store import journal
+    from prepare.store.layout import init_store
+
+    paths = init_store(tmp_path / "store")
+    paths.journal.mkdir(parents=True, exist_ok=True)
+    (paths.journal / "usage.jsonl").write_text('{"accession": "SRR0", "proj')
+    journal.append_usage(paths, "SRR1", "p1", "", "downloaded", "")
+
+    records = list(journal._lines(paths.journal / "usage.jsonl"))
+    assert [r["accession"] for r in records] == ["SRR1"]

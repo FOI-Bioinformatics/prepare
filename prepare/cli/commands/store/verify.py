@@ -199,7 +199,10 @@ class StoreVerifyCommand(BaseCommand):
                 tool=sidecar.tool,
                 downloaded=sidecar.downloaded,
             )
+            # Carried over: stats and sketch are checked against the files before reuse, and the
+            # refetch record counts re-downloads, which a rescan does not undo.
             rebuilt.stats, rebuilt.stats_computed = sidecar.stats, sidecar.stats_computed
+            rebuilt.refetch, rebuilt.sketch = sidecar.refetch, sidecar.sketch
             sidecar = rebuilt
             rescanned = True
 

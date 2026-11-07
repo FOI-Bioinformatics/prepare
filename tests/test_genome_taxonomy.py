@@ -104,6 +104,14 @@ class TestEnrichGenomesWithTaxonomy:
         assert "GCF_FAIL" in result
         assert result["GCF_FAIL"].family is None
 
+    @patch("requests.Session.get", side_effect=requests.exceptions.ConnectionError("no network"))
+    def test_gtdb_unreachable_for_every_genome_is_a_network_error(self, _get):
+        """Offline, every genome failed: exit 4 (retry later), not exit 0 with a blank map."""
+        from prepare.core.exceptions import NetworkError
+
+        with pytest.raises(NetworkError):
+            enrich_genomes_with_taxonomy(["GCF_000005845.2", "GCF_000009999.1"])
+
     @patch("prepare.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
     def test_none_result_gives_empty_info(self, mock_lookup):
         mock_lookup.return_value = None
@@ -411,7 +419,7 @@ class TestLookupGenomeTaxonomyGtdb:
     @patch("requests.Session.get")
     def test_request_exception_raises_dataaccesserror(self, mock_get):
         mock_get.side_effect = requests.exceptions.ConnectionError("boom")
-        with pytest.raises(DataAccessError, match="GTDB API error"):
+        with pytest.raises(DataAccessError, match="GTDB could not be reached"):
             _lookup_genome_taxonomy_gtdb("GCF_005")
 
     @patch("requests.Session.get")

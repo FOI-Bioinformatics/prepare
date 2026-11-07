@@ -6,6 +6,68 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `genome_download --assembly-level` no longer fails (exit 1, and again on every rerun) because
+  `datasets` left out the genomes at another level, as asked; it logs which ones. Each download
+  uses its own hidden zip in the output folder, removed after extraction, so two runs into one
+  `genomes/` folder no longer extract each other's zip.
+- Network failures are retryable (exit 4) instead of exit 1 in `genome_search`, `genome_download`
+  (GTDB), `download_test_genome` and `enrich_taxonomy` (which exited 0 with a blank map when GTDB
+  could not be reached for any genome). A malformed genome accession is a usage error (exit 2),
+  reported before the check for the `datasets` tool.
+- `count_metadata` that counts nothing removes the earlier count and statistics tables instead of
+  leaving them for `plot_metadata_counts` to plot as this run's.
+- The sourmash plugin's `prepare_diversity` refuses `--permanova-formula` without `--metadata-file`
+  (exit 2), as `diversity_analysis` does. The plugin commands exit with the CLI's codes (3 for a
+  missing extra, 4 for a network failure), and `prepare_taxonomy` with an empty species file no
+  longer fails dividing by zero.
+- `project_report.md` escapes `&`, `<` and `>` in table cells, so a value holding HTML (an error page
+  in a download message) stays text when the Markdown is rendered.
+- `plot_map` refuses a `--lat-lon-column` the table does not have (exit 2), warns when no row has
+  readable coordinates, and writes a `.jpeg` name as JPEG. `plot_metadata_counts --colors` accepts a
+  colormap name (one colour per category) or a comma-separated list of colours.
+- `status --reconcile` and the status bootstrap no longer stop at a truncated or corrupt `.fastq.gz`:
+  that download keeps its recorded verdict (or that extraction is not recorded), with a warning, and
+  the rest of the project is reconciled.
+- Accession lists (`--accessions-file`, `status --accessions-file`, `blacklist.txt`) and the match CSVs
+  read by the status bootstrap accept a file that starts with a UTF-8 BOM (Excel's "CSV UTF-8",
+  Notepad); line 1 was refused or every row of the file skipped.
+- `store_init --set-default` also replaces a `["store"]` header, a top-level `store.data_root = ...`
+  key and a `store = {...}` inline table, and refuses (exit 3) rather than write a config file that no
+  command could read.
+- `--assembly-memory auto` under SLURM with `--mem-per-cpu` multiplies the per-CPU memory by the CPUs
+  allocated to the job on the node (`SLURM_CPUS_ON_NODE`), not by every CPU of the node, which handed
+  megahit far more memory than the job had.
+- Output piped into a reader that closes early (`prepare sra_profile | head -1`) no longer stops the
+  command: the rest of its output is dropped and it finishes its work, files and registry records.
+  It used to exit 1 partway through with nothing recorded.
+- `runs --accession` refuses a malformed accession (exit 2), as every other command does.
+- `store_gc` no longer removes a dataset that a moved project still links: the catalogue records a
+  project where its registry is now, not the folder it was created in, and the link check also looks
+  beside the registry and in the registry's list of linked datasets (a link made with another
+  `--fastq-folder`).
+- `store_gc` prunes the usage journal in the same locked session as the catalogue delete, so a usage
+  line another project records while the folders are being removed is no longer dropped (a later
+  `store_reindex` would have forgotten that project's use).
+- The store journal starts a record on a new line when the file ends in a line cut short (a crash, a
+  full disk), so the damage stays in that line instead of also losing the next record.
+- `store_verify --rescan --fix-state` keeps a dataset's refetch and sketch records; losing the first
+  reset the refetch limit of an incomplete copy.
+- `store_gc --yes` exits 4 (retry later) when the catalogue lock wait runs out during removal, as it
+  already did during classification, and an interrupt before the catalogue delete puts back the
+  folders it had renamed aside.
+- `store_link` refuses, without `--accept-partial`, a dataset whose sidecar has a state other than
+  complete or unverified (an "unknown" one was linked). `store_unlink` refuses a link that does not
+  point into the project's store.
+- `select_datasets --skip-downloaded` keeps selected only the downloaded accessions it left out of
+  this ranking; a downloaded accession the new criteria reject is unselected, as without the flag
+  (the earlier fix kept every downloaded accession selected).
+- `extract_target_reads`: a recorded extraction against a genome FASTA that is missing no longer
+  fails with `FileNotFoundError` while checking the FASTA's signature; the missing FASTA is reported
+  as before.
+- `store_adopt --move`: a `.<ACC>.adopt-old` folder left by an interrupted adopt beside a re-created
+  `<ACC>` folder fails that accession only (both kept); it stopped the whole run.
+- `store_init` and `store_adopt` add `fastq/` to the `.gitignore` of the project root, not of the
+  working directory, when run from a subfolder.
 - `diversity_analysis`: an abundance matrix with empty cells is refused (exit 2, naming the samples)
   instead of giving those samples a Bray-Curtis distance of 0 to every other one and empty indices.
   `chao1` is left empty, with a warning, for a matrix of fractions (a containment table), where it

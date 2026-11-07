@@ -19,7 +19,7 @@ GIB = 1024**3
 @pytest.fixture(autouse=True)
 def no_slurm(monkeypatch):
     """Start every test without SLURM job variables, whatever the host sets."""
-    for name in ("SLURM_CPUS_PER_TASK", "SLURM_MEM_PER_NODE", "SLURM_MEM_PER_CPU"):
+    for name in ("SLURM_CPUS_PER_TASK", "SLURM_CPUS_ON_NODE", "SLURM_MEM_PER_NODE", "SLURM_MEM_PER_CPU"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -122,6 +122,14 @@ class TestMemoryLimit:
         monkeypatch.setenv("SLURM_MEM_PER_CPU", "4000")
         monkeypatch.setattr(resources, "available_cpus", lambda: 4)
         assert resources.memory_limit_bytes(proc_root=tmp_path / "p", sys_root=tmp_path / "s") == 16000 * 1024**2
+
+    def test_slurm_mem_per_cpu_counts_the_jobs_cpus_not_the_nodes(self, tmp_path, monkeypatch):
+        """Without CPU binding the affinity mask covers the whole node; the job has only the CPUs
+        SLURM allocated it, and per-CPU memory is per allocated CPU."""
+        monkeypatch.setenv("SLURM_MEM_PER_CPU", "2000")
+        monkeypatch.setenv("SLURM_CPUS_ON_NODE", "4")
+        monkeypatch.setattr(resources, "available_cpus", lambda: 64)
+        assert resources.memory_limit_bytes(proc_root=tmp_path / "p", sys_root=tmp_path / "s") == 8000 * 1024**2
 
     def test_slurm_mem_per_node_wins_over_per_cpu(self, tmp_path, monkeypatch):
         monkeypatch.setenv("SLURM_MEM_PER_NODE", "1000")

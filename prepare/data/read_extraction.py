@@ -221,7 +221,8 @@ def _other_genome(record: Dict[str, Any], genome_path: Path) -> bool:
     fasta, signature = record.get("genome_fasta"), record.get("genome_signature")
     if fasta is not None and Path(fasta).resolve() != genome_path.resolve():
         return True
-    return signature is not None and list(signature) != genome_signature(genome_path)
+    # A missing FASTA is reported by the caller with its own error; it cannot be compared here.
+    return signature is not None and genome_path.is_file() and list(signature) != genome_signature(genome_path)
 
 
 def _record_mismatch_reason(

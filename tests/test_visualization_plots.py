@@ -764,3 +764,15 @@ class TestCountsLoader:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def test_metadata_count_colors_accept_a_colormap_name_or_a_comma_separated_list():
+    """--colors says "Colors or colormap name": a colormap gives one colour per category, and a
+    comma-separated list gives those colours; a single colour is still one colour."""
+    from prepare.visualization.plots import _metadata_colors
+
+    viridis = _metadata_colors("viridis", 3)
+    assert len(viridis) == 3 and len(set(viridis)) == 3
+    assert _metadata_colors("red,blue", 2) == ["red", "blue"]
+    assert _metadata_colors("red", 3) == ["red"]
+    assert _metadata_colors(None, 3) is None

@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import tomllib
 from pathlib import Path
 from typing import Optional
 
@@ -35,22 +36,30 @@ __all__ = [
 ]
 
 
-_STORE_HEADER = re.compile(r"\[\s*store\s*\]\s*(#.*)?")
+# The [store] table header: TOML allows spaces inside the brackets, a quoted key and a comment.
+_STORE_HEADER = re.compile(r"""\[\s*(store|"store"|'store')\s*\]\s*(#.*)?""")
+# A top-level key that defines store values without a table: a dotted key or an inline table.
+_STORE_KEY = re.compile(r"""\s*(store|"store"|'store')\s*[.=]""")
 
 
 def _strip_store_table(text: str) -> str:
-    """Remove an existing top-level [store] table block from config text."""
+    """Remove an existing top-level ``store`` definition from config text.
+
+    That is a ``[store]`` table block (however its header is spelled) and any top-level
+    ``store.<key> = ...`` dotted key or ``store = {...}`` inline table line before the first table.
+    """
     lines = text.splitlines(keepends=True)
     kept = []
     in_store_table = False
+    top_level = True
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("["):
-            # TOML allows spaces inside the brackets and a comment after the header.
+            top_level = False
             in_store_table = _STORE_HEADER.fullmatch(stripped) is not None
             if in_store_table:
                 continue
-        if in_store_table:
+        if in_store_table or (top_level and _STORE_KEY.match(line)):
             continue
         kept.append(line)
     return "".join(kept)
@@ -76,8 +85,17 @@ def write_config_data_root(root: Path) -> Path:
     # same way TOML basic strings require, so it doubles as a safe TOML
     # string literal for a plain path (no control characters to worry about).
     new_block = f"[store]\ndata_root = {json.dumps(root_posix)}\n"
+    new_text = remaining_text + new_block
+    try:
+        tomllib.loads(new_text)
+    except tomllib.TOMLDecodeError as e:
+        # A store definition this function cannot take out (a multi-line form): never write a
+        # config that every later command would fail to read.
+        raise ConfigurationError(
+            f"Cannot set the default store in {path}: {e}; remove its store settings by hand and rerun"
+        ) from e
 
-    write_text_atomic(path, remaining_text + new_block, fsync=True)
+    write_text_atomic(path, new_text, fsync=True)
     return path
 
 

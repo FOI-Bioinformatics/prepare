@@ -426,8 +426,10 @@ class StoreGcCommand(BaseCommand):
         if not args.yes:
             self.logger.info("Dry run: nothing removed; pass --yes to remove")
 
-        if args.yes and self._remove_candidates(paths, dataset_candidates, leftover_candidates, report) != 0:
-            return 1
+        if args.yes:
+            code = self._remove_candidates(paths, dataset_candidates, leftover_candidates, report)
+            if code != 0:
+                return code
 
         if args.json:
             self.emit_json(report)
@@ -552,26 +554,21 @@ class StoreGcCommand(BaseCommand):
             try:
                 stale_ids = self._stale_ids(paths)
             except DataAccessError as e:
-                self.logger.error("%s: %s", self.name, e)
-                return 1
-            for candidate in dataset_candidates:
-                self._remove_one_dataset(paths, candidate, report, aside_by_accession, stale_ids)
+                return self.fail(e, self.name)  # 4 for a lock wait that ran out
+            try:
+                for candidate in dataset_candidates:
+                    self._remove_one_dataset(paths, candidate, report, aside_by_accession, stale_ids)
+            except KeyboardInterrupt:
+                # Nothing is deleted from the catalogue yet: put back every folder renamed so far.
+                self._restore_asides(paths, aside_by_accession)
+                raise
 
         republished: List[str] = []
         if aside_by_accession:
             try:
-                with catalog_write(paths) as catalog:
-                    for accession in aside_by_accession:
-                        # Each dataset lock was released after its rename; a download may have
-                        # published the accession again since, and its new row must stay.
-                        if sra_dir(paths, accession).exists():
-                            republished.append(accession)
-                            continue
-                        catalog.delete_dataset(accession)
+                republished = self._delete_rows(paths, aside_by_accession)
             except DataAccessError as e:
-                self.logger.error("%s: %s", self.name, e)
-                self._restore_asides(paths, aside_by_accession)
-                return 1
+                return self.fail(e, self.name)  # 4 for a lock wait that ran out
             for aside in aside_by_accession.values():
                 if aside is not None:
                     _remove_path(aside)
@@ -582,12 +579,40 @@ class StoreGcCommand(BaseCommand):
                 )
 
         removed_datasets = [accession for accession in aside_by_accession if accession not in republished]
-        if removed_datasets:
-            self._prune_usage_journal(paths, removed_datasets)
 
         report["removed_datasets"] = removed_datasets
         report["removed_leftovers"] = self._remove_leftovers(paths, leftover_candidates)
         return 0
+
+    def _delete_rows(self, paths: StorePaths, aside_by_accession: Dict[str, Optional[Path]]) -> List[str]:
+        """Delete the catalogue rows of the renamed datasets and prune their journal lines.
+
+        Returns the accessions published again since their rename (their new rows stay). If the
+        write fails (``DataAccessError``, re-raised) or is interrupted before it commits, every
+        renamed folder is put back first.
+        """
+        republished: List[str] = []
+        committed = False
+        try:
+            with catalog_write(paths) as catalog:
+                for accession in aside_by_accession:
+                    # Each dataset lock was released after its rename; a download may have
+                    # published the accession again since, and its new row must stay.
+                    if sra_dir(paths, accession).exists():
+                        republished.append(accession)
+                        continue
+                    catalog.delete_dataset(accession)
+                # Committed, then the journal pruned under the same lock: a usage line another
+                # project records afterwards (a download of the same accession while the
+                # folders are removed) is never pruned with the removed dataset's history.
+                catalog.commit_now()
+                committed = True
+                self._prune_usage_journal(paths, [a for a in aside_by_accession if a not in republished])
+        except (DataAccessError, KeyboardInterrupt):
+            if not committed:
+                self._restore_asides(paths, aside_by_accession)
+            raise
+        return republished
 
     @staticmethod
     def _stale_ids(paths: StorePaths) -> AbstractSet[str]:
@@ -596,17 +621,19 @@ class StoreGcCommand(BaseCommand):
             return frozenset(row["project_id"] for row in stale_projects(catalog))
 
     def _prune_usage_journal(self, paths: StorePaths, removed: List[str]) -> None:
-        """Drop the journal's usage lines for the removed accessions, under the catalogue lock.
+        """Drop the journal's usage lines for the removed accessions; the caller holds the catalogue lock.
 
-        Runs in its own write session after the deletions have committed, so a failed commit
-        never costs history for a dataset that was put back. A failure here is only logged:
-        the datasets are gone either way, and a usage line left behind for one of them is
-        replayed by ``store_reindex`` as a placeholder that its sidecar check removes again.
+        Called once the deletions have committed (``Catalog.commit_now``), so a failed commit
+        never costs history for a dataset that was put back, and before the lock is released, so
+        no line recorded after the deletions is pruned. A failure here is only logged: the
+        datasets are gone either way, and a usage line left behind for one of them is replayed
+        by ``store_reindex`` as a placeholder that its sidecar check removes again.
         """
+        if not removed:
+            return
         try:
-            with catalog_write(paths):
-                dropped = journal.prune_usage(paths, removed)
-        except DataAccessError as e:
+            dropped = journal.prune_usage(paths, removed)
+        except (OSError, DataAccessError) as e:
             self.logger.warning("Could not prune the usage journal: %s", e)
             return
         if dropped:

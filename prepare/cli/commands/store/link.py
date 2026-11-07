@@ -10,6 +10,7 @@ as the download hand-off does.
 """
 
 import argparse
+from pathlib import Path
 from typing import List, Optional
 
 from prepare.cli.base import BaseCommand, anchored_folder, refuse_bad_accessions
@@ -17,11 +18,12 @@ from prepare.cli.commands.sra_verdicts import store_sidecar_verdict, store_spot_
 from prepare.cli.commands.store._shared import _required_store
 from prepare.core.exceptions import DataAccessError
 from prepare.data.registry import record_download
-from prepare.data.registry import registry_transaction, update_linked
+from prepare.data import registry_blocks as rb
+from prepare.data.registry import load_registry, registry_transaction, update_linked
 from prepare.data.registry_timing import set_download_timing
-from prepare.data.sra.store_handoff import _reverify_sidecar, _short_unverified
+from prepare.data.sra.store_handoff import STORE_READY_STATES, _reverify_sidecar, _short_unverified
 from prepare.store.layout import StorePaths, sidecar_path, store_paths
-from prepare.store.link import LINK_MODES, link_dataset, unlink_dataset
+from prepare.store.link import LINK_MODES, is_store_link, link_dataset, unlink_dataset
 from prepare.store.locks import dataset_lock
 from prepare.store.sidecar import read_sidecar
 from prepare.store.usage import ensure_project_identity, record_usage_many
@@ -90,7 +92,8 @@ class StoreLinkCommand(BaseCommand):
         sidecar = read_sidecar(sidecar_path(paths, accession))
         if sidecar is None:
             state = "no sidecar"
-        elif sidecar.state in ("partial", "failed", "downloading"):
+        elif sidecar.state not in STORE_READY_STATES:
+            # partial, failed, downloading, or a state this version does not know ("unknown").
             state = sidecar.state
         elif expected is not None and _short_unverified(sidecar, expected):
             self._record_short(paths, accession, expected)
@@ -211,12 +214,19 @@ class StoreUnlinkCommand(BaseCommand):
         if (rc := refuse_bad_accessions(self.logger, args.accessions)) is not None:
             return rc
         fastq = anchored_folder(args.fastq_folder, args.registry)
+        # The store this project records, when it records one: a link elsewhere is not ours to remove.
+        store_root = rb.store_block(load_registry(args.registry)).root
+        store = store_paths(Path(store_root)) if store_root else None
         removed: List[str] = []
         refused: List[str] = []
         for accession in args.accessions:
             link_path = fastq / accession
             if link_path.exists() and not link_path.is_symlink():
                 self.logger.error("%s is a real directory, not a store link; refusing to remove it", accession)
+                refused.append(accession)
+                continue
+            if store is not None and link_path.is_symlink() and not is_store_link(link_path, store):
+                self.logger.error("%s links outside the store (%s); refusing to remove it", accession, store.root)
                 refused.append(accession)
                 continue
             try:

@@ -136,7 +136,7 @@ class StoreInitCommand(BaseCommand):
                 write_config_data_root(root.resolve())
                 self.logger.info("Recorded %s as the default store in the user config", root.resolve())
 
-            _gitignore_guard(Path.cwd(), self.logger)
+            _gitignore_guard(Path(project_snapshot["path"]), self.logger)  # the project root, not the cwd
 
             self.logger.info("Store root: %s", root.resolve())
             self.logger.info("Project id: %s (%s)", project_snapshot["id"], project_snapshot["name"])
