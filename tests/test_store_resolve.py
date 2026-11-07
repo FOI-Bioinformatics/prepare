@@ -264,3 +264,22 @@ def test_resolve_ignores_a_broken_config_when_the_explicit_root_is_found(tmp_pat
 def test_resolve_expands_a_home_relative_candidate(tmp_path):
     init_store(tmp_path / "store")
     assert resolve_store_root("~/store", None) == (tmp_path / "store").resolve()
+
+
+@pytest.mark.parametrize("header", ["[store]  # lab store", "[ store ]", "  [store]"])
+def test_set_default_replaces_a_store_table_written_with_spaces_or_a_comment(tmp_path, monkeypatch, header):
+    """A second [store] table makes the config invalid TOML, and every command then exits 3."""
+    import tomllib
+
+    from prepare.store.resolve import write_config_data_root
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    config = tmp_path / "xdg" / "prepare" / "config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(f'[runtime]\nthreads = 2\n\n{header}\ndata_root = "/old"\n')
+
+    write_config_data_root(tmp_path / "new")
+
+    data = tomllib.loads(config.read_text())
+    assert data["store"]["data_root"] == (tmp_path / "new").as_posix()
+    assert data["runtime"]["threads"] == 2

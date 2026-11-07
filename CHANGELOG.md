@@ -6,6 +6,15 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `diversity_analysis`: an abundance matrix with empty cells is refused (exit 2, naming the samples)
+  instead of giving those samples a Bray-Curtis distance of 0 to every other one and empty indices.
+  `chao1` is left empty, with a warning, for a matrix of fractions (a containment table), where it
+  counted every value of exactly 1 as a singleton.
+- `interactive_plot --plot-type tsne` works with 30 samples or fewer: the perplexity is lowered to
+  (samples - 1) / 3 when 30 would not fit below the sample count.
+- `store_init --set-default` replaces a `[store]` table whose header has spaces or a comment
+  (`[ store ]`, `[store]  # lab`); it appended a second `[store]` table, after which every command
+  exited 3.
 - `parse_containment`: a table that now holds 0 for an accession and genome removes the earlier
   screening entry from the registry; `results_table` and `status` kept reporting the old containment.
 - `download_metadata`: a match row with an empty or malformed accession is skipped with a warning

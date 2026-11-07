@@ -11,6 +11,7 @@ resolves that precedence and reads/writes the user config.
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +35,9 @@ __all__ = [
 ]
 
 
+_STORE_HEADER = re.compile(r"\[\s*store\s*\]\s*(#.*)?")
+
+
 def _strip_store_table(text: str) -> str:
     """Remove an existing top-level [store] table block from config text."""
     lines = text.splitlines(keepends=True)
@@ -42,7 +46,8 @@ def _strip_store_table(text: str) -> str:
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("["):
-            in_store_table = stripped == "[store]"
+            # TOML allows spaces inside the brackets and a comment after the header.
+            in_store_table = _STORE_HEADER.fullmatch(stripped) is not None
             if in_store_table:
                 continue
         if in_store_table:

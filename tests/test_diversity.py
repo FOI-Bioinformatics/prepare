@@ -254,3 +254,22 @@ def test_permanova_keeps_the_first_row_of_a_duplicated_sample():
     result = perform_permanova(distances, duplicated, "treatment", n_permutations=9, seed=1)
 
     assert result["treatment"]["F_statistic"] == pytest.approx(expected["treatment"]["F_statistic"])
+
+
+class TestDiversityInputChecks:
+    def test_a_missing_cell_is_refused_instead_of_making_samples_identical(self):
+        """An empty cell (NaN) gave Bray-Curtis 0 to every other sample; it is a usage error now."""
+        df = pd.DataFrame({"a": [1.0, np.nan], "b": [2.0, 3.0]}, index=["S1", "S2"])
+        with pytest.raises(ValidationError, match="S2"):
+            calculate_beta_diversity(df, "bray_curtis")
+        with pytest.raises(ValidationError, match="S2"):
+            calculate_alpha_diversity(df, ["shannon"])
+
+    def test_chao1_is_not_computed_from_fractions(self, caplog):
+        """Chao1 counts singletons and doubletons, so it needs whole-number counts; on containment
+        fractions it reported 11 for 5 genomes."""
+        df = pd.DataFrame([[1.0, 1.0, 1.0, 1.0, 0.5]], index=["S1"], columns=list("abcde"))
+        result = calculate_alpha_diversity(df, ["chao1", "observed_species"])
+        assert np.isnan(result.loc["S1", "chao1"])
+        assert result.loc["S1", "observed_species"] == 5
+        assert "chao1" in caplog.text.lower()
