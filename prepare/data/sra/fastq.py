@@ -136,13 +136,20 @@ def count_fastq_reads(path: Union[str, Path]) -> int:
     Reads in 1 MiB blocks so a large FASTQ file is never loaded into memory, and counts
     raw ``b"\\n"`` bytes rather than decoding text, which is both faster and immune to
     encoding errors in a corrupted file. Works for both gzip-compressed and plain files.
+
+    A truncated gzip raises ``EOFError``; a corrupt deflate stream raises ``gzip.BadGzipFile``
+    (an ``OSError``), as ``_GzipInflater`` does, rather than the bare ``zlib.error`` that
+    ``gzip`` lets through and that no caller expects.
     """
     opener = gzip.open if str(path).endswith(".gz") else open
     total_newlines = 0
     last_byte = b""
     with opener(path, "rb") as handle:
         while True:
-            block = handle.read(_BLOCK_SIZE)
+            try:
+                block = handle.read(_BLOCK_SIZE)
+            except zlib.error as exc:
+                raise gzip.BadGzipFile(f"{path}: {exc}") from exc
             if not block:
                 break
             total_newlines += block.count(b"\n")

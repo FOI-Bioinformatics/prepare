@@ -6,6 +6,11 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- A `.fastq.gz` with a corrupt deflate stream no longer ends a run with a bare `zlib.error`:
+  `count_fastq_reads` reports it as a bad gzip file. `download_sra` records such a folder on disk as
+  unverified instead of failing after every download with no report; `store_verify --spots`/`--fix-state`
+  marks the dataset corrupt (and `failed`) and goes on to the next one; `sra_validate --check-pairs`
+  reports a truncated or corrupt mate file as a FAILED accession instead of stopping.
 - `download_sra` and `store_adopt` check the version of the optional `prefetch` and `pigz` before
   using them. One that cannot run or is older than its floor in the tool table (3.0 and 2.4) is not
   used: one warning names it with the `conda install` command, and the run falls back to running

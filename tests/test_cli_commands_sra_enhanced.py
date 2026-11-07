@@ -478,6 +478,28 @@ class TestSRAValidateCommand:
         assert result["status"] == "FAILED"
         assert "FASTQ format error in SRR1.fastq.gz" in result["issues"]
 
+    @pytest.mark.parametrize("damage", ["truncated", "corrupt"])
+    def test_check_pairs_reports_a_broken_mate_instead_of_crashing(self, tmp_path, damage):
+        """The first record of mate 2 is intact (format check passes), but counting it fails."""
+        import gzip as gzip_module
+
+        acc_dir = tmp_path / "SRR1"
+        acc_dir.mkdir()
+        text = b"@read1\nACGT\n+\nIIII\n" * 2000
+        with gzip_module.open(acc_dir / "SRR1_1.fastq.gz", "wb") as handle:
+            handle.write(text)
+        data = gzip_module.compress(text)
+        if damage == "truncated":
+            data = data[: len(data) // 2]
+        else:
+            data = data[: len(data) // 2] + bytes(len(data) // 2)
+        (acc_dir / "SRR1_2.fastq.gz").write_bytes(data)
+
+        result = SRAValidateCommand()._validate_directory(acc_dir, check_pairs=True)
+
+        assert result["status"] == "FAILED"
+        assert "SRR1_2.fastq.gz" in result["issues"]
+
     def test_validate_directory_md5_without_a_sidecar_is_a_no_op(self, tmp_path):
         """A plain project folder has no recorded md5 to compare against, so --md5 passes
         rather than failing every file."""

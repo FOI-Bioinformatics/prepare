@@ -283,6 +283,30 @@ def test_present_verdicts_logs_an_unreadable_file_and_moves_on(tmp_path, caplog)
     assert "Could not verify" in caplog.text
 
 
+def _corrupt_gzip(path):
+    """A gzip file whose header is intact but whose deflate stream is not (zlib.error, not OSError)."""
+    data = gzip.compress(b"@r\nACGT\n+\nIIII\n" * 50)
+    path.write_bytes(data[:10] + bytes(len(data) - 10))
+
+
+def test_count_fastq_reads_reports_a_corrupt_deflate_stream_as_bad_gzip(tmp_path):
+    from prepare.data.sra import count_fastq_reads
+
+    _corrupt_gzip(tmp_path / "x.fastq.gz")
+    with pytest.raises(gzip.BadGzipFile):
+        count_fastq_reads(tmp_path / "x.fastq.gz")
+
+
+def test_present_verdicts_records_a_corrupt_gzip_unverified_instead_of_failing_the_run(tmp_path, caplog):
+    fastq = tmp_path / "fastq"
+    (fastq / ACC).mkdir(parents=True)
+    _corrupt_gzip(fastq / ACC / f"{ACC}_1.fastq.gz")
+
+    verdicts = sra_verdicts.present_verdicts(fastq, [ACC], None, {ACC: 4})
+
+    assert verdicts == {ACC: dict(UNVERIFIED, expected_spots=4)}
+
+
 # ------------------------------------------------------------------ linked_verdict
 
 
