@@ -40,7 +40,7 @@ prepare sra_info --accessions-file accessions.txt --email you@example.org --outp
 
 NCBI asks for an email address. It comes from `--email`, from the `PREPARE_NCBI_EMAIL` variable or from `ncbi_email` under `[runtime]` in the config file. `--api-key` raises the rate limit and `--bandwidth-mbps` sets the bandwidth used for the download estimate (default 100).
 
-`sra_info` filters per experiment package, not per run. It lists every run of each experiment package that a requested run, experiment, sample, study, BioProject or BioSample accession matches. This includes sibling lanes or replicates of the same experiment as a requested run. Runs of packages that match none of the requested accessions are dropped. If a reply would be filtered down to nothing, the command lists every run returned and logs a warning instead.
+`sra_info` lists every run of each experiment package that a requested experiment, sample, study, BioProject or BioSample accession matches. A requested run accession lists that run only, not the sibling lanes or replicates of its experiment, so the dataset count, size and download time cover what was asked for. Runs of packages that match none of the requested accessions are dropped. If a reply would be filtered down to nothing, the command lists every run returned and logs a warning instead.
 
 ## download_sra
 

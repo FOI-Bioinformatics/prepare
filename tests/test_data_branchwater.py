@@ -1000,3 +1000,18 @@ class TestThresholdCounts:
         assert len(thresholds) == len(counts) == 144
         assert thresholds[0] == 1.0
         assert thresholds[-1] == 0.0
+
+
+def test_extract_metadata_accepts_a_csv_with_a_utf8_bom(tmp_path):
+    """Excel's "CSV UTF-8" starts the file with a BOM; every other reader of match files accepts it."""
+    from prepare.data.branchwater import extract_metadata_from_branchwater
+
+    folder = tmp_path / "branchwater"
+    folder.mkdir()
+    (folder / "G1.csv").write_bytes("﻿acc,containment,organism\nSRR0000001,0.5,gut\n".encode("utf-8"))
+    errors = []
+
+    df = extract_metadata_from_branchwater(folder, tmp_path / "out.csv", errors=errors)
+
+    assert errors == []
+    assert len(df) == 1

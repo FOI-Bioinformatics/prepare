@@ -17,7 +17,7 @@ from lxml import etree
 
 from prepare.core import settings
 from prepare.core.exceptions import DataAccessError, PrepareError, NetworkError
-from prepare.core.validation import validate_folder
+from prepare.core.validation import validate_accession, validate_folder
 from prepare.data.accessions import read_accessions_file
 from prepare.data.metadata_fetch import (  # noqa: F401 - re-exported; the Entrez download code moved there
     _ENTREZ_LOCK,
@@ -82,8 +82,15 @@ def _get_unique_accessions(matches_folder, threshold):
             if threshold > 0:
                 df = df[df[containment_col] >= threshold]
 
-            # Add accessions to set
-            unique_accessions.update(df[accession_col].tolist())
+            # An empty or malformed accession (NaN for an empty cell) is skipped, as
+            # parse_containment skips it, rather than sent to NCBI.
+            values = [str(value).strip() for value in df[accession_col].dropna()]
+            valid = [value for value in values if validate_accession(value)]
+            if len(valid) < len(df):
+                logger.warning(
+                    "%s: skipped %d row(s) without a valid SRA accession", csv_file.name, len(df) - len(valid)
+                )
+            unique_accessions.update(valid)
 
         # pandas' ParserError and EmptyDataError are ValueErrors; KeyError is a missing
         # containment column; TypeError is a containment column holding text.

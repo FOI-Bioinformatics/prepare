@@ -6,6 +6,16 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `parse_containment`: a table that now holds 0 for an accession and genome removes the earlier
+  screening entry from the registry; `results_table` and `status` kept reporting the old containment.
+- `download_metadata`: a match row with an empty or malformed accession is skipped with a warning
+  (as `parse_containment` skips it); an empty one ended the run with a `TypeError`.
+- `extract_branchwater_metadata` accepts a CSV that starts with a UTF-8 BOM (Excel's "CSV UTF-8"), as
+  the other commands that read match files do.
+- `sra_info`: a requested run accession reports that run only, not the sibling runs of its
+  experiment, so the dataset count, size and download estimate cover what was asked for (an
+  experiment, sample, study or project accession still reports every run). The `biosample` column is
+  read from the sample's BioSample identifier, where NCBI puts it; it was almost always empty.
 - `download_sra`: a download that writes new files records their own verdict. An `unverified`
   redownload (no spot count, or `--no-verify-downloads`) replaced nothing before: the old files'
   `truncated` verdict was kept, so `--redownload-truncated` fetched the accession again on every run,

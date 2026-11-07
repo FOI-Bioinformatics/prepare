@@ -618,6 +618,20 @@ class TestRecords:
         assert count == 1
         assert list(r.datasets["SRR1"]["screening"]["genomes"]) == ["GCF_A"]
 
+    def test_screening_from_table_drops_an_entry_whose_containment_is_now_zero(self, tmp_path):
+        """A later table holding 0 for an accession/genome removes the earlier positive entry, or
+        results_table and status keep reporting the old value."""
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
+        table = tmp_path / "parsed_containment.txt"
+        table.write_text("\tGCF_A\tGCF_B\nSRR1\t0.6\t0.5\n")
+        reg.record_screening_from_table(r, table, tmp_path / "matches")
+        table.write_text("\tGCF_A\tGCF_B\nSRR1\t0.0\tnot-a-number\n")
+
+        reg.record_screening_from_table(r, table, tmp_path / "matches")
+
+        # 0 removes GCF_A; a cell that is not a number says nothing, so GCF_B stays.
+        assert list(r.datasets["SRR1"]["screening"]["genomes"]) == ["GCF_B"]
+
     def test_registry_path_logs_a_registry_above_the_working_directory(self, tmp_path, caplog):
         (tmp_path / "prepare_registry.json").write_text("{}")
         sub = tmp_path / "targeted"

@@ -200,7 +200,8 @@ def _validate_branchwater_file(csv_file):
         bool: True if file is valid, False otherwise
     """
     # Read the header line only, through the CSV module so quoted names are honoured
-    with open(csv_file, "r", newline="") as f:
+    # utf-8-sig: Excel's "CSV UTF-8" starts the file with a BOM, which would join the first header.
+    with open(csv_file, "r", newline="", encoding="utf-8-sig") as f:
         columns = [col.strip() for col in next(csv.reader(f), [])]
 
     # Check if this is a valid Branchwater format file
