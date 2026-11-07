@@ -287,3 +287,8 @@ def test_runs_records_nothing(project, two_profiles, capsys):
     before = run_log.read_runs(project)
     assert main(["runs", "--registry", _registry(project)]) == 0
     assert run_log.read_runs(project) == before
+
+
+def test_a_malformed_accession_is_refused_like_in_every_other_command(project, two_profiles):
+    """A lower-case accession matches no run; it is refused (exit 2) rather than reported as unused."""
+    assert main(["runs", "--registry", _registry(project), "--accession", "srr1"]) == 2

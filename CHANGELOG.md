@@ -6,6 +6,22 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `status --reconcile` and the status bootstrap no longer stop at a truncated or corrupt `.fastq.gz`:
+  that download keeps its recorded verdict (or that extraction is not recorded), with a warning, and
+  the rest of the project is reconciled.
+- Accession lists (`--accessions-file`, `status --accessions-file`, `blacklist.txt`) and the match CSVs
+  read by the status bootstrap accept a file that starts with a UTF-8 BOM (Excel's "CSV UTF-8",
+  Notepad); line 1 was refused or every row of the file skipped.
+- `store_init --set-default` also replaces a `["store"]` header, a top-level `store.data_root = ...`
+  key and a `store = {...}` inline table, and refuses (exit 3) rather than write a config file that no
+  command could read.
+- `--assembly-memory auto` under SLURM with `--mem-per-cpu` multiplies the per-CPU memory by the CPUs
+  allocated to the job on the node (`SLURM_CPUS_ON_NODE`), not by every CPU of the node, which handed
+  megahit far more memory than the job had.
+- Output piped into a reader that closes early (`prepare sra_profile | head -1`) no longer stops the
+  command: the rest of its output is dropped and it finishes its work, files and registry records.
+  It used to exit 1 partway through with nothing recorded.
+- `runs --accession` refuses a malformed accession (exit 2), as every other command does.
 - `store_gc` no longer removes a dataset that a moved project still links: the catalogue records a
   project where its registry is now, not the folder it was created in, and the link check also looks
   beside the registry and in the registry's list of linked datasets (a link made with another

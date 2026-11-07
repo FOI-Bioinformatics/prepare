@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from prepare.cli.base import BaseCommand, emit_error_json
+from prepare.data.accessions import require_accession
 from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
 from prepare.data import run_log
 from prepare.data.run_log import RunRecord
@@ -282,6 +283,7 @@ class RunsCommand(BaseCommand):
         accession = args.accession.strip()
         if not accession:
             raise ValidationError("--accession needs an accession")
+        require_accession(accession)  # a malformed one (srr1) matches nothing; refused as elsewhere
         history = accession_history(project, records, accession)
         listed = {entry["run_id"] for entry in history}
         unsearched = sum(1 for r in records if r.run_id not in listed and not detail_kept(project, r))

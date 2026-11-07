@@ -18,7 +18,7 @@ def read_blacklist_file(path: Path) -> Dict[str, str]:
     entries: Dict[str, str] = {}
     if not path.exists():
         return entries
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         text = line.strip()
         if not text or text.startswith("#"):
             continue

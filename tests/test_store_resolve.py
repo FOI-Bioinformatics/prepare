@@ -266,7 +266,9 @@ def test_resolve_expands_a_home_relative_candidate(tmp_path):
     assert resolve_store_root("~/store", None) == (tmp_path / "store").resolve()
 
 
-@pytest.mark.parametrize("header", ["[store]  # lab store", "[ store ]", "  [store]"])
+@pytest.mark.parametrize(
+    "header", ["[store]  # lab store", "[ store ]", "  [store]", '["store"]', "['store']", "[ 'store' ]"]
+)
 def test_set_default_replaces_a_store_table_written_with_spaces_or_a_comment(tmp_path, monkeypatch, header):
     """A second [store] table makes the config invalid TOML, and every command then exits 3."""
     import tomllib
@@ -277,6 +279,30 @@ def test_set_default_replaces_a_store_table_written_with_spaces_or_a_comment(tmp
     config = tmp_path / "xdg" / "prepare" / "config.toml"
     config.parent.mkdir(parents=True)
     config.write_text(f'[runtime]\nthreads = 2\n\n{header}\ndata_root = "/old"\n')
+
+    write_config_data_root(tmp_path / "new")
+
+    data = tomllib.loads(config.read_text())
+    assert data["store"]["data_root"] == (tmp_path / "new").as_posix()
+    assert data["runtime"]["threads"] == 2
+
+
+@pytest.mark.parametrize(
+    "existing",
+    [
+        'store.data_root = "/old"\n\n[runtime]\nthreads = 2\n',
+        'store = { data_root = "/old" }\n\n[runtime]\nthreads = 2\n',
+    ],
+)
+def test_set_default_replaces_a_dotted_or_inline_store_key(tmp_path, monkeypatch, existing):
+    import tomllib
+
+    from prepare.store.resolve import write_config_data_root
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    config = tmp_path / "xdg" / "prepare" / "config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(existing)
 
     write_config_data_root(tmp_path / "new")
 

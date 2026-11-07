@@ -11,6 +11,7 @@ nothing here reads or writes the real user config.
 
 import argparse
 import json
+import sys
 import logging
 import subprocess
 from pathlib import Path
@@ -78,6 +79,27 @@ class TestEmitHelpers:
         _EmitCommand(lambda cmd: cmd.emit("hello")).execute(argparse.Namespace())
 
         assert capsys.readouterr().out == "hello\n"
+
+    def test_a_closed_stdout_does_not_stop_the_command(self, monkeypatch):
+        """`prepare ... | head -1`: once the reader is gone, output is dropped and the command goes
+        on to finish its work (files, registry, run log) instead of failing at the next emit."""
+        import io
+
+        class ClosedPipe(io.StringIO):
+            def write(self, text):
+                raise BrokenPipeError(32, "Broken pipe")
+
+        monkeypatch.setattr(sys, "stdout", ClosedPipe())
+        finished = []
+
+        def action(cmd):
+            cmd.emit("first")
+            cmd.emit_json({"a": 1})
+            cmd.emit_raw("x")
+            finished.append(True)
+
+        assert _EmitCommand(action).execute(argparse.Namespace()) == 0
+        assert finished == [True]
 
     def test_emit_raw_writes_the_text_as_is(self, capsys):
         _EmitCommand(lambda cmd: cmd.emit_raw("a\tb\n1\t2")).execute(argparse.Namespace())

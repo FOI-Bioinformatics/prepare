@@ -32,7 +32,8 @@ def read_accessions_file(
     ``pattern``. An unreadable file raises ``DataAccessError``.
     """
     try:
-        with open(path, "r") as handle:
+        # utf-8-sig: a list saved by Excel ("CSV UTF-8") or Notepad starts with a BOM.
+        with open(path, "r", encoding="utf-8-sig") as handle:
             lines = handle.read().splitlines()
     except OSError as e:
         raise DataAccessError(f"Cannot read accessions file {path}: {e}") from e

@@ -1465,3 +1465,34 @@ def test_accession_lists_skip_indented_comment_lines(tmp_path):
     assert _read_accession_list(path) == ["SRR000001", "SRR000002"]
     args = argparse.Namespace(accessions_file=str(path), parsed_containment=None)
     assert _wanted_accessions(args) == ["SRR000001", "SRR000002"]
+
+
+def test_bom_files_are_read_like_any_other(tmp_path):
+    """Excel's "CSV UTF-8" and Notepad start a file with a BOM: accession lists and match CSVs
+    must read the same with or without it."""
+    import argparse
+
+    from prepare.cli.base import read_accessions_file
+    from prepare.data.registry_scan import _read_accession_list
+    from prepare.processing.status_report import _wanted_accessions
+
+    accessions = tmp_path / "accessions.txt"
+    accessions.write_bytes("﻿SRR1001\nSRR1002\n".encode("utf-8"))
+    assert read_accessions_file(accessions) == ["SRR1001", "SRR1002"]
+    assert _read_accession_list(accessions) == ["SRR1001", "SRR1002"]
+    assert _wanted_accessions(argparse.Namespace(accessions_file=str(accessions), parsed_containment=None)) == [
+        "SRR1001",
+        "SRR1002",
+    ]
+
+    paths = reg.ProjectPaths(
+        fastq=tmp_path / "fastq",
+        metadata=tmp_path / "metadata",
+        genomes=tmp_path / "genomes",
+        targeted=tmp_path / "targeted",
+        matches=tmp_path / "matches",
+    )
+    paths.matches.mkdir()
+    (paths.matches / "G1.csv").write_bytes("﻿acc,containment\nSRR1001,0.5\n".encode("utf-8"))
+    registry = reg.bootstrap_from_disk(paths)
+    assert registry.datasets["SRR1001"]["screening"]["genomes"]["G1"]["containment"] == 0.5

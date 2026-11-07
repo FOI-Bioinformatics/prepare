@@ -5,8 +5,10 @@ This module provides the foundation for a modular command architecture.
 """
 
 import argparse
+import io
 import json
 import math
+import os
 import logging
 import re
 import sys
@@ -331,15 +333,41 @@ class BaseCommand(ABC):
 
     def emit(self, text: str = "") -> None:
         """Write one newline-terminated line of the command's result to stdout."""
-        print(text, file=sys.stdout)
+        _write_stdout(text + "\n")
 
     def emit_raw(self, text: str) -> None:
         """Write ``text`` to stdout as is, without adding a newline (e.g. ``DataFrame.to_csv`` output)."""
-        sys.stdout.write(text)
+        _write_stdout(text)
 
     def emit_json(self, payload: Any) -> None:
         """Write ``payload`` to stdout as exactly one JSON document (indent 2, trailing newline)."""
-        print(json.dumps(payload, indent=2), file=sys.stdout)
+        _write_stdout(json.dumps(payload, indent=2) + "\n")
+
+
+class _DiscardedOutput(io.TextIOBase):
+    """Stands in for a stdout whose reader has gone: every write is accepted and dropped."""
+
+    def write(self, text: str) -> int:
+        return len(text)
+
+
+def _write_stdout(text: str) -> None:
+    """Write ``text`` to stdout; once its reader is gone (``| head``), drop this and later output.
+
+    A closed pipe is not a failure of the command: it goes on to write its files, record its
+    outcome and its run, and exits as it would have. Later writes, and the interpreter's flush
+    at exit, go nowhere instead of raising again.
+    """
+    try:
+        sys.stdout.write(text)
+    except BrokenPipeError:
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+            os.close(devnull)
+        except (OSError, ValueError, io.UnsupportedOperation):
+            pass
+        sys.stdout = _DiscardedOutput()
 
 
 class CommandRegistry:

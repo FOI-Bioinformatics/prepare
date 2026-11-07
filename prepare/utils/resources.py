@@ -58,6 +58,19 @@ def available_cpus() -> int:
     return os.cpu_count() or 1
 
 
+def _slurm_job_cpus() -> int:
+    """The CPUs SLURM allocated this job on this node, for its per-CPU memory.
+
+    ``SLURM_CPUS_ON_NODE``, then ``SLURM_CPUS_PER_TASK``; the affinity mask is used only without
+    either, since without CPU binding it covers the whole node, not the job's allocation.
+    """
+    for name in ("SLURM_CPUS_ON_NODE", "SLURM_CPUS_PER_TASK"):
+        cpus = _positive_int(os.environ.get(name))
+        if cpus is not None:
+            return cpus
+    return available_cpus()
+
+
 def _read_text(path: Path) -> Optional[str]:
     """The stripped content of ``path``, or None when it cannot be read."""
     try:
@@ -122,7 +135,7 @@ def memory_limit_bytes(proc_root: Union[str, Path] = "/proc", sys_root: Union[st
         megabytes = _positive_int(os.environ.get("SLURM_MEM_PER_NODE"))
         if megabytes is None:
             per_cpu = _positive_int(os.environ.get("SLURM_MEM_PER_CPU"))
-            megabytes = per_cpu * available_cpus() if per_cpu is not None else None
+            megabytes = per_cpu * _slurm_job_cpus() if per_cpu is not None else None
         limit = megabytes * 1024**2 if megabytes is not None else None
     return limit
 
