@@ -143,7 +143,7 @@ def reference_coverage(
 ) -> Optional[Dict[str, Any]]:
     """Breadth and mean depth of the target genome covered by one sample's kept alignments.
 
-    The filtered BAM is coordinate-sorted to ``sam_root/<genome>.mapped.sorted.bam`` (beside
+    The filtered BAM is coordinate-sorted to ``sam_root/<acc>.<genome>.mapped.sorted.bam`` (beside
     the SAM files, so ``--temp-folder`` applies) and ``samtools coverage`` writes the
     per-sequence table to ``out_dir/<genome>_coverage.tsv``. The sorted BAM is always removed.
     Only the kept alignments count (unmapped, secondary and supplementary records, and any
@@ -156,7 +156,7 @@ def reference_coverage(
         The ``summarise_coverage_table`` summary plus ``coverage_tsv`` (the table's path), or
         None when the coverage could not be computed.
     """
-    sorted_bam = sam_root / f"{genome_id}.mapped.sorted.bam"
+    sorted_bam = sam_root / f"{accession}.{genome_id}.mapped.sorted.bam"
     tsv_path = coverage_table_path(out_dir, genome_id)
     try:
         SecureSubprocess.run_secure("samtools", _samtools_sort_args(threads, sorted_bam, bam_path))

@@ -646,7 +646,9 @@ class TestMapqAndSamLifetime:
                 temp_folder=temp_folder,
                 keep_sam=True,
             )
-            assert list(temp_folder.glob("*.sam"))
+            # A temp folder can be shared by jobs on other samples of the same genome, so every
+            # scratch name carries the accession.
+            assert [p.name for p in temp_folder.glob("*.sam")] == ["SRR1.GCF_1.sam"]
             assert list((root / "targeted" / "SRR1").glob("*.sam")) == []
 
 
@@ -837,6 +839,31 @@ class TestRecordMatches:
         }
         (tmp_path / "g.fna").write_text(">a\nA\n")
         assert _record_matches(record, tmp_path / "g.fna", "sr", 0.1, min_mapq=0)
+
+    def test_a_replaced_genome_fasta_remaps_even_at_the_same_path(self, tmp_path):
+        """The index is rebuilt when the FASTA changes; the samples extracted against it must be too."""
+        from prepare.data.read_extraction import genome_signature
+
+        genome = tmp_path / "g.fna"
+        genome.write_text(">a\nA\n")
+        record = {"genome_fasta": str(genome), "preset": "sr", "min_mapq": 0, "mapped_reads": 0}
+        record["genome_signature"] = genome_signature(genome)
+        assert _record_matches(record, genome, "sr", 0.1, min_mapq=0)
+
+        genome.write_text(">a\nACGTACGT\n")
+        assert not _record_matches(record, genome, "sr", 0.1, min_mapq=0)
+
+        del record["genome_signature"]  # a record from an earlier version: not held against it
+        assert _record_matches(record, genome, "sr", 0.1, min_mapq=0)
+
+    def test_record_extraction_keeps_the_genome_signature(self, tmp_path):
+        from prepare.data.registry import Registry, record_extraction
+
+        registry = Registry()
+        record_extraction(
+            registry, "SRR1", "G1", [], 0, False, {"genome_fasta": "g.fna", "genome_signature": [10, 1.5]}
+        )
+        assert registry.datasets["SRR1"]["extractions"]["G1"]["genome_signature"] == [10, 1.5]
 
     def test_a_different_mapq_still_remaps(self, tmp_path):
         record = {"genome_fasta": str(tmp_path / "g.fna"), "preset": "sr", "min_mapq": 20, "mapped_reads": 0}
@@ -1570,7 +1597,7 @@ class TestReferenceCoverage:
         (tmp_path / "out").mkdir()
         (tmp_path / "sam").mkdir()
         coverage = reference_coverage("SRR1", "GCF_1", bam, tmp_path / "out", tmp_path / "sam", 2)
-        sorted_bam = tmp_path / "sam" / "GCF_1.mapped.sorted.bam"
+        sorted_bam = tmp_path / "sam" / "SRR1.GCF_1.mapped.sorted.bam"
         tsv = tmp_path / "out" / "GCF_1_coverage.tsv"
         assert coverage["breadth"] == 0.875 and coverage["mean_depth"] == 8.0
         assert coverage["coverage_tsv"] == tsv
@@ -1642,7 +1669,7 @@ class TestReferenceCoverage:
         temp_folder = root / "scratch"
         self._extract(root, table, genome, temp_folder=temp_folder)
         sort_args = next(args for tool, args in state["calls"] if tool == "samtools" and args[0] == "sort")
-        assert Path(sort_args[sort_args.index("-o") + 1]) == temp_folder / "GCF_1.mapped.sorted.bam"
+        assert Path(sort_args[sort_args.index("-o") + 1]) == temp_folder / "SRR1.GCF_1.mapped.sorted.bam"
         assert list(temp_folder.glob("*.sorted.bam")) == []
 
     @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")

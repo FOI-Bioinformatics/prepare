@@ -227,6 +227,12 @@ _PARAMETERS_DIFFER = "recorded parameters differ from this call"
 _OUTPUT_FILE_MISSING = "recorded output file missing"
 
 
+def genome_signature(genome_path: Path) -> List[float]:
+    """``[size, mtime]`` of the genome FASTA, recorded with an extraction to notice a replaced file."""
+    st = Path(genome_path).stat()
+    return [st.st_size, st.st_mtime]
+
+
 def _record_mismatch_reason(
     record: Dict[str, Any], genome_path: Path, preset: str, threshold: float, min_mapq: int = 0
 ) -> Optional[str]:
@@ -242,6 +248,10 @@ def _record_mismatch_reason(
     """
     recorded_fasta = record.get("genome_fasta")
     if recorded_fasta is not None and Path(recorded_fasta).resolve() != genome_path.resolve():
+        return _PARAMETERS_DIFFER
+    # The same path holding another assembly: the index is rebuilt, so the samples must be too.
+    recorded_signature = record.get("genome_signature")
+    if recorded_signature is not None and list(recorded_signature) != genome_signature(genome_path):
         return _PARAMETERS_DIFFER
     recorded_preset = record.get("preset")
     if recorded_preset is not None and recorded_preset != preset:
@@ -338,6 +348,9 @@ def _map_and_extract(
     ``out_dir``) go once the BAM exists unless ``keep_sam``; the BAM goes after the export."""
     ensure_directory(out_dir)
     sam_root = ensure_directory(sam_dir) if sam_dir is not None else out_dir
+    # --temp-folder can be shared by jobs on other samples of this genome, so every scratch name
+    # carries the accession as well as the genome.
+    scratch = f"{accession}.{genome_id}"
     bam_path = out_dir / f"{genome_id}.mapped.bam"
     filter_args = ["-F", FILTER_FLAGS]
     if min_mapq:
@@ -346,7 +359,7 @@ def _map_and_extract(
     unequal = force_single_end and len(reads) >= 2
     if unequal:
         mate_groups: List[List[Path]] = [[read] for read in reads[:2]]
-        sam_paths = [sam_root / f"{genome_id}.mate1.sam", sam_root / f"{genome_id}.mate2.sam"]
+        sam_paths = [sam_root / f"{scratch}.mate1.sam", sam_root / f"{scratch}.mate2.sam"]
         logger.warning(
             "%s: the mate files are recorded with different read counts, so each is mapped "
             "independently as single-end reads; re-download with fasterq-dump (which keeps mates "
@@ -355,7 +368,7 @@ def _map_and_extract(
         )
     else:
         mate_groups = [reads]
-        sam_paths = [sam_root / f"{genome_id}.sam"]
+        sam_paths = [sam_root / f"{scratch}.sam"]
 
     mapped_total, stderr_marker_seen = _align_and_count_mapped(
         accession, preset, threads, reference, genome_fasta, sam_paths, mate_groups

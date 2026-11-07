@@ -357,6 +357,8 @@ class ExtractionBlock(RegistryBlock):
 
     date: str = ""
     genome_fasta: Optional[str] = None
+    # [size, mtime] of genome_fasta when extracted (read_extraction.genome_signature); None before 0.12.2.
+    genome_signature: Optional[List[float]] = _optional()
     preset: Any = None
     threshold: Any = None
     filter_flags: Any = None

@@ -6,6 +6,14 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `extract_target_reads --temp-folder`: the SAM and sorted-BAM scratch files are named after the
+  accession as well as the genome. Two jobs on different samples of one genome sharing a temp folder
+  (a config-wide `PREPARE_TEMP_FOLDER`, a node-shared `$TMPDIR`) overwrote each other's alignments, so
+  one sample could be given the other's reads.
+- `extract_target_reads`: an extraction records the genome FASTA's size and modification time, and a
+  sample is extracted again when the FASTA at the same path has been replaced (the index was already
+  rebuilt in that case; the samples were skipped as current). Records from earlier versions carry no
+  signature and are not redone for its absence.
 - A `.fastq.gz` with a corrupt deflate stream no longer ends a run with a bare `zlib.error`:
   `count_fastq_reads` reports it as a bad gzip file. `download_sra` records such a folder on disk as
   unverified instead of failing after every download with no report; `store_verify --spots`/`--fix-state`
