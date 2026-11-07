@@ -1436,3 +1436,18 @@ class TestProjectFolders:
         monkeypatch.chdir(tmp_path / "elsewhere")
         assert reg.project_root(tmp_path / "proj" / "prepare_registry.json") == (tmp_path / "proj").resolve()
         assert reg.project_root("prepare_registry.json") == (tmp_path / "elsewhere").resolve()
+
+
+def test_accession_lists_skip_indented_comment_lines(tmp_path):
+    """An indented '# batch 2' line is a comment, not an accession, for status and status --init."""
+    import argparse
+
+    from prepare.data.registry_scan import _read_accession_list
+    from prepare.processing.status_report import _wanted_accessions
+
+    path = tmp_path / "accessions.txt"
+    path.write_text("SRR000001\n  # batch 2\nSRR000002\n")
+
+    assert _read_accession_list(path) == ["SRR000001", "SRR000002"]
+    args = argparse.Namespace(accessions_file=str(path), parsed_containment=None)
+    assert _wanted_accessions(args) == ["SRR000001", "SRR000002"]

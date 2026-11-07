@@ -83,6 +83,11 @@ def visible_files(directory: Union[str, Path], *patterns: str, dirs: bool = Fals
     return sorted(found)
 
 
+def accession_lines(text: str) -> List[str]:
+    """The non-blank lines of an accession list, stripped, without comment lines (indented or not)."""
+    return [line for line in (raw.strip() for raw in text.splitlines()) if line and not line.startswith("#")]
+
+
 def list_files(directory: Union[str, Path], pattern: str = "*", include_hidden: bool = False) -> List[Path]:
     """List the files in ``directory`` matching ``pattern``; hidden names are dropped unless asked for."""
     try:

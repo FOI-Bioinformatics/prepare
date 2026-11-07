@@ -2,8 +2,8 @@
 
 The run log itself is ``prepare.data.run_log``; the comparisons are in
 ``prepare.processing.run_diff``. This command only reads the log and records nothing itself.
-It exits 0 normally, 1 when the project has no run log and 1 (through ``fail``) for a run
-selector that matches no run or more than one.
+It exits 0 normally, 1 when the project has no run log and 2 (a ``ValidationError`` through
+``fail``) for a run selector that matches no run or more than one.
 """
 
 import argparse

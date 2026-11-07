@@ -150,7 +150,7 @@ A run is selected by its ID (for example `20261001T120501Z-sra_profile-3fa2`), b
 
 - **`--diff`** lists every summary value of the two runs with the difference for numbers. It then compares the details row by row (one row per accession, or per accession and genome) and lists the rows found in only one run and the fields that changed. An accession found in more than one section of a detail has each field named after its section, for example `analyses.profile.gc_percent`. A run has a detail only when its command noted one and it is among the last 10 per command. A run without one is reported as not kept and is compared on its summary alone.
 - **`--accession`** lists the runs whose kept detail holds values for that accession. It adds runs without a kept detail whose command line names the accession, as an argument or as `--option=ACC`. An accessions file named on the command line is not read. The number of other runs that could not be searched is given at the end.
-- **Exit status.** `runs` exits 1 when the project has no run log, and also when a selector matches no run or more than one.
+- **Exit status.** `runs` exits 1 when the project has no run log, and 2 when a selector matches no run or more than one.
 
 ## project_report
 

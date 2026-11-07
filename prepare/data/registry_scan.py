@@ -12,7 +12,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from prepare.data import registry_blocks as rb
-from prepare.data.file_io import visible_files
+from prepare.data.file_io import accession_lines, visible_files
 from prepare.data.read_extraction import coverage_table_path, summarise_contigs, summarise_coverage_table
 from prepare.data.sra import accession_has_fastq, count_fastq_reads, fastq_files, is_transient_folder
 
@@ -142,7 +142,7 @@ def empty_assembly_dirs(targeted_folder: Path, genome_ids: Sequence[str]) -> Lis
 def _read_accession_list(path: Optional[Union[str, Path]]) -> List[str]:
     if not path or not Path(path).exists():
         return []
-    return [ln.strip() for ln in Path(path).read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+    return accession_lines(Path(path).read_text())
 
 
 def _screening_from_matches(registry: "Registry", matches_folder: Path) -> None:

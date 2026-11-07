@@ -6,6 +6,24 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `select_datasets --skip-downloaded` keeps the downloaded accessions of an earlier selection
+  selected; it unselected them, so `extract_target_reads`, `status` and `results_table` lost them. The
+  summary's "excluded" and "already downloaded" counts are those dropped from this table, not every
+  one the registry names.
+- `select_datasets` records `--output` and the containment table relative to the project root, so
+  `status --next` suggests files that exist when run from a subfolder.
+- `status --accessions-file` and `status --init --accessions-file` skip an indented `#` comment line
+  instead of taking it as an accession.
+- `status --reconcile` does not mark a download missing while the files it recorded are still on
+  disk (a download into a folder other than `--fastq-folder`). A failed download that reconcile finds
+  on disk is recorded without the failed attempt's start and duration. `status` no longer lists a
+  download marked missing among the truncated or unverified ones, matching `project_report`.
+- `status --init --reconcile` on a project without a registry builds it and then reconciles it; it
+  used to fail asking for `--init`.
+
+### Documentation
+
+- `runs` exits 2 (not 1) for a run selector that matches no run or more than one.
 - `extract_target_reads --temp-folder`: the SAM and sorted-BAM scratch files are named after the
   accession as well as the genome. Two jobs on different samples of one genome sharing a temp folder
   (a config-wide `PREPARE_TEMP_FOLDER`, a node-shared `$TMPDIR`) overwrote each other's alignments, so

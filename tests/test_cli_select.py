@@ -460,3 +460,54 @@ def test_argparse_rejects_blank_platform(value):
     parser = create_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["select_datasets", "--platform", value])
+
+
+def test_skip_downloaded_keeps_the_downloaded_accessions_selected(tmp_path, monkeypatch):
+    """A repeated selection with --skip-downloaded must not unselect what was already downloaded,
+    or extract_target_reads silently skips it."""
+    from prepare.data.registry import query
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.8\t0.8\n")
+    registry_path = tmp_path / "prepare_registry.json"
+    assert SelectDatasetsCommand().execute(_args(tmp_path, registry=str(registry_path), top_n=1)) == 0
+    registry = load_registry(registry_path)
+    record_download(registry, "SRR1", "downloaded", tmp_path / "fastq")
+    save_registry(registry)
+
+    rc = SelectDatasetsCommand().execute(_args(tmp_path, registry=str(registry_path), skip_downloaded=True))
+
+    assert rc == 0
+    assert (tmp_path / "accessions.txt").read_text() == "SRR2\n"
+    assert sorted(query(load_registry(registry_path), "selected")) == ["SRR1", "SRR2"]
+
+
+def test_selection_paths_are_recorded_relative_to_the_project_root(tmp_path, monkeypatch):
+    """Run from a subfolder, the recorded output and table still name the files from the project root."""
+    sub = tmp_path / "analysis"
+    sub.mkdir()
+    (sub / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\n")
+    (tmp_path / "prepare_registry.json").write_text("{}")
+    monkeypatch.chdir(sub)
+
+    args = _args(sub, registry=None, output="accessions.txt", parsed_containment="parsed_containment.txt")
+    assert SelectDatasetsCommand().execute(args) == 0
+
+    selection = load_registry(tmp_path / "prepare_registry.json").datasets["SRR1"]["selection"]
+    assert selection["output"] == "analysis/accessions.txt"
+    assert selection["criteria"]["table"] == "analysis/parsed_containment.txt"
+
+
+def test_counts_only_the_exclusions_that_dropped_an_accession_from_this_table(tmp_path, monkeypatch, caplog):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\nSRR2\t0.8\t0.8\n")
+    registry_path = tmp_path / "prepare_registry.json"
+    registry = load_registry(registry_path)
+    record_exclusion(registry, "SRR2", "host reads")
+    record_exclusion(registry, "SRR9", "not in this table")
+    save_registry(registry)
+
+    with caplog.at_level("INFO"):
+        assert SelectDatasetsCommand().execute(_args(tmp_path, registry=str(registry_path))) == 0
+
+    assert any("0 already downloaded, 1 excluded, 1 selected" in r.getMessage() for r in caplog.records)

@@ -222,14 +222,23 @@ def record_selection(
     criteria: Dict[str, Any],
     output: Union[str, Path],
     ranked: Optional[List[Dict[str, Any]]] = None,
+    keep: Iterable[str] = (),
 ) -> None:
     """Mark ``accessions`` selected with ``criteria``; anything selected earlier but absent now becomes unselected.
 
     ``ranked`` is the per-accession rank detail (``{"accession", "rank", "column", "value"}``)
     for the selected accessions; entries for accessions outside ``accessions`` are dropped so
-    the recorded list is always capped to what was actually selected.
+    the recorded list is always capped to what was actually selected. An earlier selection of an
+    accession in ``keep`` stays as it is (``--skip-downloaded`` leaves the downloaded ones out of
+    the new list without unselecting them). ``output`` and a ``criteria["table"]`` are recorded
+    relative to the project root, as every other registry path is.
     """
-    chosen = set(accessions)
+    root = project_root(registry)
+    criteria = dict(criteria)
+    if criteria.get("table"):
+        criteria["table"] = _project_relative(criteria["table"], root)
+    output = _project_relative(output, root)
+    chosen = set(accessions) | set(keep)
     for accession in registry.datasets:
         earlier = rb.selection_block(registry, accession)
         if earlier and earlier.selected and accession not in chosen:

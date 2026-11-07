@@ -216,11 +216,9 @@ class SelectDatasetsCommand(BaseCommand):
                     f"{args.output} is the recorded selection's file; give --no-record a different --output "
                     "or run without --no-record"
                 )
-            exclude = set(query(registry, "excluded")) if args.skip_excluded else set()
-            excluded_count = len(exclude)
+            excluded = set(query(registry, "excluded")) if args.skip_excluded else set()
             downloaded = set(query(registry, "downloaded")) if args.skip_downloaded else set()
-            downloaded_count = len(downloaded)
-            exclude |= downloaded
+            dropped: List[str] = []
 
             ranked = select_accessions_ranked(
                 parsed_containment=args.parsed_containment,
@@ -230,12 +228,16 @@ class SelectDatasetsCommand(BaseCommand):
                 metadata_column=args.metadata_column,
                 metadata_value=args.metadata_value,
                 top_n=args.top_n,
-                exclude=exclude,
+                exclude=excluded | downloaded,
+                dropped=dropped,
                 genome_ids=args.genome_ids,
                 require=args.require,
                 run_filters=run_filters,
             )
             accessions = [accession for accession, _, _ in ranked]
+            # Counted among the accessions this table held, not every one the registry names.
+            excluded_count = len(excluded.intersection(dropped))
+            downloaded_count = len(downloaded.intersection(dropped) - excluded)
 
             output = Path(args.output)
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -288,6 +290,8 @@ class SelectDatasetsCommand(BaseCommand):
                 },
                 output=output,
                 ranked=ranked_records,
+                # Left out of this ranking by --skip-downloaded, not deselected: they stay selected.
+                keep=downloaded,
             )
             # Loaded again inside the lock, so a download or exclusion another process recorded
             # while this one was ranking is kept; record_selection unselects earlier selections

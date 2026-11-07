@@ -283,6 +283,7 @@ def select_accessions_ranked(
     metadata_value: Optional[str] = None,
     top_n: Optional[int] = None,
     exclude: Optional[Set[str]] = None,
+    dropped: Optional[List[str]] = None,
     genome_ids: Optional[List[str]] = None,
     require: str = "any",
     run_filters: Optional[RunFilters] = None,
@@ -300,6 +301,7 @@ def select_accessions_ranked(
         top_n: Keep only the top N accessions, applied after exclusions and the metadata
             filter so the N returned are all usable.
         exclude: Accessions to drop before ranking and truncation.
+        dropped: When given, receives each accession of the table that ``exclude`` dropped.
         genome_ids: Multiple genome columns to rank on together; mutually exclusive with
             ``genome_id``. With ``require="any"`` accessions rank on the row-wise max over
             these columns; with ``require="all"`` every column must be at or above the
@@ -344,8 +346,11 @@ def select_accessions_ranked(
     logger.info("%d accession(s) meet %s >= %.3f", len(ranked), column, threshold)
 
     if exclude:
+        removed = [entry[0] for entry in ranked if entry[0] in exclude]
         ranked = [entry for entry in ranked if entry[0] not in exclude]
-        logger.info("%d accession(s) remain after excluding %d accession(s)", len(ranked), len(exclude))
+        logger.info("%d accession(s) remain after excluding %d accession(s)", len(ranked), len(removed))
+        if dropped is not None:
+            dropped.extend(removed)
 
     metadata: Optional[pd.DataFrame] = None
     if needs_metadata and metadata_file is not None:
