@@ -6,6 +6,10 @@ marked ``optional`` is one those commands can run without: ``prefetch`` (``downl
 runs ``fasterq-dump`` directly), ``pigz`` (gzip is used instead), ``seqkit`` (statistics are
 counted in Python) and ``megahit`` (needed only for ``extract_target_reads --assemble``).
 
+``usable_optional_tool`` is the check for an optional tool at the point of use: a tool that is
+missing, not runnable or older than its floor is not used (the command falls back as ``note``
+says), and a present but unusable one is named in one warning per process.
+
 ``require_tools`` is the check a command runs before any work starts: it looks every named
 tool up on ``PATH`` and, unless told not to, reads its version, and raises one
 ``ConfigurationError`` (exit code 3) listing every missing or too-old tool with a conda install
@@ -13,6 +17,7 @@ hint. A version that cannot be read is logged and not held against the tool, sin
 cannot be judged; the tool's own error then surfaces if it really is unusable.
 """
 
+import functools
 import logging
 import re
 import shutil
@@ -216,6 +221,34 @@ def probe_tool(name: str, timeout: float = VERSION_PROBE_TIMEOUT) -> ToolStatus:
         if version is not None:
             return ToolStatus(name, path, line.strip(), version)
     return ToolStatus(name, path, error="printed no version number")
+
+
+def usable_optional_tool(name: str) -> bool:
+    """Whether the optional tool ``name`` is on ``PATH``, runnable, and at least its ``min_version``.
+
+    A missing tool is simply not used. One that is present but not runnable or too old is not
+    used either, with one warning naming the problem, the install hint and the fallback; a
+    version that cannot be read is not held against it, as in ``require_tools``. The verdict is
+    kept per tool path for the rest of the process (``forget_optional_tools`` clears it).
+    """
+    path = shutil.which(name)
+    return path is not None and _optional_tool_verdict(name, path)
+
+
+@functools.lru_cache(maxsize=None)
+def _optional_tool_verdict(name: str, path: str) -> bool:
+    """``usable_optional_tool`` for the tool found at ``path``: probed once, warned about once."""
+    problem = probe_tool(name).problem()
+    if problem is None:
+        return True
+    note = TOOLS[name].note
+    logger.warning("%s; not using it%s", problem, f" ({note})" if note else "")
+    return False
+
+
+def forget_optional_tools() -> None:
+    """Forget every ``usable_optional_tool`` verdict, so the next call probes again."""
+    _optional_tool_verdict.cache_clear()
 
 
 def require_tools(names: Iterable[str], check_versions: bool = True) -> None:

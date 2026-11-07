@@ -6,6 +6,10 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `download_sra` and `store_adopt` check the version of the optional `prefetch` and `pigz` before
+  using them. One that cannot run or is older than its floor in the tool table (3.0 and 2.4) is not
+  used: one warning names it with the `conda install` command, and the run falls back to running
+  `fasterq-dump` directly or compressing with gzip. Both were used as soon as they were on `PATH`.
 - `store_adopt` never loses the only copy of a dataset:
   - an adopt interrupted partway (Ctrl-C, a `--lock-wait` timeout, an I/O error) records every
     accession it already linked or copied, so `store_gc` no longer sees those store copies as unused;

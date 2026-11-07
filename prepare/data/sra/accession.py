@@ -424,7 +424,7 @@ def _log_prefetch_fallback(accession: str) -> None:
     _PREFETCH_FALLBACK_LOGGED.set()
     logger.log(
         level,
-        f"prefetch not found on PATH; running fasterq-dump directly against {accession}, "
+        f"prefetch not found on PATH or not usable; running fasterq-dump directly against {accession}, "
         "which downloads and dumps in one step",
     )
 
@@ -516,7 +516,8 @@ def download_accession(
         # Handle temp folder for fasterq-dump
         temp_folder_path = cleanup_mod._prepare_temp_folder(temp_folder)
 
-        using_prefetch = use_prefetch and shutil.which("prefetch") is not None
+        # A missing, broken or too-old prefetch is skipped; fasterq-dump then downloads directly.
+        using_prefetch = use_prefetch and tools.usable_optional_tool("prefetch")
         if use_prefetch and not using_prefetch:
             _log_prefetch_fallback(accession)
 

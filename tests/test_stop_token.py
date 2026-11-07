@@ -25,6 +25,14 @@ import prepare.data.sra.store_handoff as store_handoff_mod
 from prepare.data.sra.download import download_sra
 from prepare.utils.security import SecureSubprocess
 
+
+@pytest.fixture(autouse=True)
+def optional_tools_on_path_are_usable(monkeypatch):
+    """These tests fake ``shutil.which`` and ``run_secure``: a prefetch or pigz they put on PATH
+    is taken as usable without a version probe (``tests/test_tools.py`` covers that check)."""
+    monkeypatch.setattr("prepare.utils.tools._optional_tool_verdict", lambda name, path: True)
+
+
 needs_sleep = pytest.mark.skipif(shutil.which("sleep") is None, reason="needs a 'sleep' executable on PATH")
 
 
@@ -210,7 +218,7 @@ class TestTokenThroughTheDownloadChain:
                 sink.write(plain.read_bytes())
             plain.unlink()
 
-        with patch("prepare.data.sra.fastq.shutil.which", return_value="/usr/bin/pigz"):
+        with patch("prepare.data.sra.fastq.usable_optional_tool", return_value=True):
             with patch("prepare.data.sra.fastq.SecureSubprocess.run_secure", side_effect=fake_run):
                 success, _ = accession_mod._handle_download_output(temp, tmp_path / "SRR1", compress=True, stop=token)
         assert success is True
@@ -231,7 +239,7 @@ class TestTokenThroughTheDownloadChain:
                 return self.checks > 1
 
         token = _SetAfterFirstBlock()
-        with patch("prepare.data.sra.fastq.shutil.which", return_value=None):
+        with patch("prepare.data.sra.fastq.usable_optional_tool", return_value=False):
             with pytest.raises(InterruptedError):
                 compress_fastq(source, 1, stop=token)
         assert token.checks == 2
@@ -249,7 +257,7 @@ class TestTokenThroughTheDownloadChain:
             token.set()
             raise subprocess.CalledProcessError(-15, ["pigz", *args])
 
-        with patch("prepare.data.sra.fastq.shutil.which", return_value="/usr/bin/pigz"):
+        with patch("prepare.data.sra.fastq.usable_optional_tool", return_value=True):
             with patch("prepare.data.sra.fastq.SecureSubprocess.run_secure", side_effect=fake_run):
                 success, message = accession_mod._handle_download_output(
                     temp, tmp_path / "SRR1", compress=True, stop=token

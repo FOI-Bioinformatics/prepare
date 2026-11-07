@@ -577,7 +577,9 @@ Other modules, one line each:
   supported version, commands that use it, whether it is optional); `probe_tool` finds a tool on
   `PATH` and reads its version with a fixed 30 s timeout; `require_tools(names)` raises one
   `ConfigurationError` (exit 3) listing every tool that is missing or below its floor, with the
-  `conda install` command for each. Commands call it before any work; `doctor` reads the same table
+  `conda install` command for each. Commands call it before any work; `usable_optional_tool(name)`
+  is the check at the point of use for an optional tool (`prefetch`, `pigz`): one that is missing,
+  not runnable or below its floor is not used, with one warning per process; `doctor` reads the same table
 - **resources** (`utils/resources.py`): `available_cpus` (affinity mask, then `SLURM_CPUS_PER_TASK`,
   then the CPU count), `memory_limit_bytes` (cgroup v2, cgroup v1, then `SLURM_MEM_PER_NODE` or
   `SLURM_MEM_PER_CPU`; None on macOS or without a limit) and `parse_memory` for `--assembly-memory`.

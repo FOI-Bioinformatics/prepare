@@ -76,8 +76,9 @@ Download, extraction and assembly steps call these command-line tools:
 
 A command checks the tools it needs before it starts. A missing tool, one that cannot run, or one
 older than the version above stops the command with exit code 3 and the `conda install` command that
-provides it. The optional tools (`prefetch`, `pigz`, `seqkit`) are not checked by the commands, which
-work without them. `download_test_genome` fetches its genome over HTTPS and needs none of these
+provides it. The optional tools (`prefetch`, `pigz`, `seqkit`) never stop a command, which works
+without them. A `prefetch` or `pigz` that cannot run or is older than the version above is not used:
+the command logs one warning with the `conda install` command and falls back as the table says. `download_test_genome` fetches its genome over HTTPS and needs none of these
 tools. The table is defined in `prepare/utils/tools.py`, and `environment.yml` pins the same
 versions.
 
