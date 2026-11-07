@@ -521,3 +521,41 @@ class TestPluginDiscovery:
         ]
         for cls in classes:
             assert cls.command.startswith("prepare_"), f"{cls.__name__}.command should start with 'prepare_'"
+
+
+class TestPluginExitCodes:
+    """The plugins follow the CLI's exit-code policy and its PERMANOVA rule."""
+
+    def test_permanova_formula_without_metadata_is_a_usage_error(self, parser, tmp_output):
+        cmd = PrepareDiversityPlugin(parser)
+        args = parser.parse_args(
+            ["--abundance-file", "ab.csv", "--permanova-formula", "treatment", "--output-dir", str(tmp_output / "o")]
+        )
+        with patch.object(type(cmd).__bases__[0], "main"), pytest.raises(SystemExit) as caught:
+            cmd.main(args)
+        assert caught.value.code == 2
+        assert not (tmp_output / "o").exists()
+
+    @patch("prepare.processing.diversity.calculate_alpha_diversity")
+    @patch("pandas.read_csv")
+    def test_a_missing_extra_exits_3(self, mock_read, mock_alpha, parser, tmp_output):
+        from prepare.core.exceptions import ConfigurationError
+
+        mock_read.return_value = pd.DataFrame({"sp1": [1, 2]}, index=["s1", "s2"])
+        mock_alpha.side_effect = ConfigurationError("scikit-learn is needed: pip install 'prepare[analysis]'")
+        cmd = PrepareDiversityPlugin(parser)
+        args = parser.parse_args(["--abundance-file", "ab.csv", "--output-dir", str(tmp_output / "o")])
+        with patch.object(type(cmd).__bases__[0], "main"), pytest.raises(SystemExit) as caught:
+            cmd.main(args)
+        assert caught.value.code == 3
+
+    @patch("prepare.data.taxonomy.validate_taxonomic_assignments")
+    def test_an_empty_species_file_is_not_a_division_by_zero(self, mock_validate, parser, tmp_output, monkeypatch):
+        monkeypatch.setenv("NCBI_EMAIL", "a@b.c")
+        mock_validate.return_value = pd.DataFrame({"is_valid": []})
+        species = tmp_output / "species.txt"
+        species.write_text("\n")
+        cmd = PrepareTaxonomyPlugin(parser)
+        args = parser.parse_args(["--species-file", str(species), "--email", "a@b.c"])
+        with patch.object(type(cmd).__bases__[0], "main"):
+            cmd.main(args)  # no SystemExit

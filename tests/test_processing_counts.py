@@ -473,3 +473,22 @@ def test_count_metadata_includes_samples_at_the_threshold(tmp_path):
     out = tmp_path / "counts.txt"
     result = count_metadata(summary, meta, "organism", 0.9, out)
     assert list(result.index) == ["A"]
+
+
+def test_a_run_that_counts_nothing_removes_the_previous_tables(tmp_path):
+    """A rerun at a threshold nothing reaches must not leave the last run's counts to be plotted."""
+    summary_file = tmp_path / "summary.txt"
+    metadata_file = tmp_path / "metadata.txt"
+    output_file = tmp_path / "counts.txt"
+    stat_file = tmp_path / "counts_stats.txt"
+    pd.DataFrame({"GCF_000001.1": [0.8, 0.3]}, index=["SRR1", "SRR2"]).to_csv(summary_file, sep="\t")
+    pd.DataFrame({"organism": ["E. coli", "S. aureus"]}, index=["SRR1", "SRR2"]).to_csv(
+        metadata_file, sep="\t", index_label="accession"
+    )
+    count_metadata(summary_file, metadata_file, "organism", 0.5, output_file, stat_file)
+    assert output_file.exists() and stat_file.exists()
+
+    result = count_metadata(summary_file, metadata_file, "organism", 0.95, output_file, stat_file)
+
+    assert result.empty
+    assert not output_file.exists() and not stat_file.exists()

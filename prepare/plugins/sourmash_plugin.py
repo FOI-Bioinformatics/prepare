@@ -25,6 +25,12 @@ else:
     CommandLinePlugin = require("sourmash.plugins", "sourmash", "The PREPARE sourmash plugin").CommandLinePlugin
 
 
+def _exit_code(error: Exception) -> int:
+    """The CLI's exit code for ``error``: its ``exit_code`` (3 for a missing extra, 4 for a network
+    failure, 2 for a usage error), else 1."""
+    return int(getattr(error, "exit_code", 1))
+
+
 class PrepareParsePlugin(CommandLinePlugin):
     """Parse containment data from branchwater match files."""
 
@@ -96,7 +102,7 @@ class PrepareParsePlugin(CommandLinePlugin):
                     )
         except Exception as e:
             logger.error(f"Error parsing containment: {e}")
-            sys.exit(1)
+            sys.exit(_exit_code(e))
 
 
 class PreparePlotPlugin(CommandLinePlugin):
@@ -161,7 +167,7 @@ class PreparePlotPlugin(CommandLinePlugin):
             )
         except Exception as e:
             logger.error(f"Error plotting containment: {e}")
-            sys.exit(1)
+            sys.exit(_exit_code(e))
 
 
 class PrepareDiversityPlugin(CommandLinePlugin):
@@ -217,6 +223,10 @@ class PrepareDiversityPlugin(CommandLinePlugin):
             perform_permanova,
         )
 
+        if args.permanova_formula and not args.metadata_file:
+            # As diversity_analysis: the formula's terms are metadata columns.
+            logger.error("--permanova-formula needs --metadata-file")
+            sys.exit(2)
         try:
             abundance_df = pd.read_csv(args.abundance_file, index_col=0)
 
@@ -259,7 +269,7 @@ class PrepareDiversityPlugin(CommandLinePlugin):
 
         except Exception as e:
             logger.error(f"Diversity analysis failed: {e}")
-            sys.exit(1)
+            sys.exit(_exit_code(e))
 
 
 class PrepareTaxonomyPlugin(CommandLinePlugin):
@@ -313,7 +323,7 @@ class PrepareTaxonomyPlugin(CommandLinePlugin):
                 if args.species_column:
                     if args.species_column not in df.columns:
                         logger.error(f"Column '{args.species_column}' not found")
-                        sys.exit(1)
+                        sys.exit(2)  # a usage error, as in the CLI
                     species_list = df[args.species_column].dropna().tolist()
                 else:
                     species_list = df.iloc[:, 0].dropna().tolist()
@@ -331,10 +341,13 @@ class PrepareTaxonomyPlugin(CommandLinePlugin):
                 cache_file=args.cache_file,
             )
 
-            valid_count = results_df["is_valid"].sum()
+            valid_count = results_df["is_valid"].sum() if len(results_df) else 0
             total_count = len(results_df)
-            logger.info(f"Valid: {valid_count}/{total_count} ({valid_count / total_count * 100:.1f}%)")
+            if total_count:
+                logger.info(f"Valid: {valid_count}/{total_count} ({valid_count / total_count * 100:.1f}%)")
+            else:
+                logger.warning("No species names to validate in %s", args.species_file)
 
         except Exception as e:
             logger.error(f"Taxonomy validation failed: {e}")
-            sys.exit(1)
+            sys.exit(_exit_code(e))

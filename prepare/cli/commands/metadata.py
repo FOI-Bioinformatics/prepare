@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from prepare.cli.base import finite_float, BaseCommand, anchored_folder
-from prepare.core.exceptions import DataAccessError, NetworkError, PrepareError
+from prepare.core.exceptions import DataAccessError, NetworkError, PrepareError, ValidationError
 from prepare.core.settings import require_email, setting_for
 from prepare.data import registry_blocks as rb
 from prepare.data.defaults import resolve_metadata_table
@@ -456,8 +456,11 @@ class PlotMapCommand(BaseCommand):
         fig = None
         try:
             data = pd.read_csv(resolve_metadata_table(args.metadata_file), sep="\t")
+            if args.lat_lon_column not in data.columns:
+                raise ValidationError(f"--lat-lon-column {args.lat_lon_column!r} is not a column of the metadata table")
             plugin = visualizer_registry.get("map")
             suffix = Path(args.output).suffix.lstrip(".").lower()
+            suffix = "jpg" if suffix == "jpeg" else suffix
             with atomic_path(args.output) as tmp:
                 fig = plugin.create_plot(
                     data,

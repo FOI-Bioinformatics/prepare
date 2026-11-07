@@ -275,6 +275,56 @@ class TestGenomeDownloadCommand:
 
         assert "GCF_000005845.2" in load_registry(registry_file).genomes
 
+    def test_a_malformed_accession_is_refused_before_the_tool_check(self, tmp_path):
+        """A typo is a usage error (exit 2) whether or not datasets is installed."""
+        from prepare.core.exceptions import ConfigurationError
+
+        args = argparse.Namespace(
+            accessions=["GCF_123"],
+            accession_file=None,
+            species=None,
+            genus=None,
+            output_dir=str(tmp_path / "genomes"),
+            representative_only=True,
+            assembly_level=None,
+            force=False,
+            dry_run=False,
+            registry=str(tmp_path / "prepare_registry.json"),
+        )
+        with patch("prepare.cli.commands.genome.require_tools", side_effect=ConfigurationError("no datasets")):
+            assert GenomeDownloadCommand().execute(args) == 2
+
+    @patch("prepare.cli.commands.genome.download_genomes")
+    def test_assembly_level_leaves_out_genomes_without_failing(self, mock_download, tmp_path):
+        """datasets leaves out the genomes not at --assembly-level, as asked: not a failure, and
+        the downloaded zip is removed once its genomes are extracted."""
+        import zipfile
+
+        from prepare.data.registry import load_registry
+
+        zip_path = tmp_path / "genomes" / ".download.zip"
+        zip_path.parent.mkdir()
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("ncbi_dataset/data/GCF_000005845.2/GCF_000005845.2_genomic.fna", ">s\nACGT\n")
+        mock_download.return_value = zip_path
+        registry_file = tmp_path / "prepare_registry.json"
+        args = argparse.Namespace(
+            accessions=["GCF_000005845.2", "GCF_000009999.1"],
+            accession_file=None,
+            species=None,
+            genus=None,
+            output_dir=str(tmp_path / "genomes"),
+            representative_only=True,
+            assembly_level="complete",
+            force=False,
+            dry_run=False,
+            registry=str(registry_file),
+        )
+
+        assert GenomeDownloadCommand().execute(args) == 0
+        assert "GCF_000005845.2" in load_registry(registry_file).genomes
+        assert not zip_path.exists()
+
     @patch("prepare.cli.commands.genome.extract_and_organize")
     @patch("prepare.cli.commands.genome.download_genomes")
     def test_execute_with_no_extracted_genomes_leaves_registry_untouched(self, mock_download, mock_extract):

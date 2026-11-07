@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Optional, Union
 import pandas as pd
 import requests
 
-from prepare.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError, NetworkError
 from prepare.core.models import TaxonomyInfo
 from prepare.data.file_io import open_atomic
 from prepare.data.gtdb import GTDB_API_BASE, REQUEST_TIMEOUT, get_session
@@ -126,6 +126,8 @@ def _lookup_genome_taxonomy_gtdb(accession: str) -> Optional[TaxonomyInfo]:
             if rows and _same_assembly(rows[0].get("accession") or rows[0].get("gid"), accession):
                 return _taxonomy_from_record(rows[0], accession)
 
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        raise NetworkError(f"GTDB could not be reached looking up genome '{accession}': {e}") from e
     except requests.exceptions.RequestException as e:
         raise DataAccessError(f"GTDB API error looking up genome '{accession}': {e}")
 
@@ -231,6 +233,7 @@ def enrich_genomes_with_taxonomy(
             len(missing),
             len(taxonomy),
         )
+        unreachable = 0
         for accession in missing:
             try:
                 info = _lookup_genome_taxonomy_gtdb(accession)
@@ -241,9 +244,13 @@ def enrich_genomes_with_taxonomy(
                 else:
                     logger.warning("No taxonomy found for genome '%s'", accession)
                     taxonomy[accession] = TaxonomyInfo(genome_id=accession)
-            except DataAccessError:
+            except DataAccessError as e:
+                unreachable += isinstance(e, NetworkError)
                 logger.warning("Failed to retrieve taxonomy for '%s'", accession)
                 taxonomy[accession] = TaxonomyInfo(genome_id=accession)
+        if unreachable == len(missing):
+            # Nothing could be looked up at all: a blank map is no result, and a rerun is the remedy.
+            raise NetworkError(f"GTDB could not be reached for any of {len(missing)} genome(s); try again later")
 
     return taxonomy
 

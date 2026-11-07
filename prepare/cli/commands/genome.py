@@ -16,6 +16,7 @@ from prepare.data.genome_download import (
     download_genomes,
     extract_and_organize,
     partition_present_genomes,
+    validate_genome_accessions,
 )
 from prepare.data.gtdb import (
     get_accessions_for_genus,
@@ -197,6 +198,8 @@ class GenomeDownloadCommand(BaseCommand):
                 self.logger.warning("No accessions to download")
                 return 0
 
+            # A typo is a usage error, reported before anything else (the tool check included).
+            validate_genome_accessions(accessions)
             output_dir = Path(args.output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -221,12 +224,24 @@ class GenomeDownloadCommand(BaseCommand):
             )
 
             missing_error: Optional[MissingGenomesError] = None
+            # With --assembly-level, datasets leaves out the genomes at another level, as asked.
+            expected = None if args.assembly_level else to_download
             try:
-                genome_paths = extract_and_organize(zip_path, output_dir, expected=to_download)
+                genome_paths = extract_and_organize(zip_path, output_dir, expected=expected)
             except MissingGenomesError as e:
                 # Record what did extract before reporting the rest, so a rerun does not
                 # treat the unregistered files as already handled.
                 genome_paths, missing_error = e.genome_paths, e
+            finally:
+                zip_path.unlink(missing_ok=True)
+            left_out = [acc for acc in to_download if acc not in genome_paths] if args.assembly_level else []
+            if left_out:
+                self.logger.info(
+                    "%d genome(s) not at assembly level %s, not downloaded: %s",
+                    len(left_out),
+                    args.assembly_level,
+                    ", ".join(left_out),
+                )
             self.logger.info("Downloaded and extracted %d genome(s)", len(genome_paths))
 
             if genome_paths:
@@ -370,6 +385,8 @@ class GenomePrepareCommand(BaseCommand):
                     # Manifest and registry cover the genomes that did extract; then report the rest.
                     self._create_manifest(output_dir, args.manifest_file, args.registry)
                     raise
+                finally:
+                    zip_path.unlink(missing_ok=True)
 
             self._create_manifest(output_dir, args.manifest_file, args.registry)
             return 0

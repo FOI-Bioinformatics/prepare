@@ -6,6 +6,25 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `genome_download --assembly-level` no longer fails (exit 1, and again on every rerun) because
+  `datasets` left out the genomes at another level, as asked; it logs which ones. Each download
+  uses its own hidden zip in the output folder, removed after extraction, so two runs into one
+  `genomes/` folder no longer extract each other's zip.
+- Network failures are retryable (exit 4) instead of exit 1 in `genome_search`, `genome_download`
+  (GTDB), `download_test_genome` and `enrich_taxonomy` (which exited 0 with a blank map when GTDB
+  could not be reached for any genome). A malformed genome accession is a usage error (exit 2),
+  reported before the check for the `datasets` tool.
+- `count_metadata` that counts nothing removes the earlier count and statistics tables instead of
+  leaving them for `plot_metadata_counts` to plot as this run's.
+- The sourmash plugin's `prepare_diversity` refuses `--permanova-formula` without `--metadata-file`
+  (exit 2), as `diversity_analysis` does. The plugin commands exit with the CLI's codes (3 for a
+  missing extra, 4 for a network failure), and `prepare_taxonomy` with an empty species file no
+  longer fails dividing by zero.
+- `project_report.md` escapes `&`, `<` and `>` in table cells, so a value holding HTML (an error page
+  in a download message) stays text when the Markdown is rendered.
+- `plot_map` refuses a `--lat-lon-column` the table does not have (exit 2), warns when no row has
+  readable coordinates, and writes a `.jpeg` name as JPEG. `plot_metadata_counts --colors` accepts a
+  colormap name (one colour per category) or a comma-separated list of colours.
 - `status --reconcile` and the status bootstrap no longer stop at a truncated or corrupt `.fastq.gz`:
   that download keeps its recorded verdict (or that extraction is not recorded), with a warning, and
   the rest of the project is reconciled.

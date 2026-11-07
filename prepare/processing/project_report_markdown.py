@@ -47,8 +47,15 @@ def format_cell(value: Any) -> str:
 
 
 def escape_cell(value: Any) -> str:
-    """One Markdown table cell: ``format_cell`` with ``|`` escaped, line breaks as ``<br>``, ASCII only."""
+    """One Markdown table cell: ``format_cell`` with ``&``, ``<``, ``>`` and ``|`` escaped, line
+    breaks as ``<br>``, ASCII only.
+
+    Markdown renderers pass HTML through, so a value holding markup (an HTML error page in a
+    download message, a hand-entered name) is escaped to stay text; the ``<br>`` added after
+    escaping is the only markup a cell carries.
+    """
     text = format_cell(value).replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     text = text.replace("|", "\\|").replace("\n", "<br>")
     return text.encode("ascii", "replace").decode("ascii")
 

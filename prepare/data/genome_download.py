@@ -6,7 +6,6 @@ manifests suitable for downstream analysis tools such as sourmash.
 """
 
 import logging
-import os
 import re
 import shutil
 import zipfile
@@ -14,8 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from prepare.core.constants import GENOME_ACCESSION_PATTERN, GENOME_ACCESSION_PREFIXES
-from prepare.core.exceptions import DataAccessError
-from prepare.data.file_io import copy_file
+from prepare.core.exceptions import DataAccessError, ValidationError
+from prepare.data.file_io import copy_file, unique_temp_path
 from prepare.utils.security import SecureSubprocess
 
 logger = logging.getLogger(__name__)
@@ -31,15 +30,21 @@ def _validate_genome_accession(accession: str) -> str:
         The validated accession.
 
     Raises:
-        DataAccessError: If the accession format is invalid.
+        ValidationError: If the accession format is invalid (a usage error, exit 2).
     """
     if not accession.startswith(GENOME_ACCESSION_PREFIXES):
-        raise DataAccessError(f"Invalid genome accession prefix: {accession}. " f"Expected GCF_ or GCA_ prefix.")
+        raise ValidationError(f"Invalid genome accession prefix: {accession}. " f"Expected GCF_ or GCA_ prefix.")
     if not re.match(GENOME_ACCESSION_PATTERN, accession):
-        raise DataAccessError(
+        raise ValidationError(
             f"Invalid genome accession format: {accession}. " f"Expected format: GCF_000000000.0 or GCA_000000000.0"
         )
     return accession
+
+
+def validate_genome_accessions(accessions: Sequence[str]) -> None:
+    """Raise ``ValidationError`` (exit 2) for the first malformed genome accession in ``accessions``."""
+    for accession in accessions:
+        _validate_genome_accession(accession)
 
 
 def genome_fasta_path(accession: str, output_dir: Path) -> Path:
@@ -85,7 +90,8 @@ def download_genomes(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    zip_path = output_dir / "ncbi_dataset.zip"
+    # One hidden zip per run: two runs into one folder never read each other's (half-written) zip.
+    zip_path = unique_temp_path(output_dir / "ncbi_dataset.zip").with_suffix(".zip")
 
     args = ["download", "genome", "accession"]
     args.extend(accessions)
@@ -165,7 +171,7 @@ def extract_and_organize(
     output_dir.mkdir(parents=True, exist_ok=True)
     genome_paths: Dict[str, Path] = {}
 
-    extract_dir = zip_path.parent / f"ncbi_extract_{os.getpid()}"
+    extract_dir = unique_temp_path(zip_path.parent / "ncbi_extract")
 
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:

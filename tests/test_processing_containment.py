@@ -61,6 +61,17 @@ class TestDownloadTestGenome:
         assert not temp_gz_path.exists()
 
     @patch("prepare.processing.containment.urllib.request.urlopen")
+    def test_download_test_genome_network_failure_is_a_network_error(self, mock_urlopen, tmp_path):
+        """No network is a retryable failure (exit 4), not a processing error (exit 1)."""
+        import urllib.error
+
+        from prepare.core.exceptions import NetworkError
+
+        mock_urlopen.side_effect = urllib.error.URLError("Name or service not known")
+        with pytest.raises(NetworkError):
+            download_test_genome(tmp_path)
+
+    @patch("prepare.processing.containment.urllib.request.urlopen")
     def test_download_test_genome_download_failure(self, mock_urlopen, tmp_path):
         """Test failure during download."""
         mock_urlopen.side_effect = Exception("Download failed")

@@ -656,3 +656,32 @@ class TestRetriesReturnTheFinalResponse:
         serve(monkeypatch, lambda path: (500, b"{}"))
         with pytest.raises(DataAccessError, match="500 Server Error"):
             search_species("Escherichia coli")
+
+
+class TestGtdbErrorsFollowTheExitCodePolicy:
+    """A connection failure, a timeout or a 5xx/429 is a NetworkError (exit 4, retry later)."""
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            requests.exceptions.ConnectionError("Connection refused"),
+            requests.exceptions.Timeout("timed out"),
+            requests.exceptions.HTTPError("503", response=MagicMock(status_code=503)),
+        ],
+    )
+    @patch("requests.Session.get")
+    def test_transient_failures_are_network_errors(self, mock_get, error):
+        from prepare.core.exceptions import NetworkError
+
+        mock_get.side_effect = error
+        with pytest.raises(NetworkError):
+            search_species("Escherichia coli")
+
+    @patch("requests.Session.get")
+    def test_a_400_is_not_a_network_error(self, mock_get):
+        from prepare.core.exceptions import NetworkError
+
+        mock_get.side_effect = requests.exceptions.HTTPError("400", response=MagicMock(status_code=400))
+        with pytest.raises(DataAccessError) as caught:
+            search_species("Lactobacillus rhamnosus")
+        assert not isinstance(caught.value, NetworkError)

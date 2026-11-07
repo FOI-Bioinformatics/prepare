@@ -267,6 +267,12 @@ def test_report_is_json_serialisable(registry, no_checks):
 # --- Markdown -----------------------------------------------------------------------------------
 
 
+def test_escape_cell_escapes_html_so_a_message_cannot_become_markup():
+    """A download error holding an HTML body, or a hand-entered name, stays text in the table."""
+    assert escape_cell("<script>x</script> & <b>") == "&lt;script&gt;x&lt;/script&gt; &amp; &lt;b&gt;"
+    assert escape_cell("a<b\nc") == "a&lt;b<br>c"
+
+
 def test_escape_cell_escapes_pipes_and_newlines():
     assert escape_cell("a|b\nc\r\nd") == "a\\|b<br>c<br>d"
     assert escape_cell(None) == ""

@@ -2,11 +2,12 @@
 
 import subprocess
 import zipfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from prepare.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError, ValidationError
 from prepare.data.genome_download import (
     _validate_genome_accession,
     download_genomes,
@@ -24,19 +25,19 @@ class TestValidateGenomeAccession:
         assert _validate_genome_accession("GCA_000005845.2") == "GCA_000005845.2"
 
     def test_invalid_prefix(self):
-        with pytest.raises(DataAccessError, match="Invalid genome accession prefix"):
+        with pytest.raises(ValidationError, match="Invalid genome accession prefix"):
             _validate_genome_accession("SRR1234567")
 
     def test_invalid_format_no_version(self):
-        with pytest.raises(DataAccessError, match="Invalid genome accession format"):
+        with pytest.raises(ValidationError, match="Invalid genome accession format"):
             _validate_genome_accession("GCF_000005845")
 
     def test_invalid_format_short_digits(self):
-        with pytest.raises(DataAccessError, match="Invalid genome accession format"):
+        with pytest.raises(ValidationError, match="Invalid genome accession format"):
             _validate_genome_accession("GCF_12345.1")
 
     def test_empty_string(self):
-        with pytest.raises(DataAccessError, match="Invalid genome accession prefix"):
+        with pytest.raises(ValidationError, match="Invalid genome accession prefix"):
             _validate_genome_accession("")
 
 
@@ -46,15 +47,11 @@ class TestValidateGenomeAccession:
 class TestDownloadGenomes:
     @patch("prepare.data.genome_download.SecureSubprocess.run_secure")
     def test_single_accession(self, mock_run, tmp_path):
-        # Create the zip file that would be produced by the command
-        zip_path = tmp_path / "ncbi_dataset.zip"
-        zip_path.touch()
-
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.side_effect = _datasets_writing_its_zip
 
         result = download_genomes(["GCF_000005845.2"], tmp_path)
 
-        assert result == zip_path
+        assert result.parent == tmp_path and result.is_file()
         mock_run.assert_called_once()
         call_args = mock_run.call_args[0]
         assert call_args[0] == "datasets"
@@ -64,25 +61,19 @@ class TestDownloadGenomes:
 
     @patch("prepare.data.genome_download.SecureSubprocess.run_secure")
     def test_multiple_accessions(self, mock_run, tmp_path):
-        zip_path = tmp_path / "ncbi_dataset.zip"
-        zip_path.touch()
-
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.side_effect = _datasets_writing_its_zip
         accessions = ["GCF_000005845.2", "GCA_000001405.1"]
 
         result = download_genomes(accessions, tmp_path)
 
-        assert result == zip_path
+        assert result.is_file()
         call_args = mock_run.call_args[0][1]
         assert "GCF_000005845.2" in call_args
         assert "GCA_000001405.1" in call_args
 
     @patch("prepare.data.genome_download.SecureSubprocess.run_secure")
     def test_with_assembly_level(self, mock_run, tmp_path):
-        zip_path = tmp_path / "ncbi_dataset.zip"
-        zip_path.touch()
-
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_run.side_effect = _datasets_writing_its_zip
 
         download_genomes(["GCF_000005845.2"], tmp_path, assembly_level="complete")
 
@@ -95,7 +86,10 @@ class TestDownloadGenomes:
             download_genomes([], tmp_path)
 
     def test_invalid_accession(self, tmp_path):
-        with pytest.raises(DataAccessError, match="Invalid genome accession"):
+        """A malformed accession is a usage error (exit 2), not a data access failure."""
+        from prepare.core.exceptions import ValidationError
+
+        with pytest.raises(ValidationError, match="Invalid genome accession"):
             download_genomes(["INVALID_123"], tmp_path)
 
     @patch("prepare.data.genome_download.SecureSubprocess.run_secure")
@@ -236,3 +230,20 @@ class TestExtractAndOrganize:
 
         extract_dir = tmp_path / "ncbi_extract_tmp"
         assert not extract_dir.exists()
+
+
+def _datasets_writing_its_zip(executable, args, **kwargs):
+    """A ``datasets`` stand-in that writes an empty file where ``--filename`` points."""
+    Path(args[args.index("--filename") + 1]).touch()
+    return MagicMock(returncode=0)
+
+
+def test_each_download_gets_its_own_zip(tmp_path):
+    """Two runs into one folder (parallel pipeline jobs) must never read each other's zip."""
+    with patch("prepare.data.genome_download.SecureSubprocess.run_secure", side_effect=_datasets_writing_its_zip):
+        first = download_genomes(["GCF_000005845.2"], tmp_path)
+        second = download_genomes(["GCF_000005845.2"], tmp_path)
+
+    assert first != second
+    assert first.parent == second.parent == tmp_path
+    assert first.name.startswith(".") and first.suffix == ".zip"
