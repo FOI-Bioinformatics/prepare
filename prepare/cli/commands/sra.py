@@ -607,12 +607,18 @@ class DownloadSraCommand(BaseCommand):
         except DataAccessError as e:
             if not body_done:
                 raise
-            if not self._retry_final_flush(batch, e):
+            failure = self._retry_final_flush(batch, e)
+            if failure is not None:
+                # The exit code follows the error: 4 for a lock wait that ran out (retry later).
+                self._flush_exit_code = int(failure.exit_code)
                 return None
         return download_stats
 
-    def _retry_final_flush(self, batch: RegistryBatch, error: DataAccessError) -> bool:
-        """Retry a failed final flush once, after a short wait; log what stays unwritten if it fails again."""
+    def _retry_final_flush(self, batch: RegistryBatch, error: DataAccessError) -> Optional[DataAccessError]:
+        """Retry a failed final flush once, after a short wait; log what stays unwritten if it fails again.
+
+        Returns None once the retry wrote everything, else the retry's error.
+        """
         self.logger.warning(
             "Could not write %d queued download outcome(s) to %s (%s); retrying in %.0f s",
             len(batch),
@@ -633,8 +639,8 @@ class DownloadSraCommand(BaseCommand):
                 e,
                 ", ".join(labels),
             )
-            return False
-        return True
+            return e
+        return None
 
     def execute(self, args: argparse.Namespace) -> int:
         args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
@@ -663,7 +669,7 @@ class DownloadSraCommand(BaseCommand):
                 args, fastq_dir, store, project_registry, max_workers, outcomes.timings, inputs, outcomes
             )
             if download_stats is None:
-                return 1
+                return getattr(self, "_flush_exit_code", 1)
             if args.dry_run:
                 self._log_dry_run_summary(args, download_stats)
             else:

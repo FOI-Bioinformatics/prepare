@@ -17,7 +17,7 @@ import pytest
 from prepare.cli.commands import sra_verdicts
 from prepare.cli.commands.sra import DownloadSraCommand
 from prepare.data import registry_blocks as rb
-from prepare.data.registry import Registry, load_registry, record_exclusion, save_registry
+from prepare.data.registry import Registry, load_registry, record_download, record_exclusion, save_registry
 from prepare.store.layout import init_store
 
 from tests.helpers_processes import FAKE_READS, cli_env, install_fake_tools, run_cli
@@ -407,23 +407,22 @@ def _redownload(tmp_path, monkeypatch, message, recorded=TRUNCATED):
     return rb.download_block(load_registry(tmp_path / "prepare_registry.json"), ACC)
 
 
-def test_unverified_redownload_keeps_a_recorded_truncated_verdict(tmp_path, monkeypatch):
+def test_unverified_redownload_replaces_a_recorded_truncated_verdict(tmp_path, monkeypatch):
+    """The recorded verdict described the files this download replaced; the new ones are unverified.
+    Keeping 'truncated' made every --redownload-truncated run fetch the accession again."""
     block = _redownload(tmp_path, monkeypatch, "Downloaded 2 files, unverified")
 
     assert block.attempts == 2
-    assert block.complete.verdict == "truncated"
-    assert block.complete.reads_r1 == 5
+    assert block.complete.verdict == "unverified"
 
 
-def test_unverified_redownload_keeps_a_recorded_complete_verdict(tmp_path, monkeypatch):
-    """A plain re-download with no spot count is no evidence either way: ``complete`` stays."""
+def test_unverified_redownload_replaces_a_recorded_complete_verdict(tmp_path, monkeypatch):
+    """A forced re-download may be short; the old copy's 'complete' says nothing about it."""
     recorded = {"verdict": "complete", "ratio": 1.0, "expected_spots": 10, "reads_r1": 10}
     block = _redownload(tmp_path, monkeypatch, "Downloaded 2 files, unverified", recorded=recorded)
 
     assert block.attempts == 2
-    assert block.complete.verdict == "complete"
-    assert block.complete.reads_r1 == 10
-    assert block.complete.expected_spots == 10
+    assert block.complete.verdict == "unverified"
 
 
 def test_complete_redownload_replaces_a_recorded_truncated_verdict(tmp_path, monkeypatch):
@@ -457,3 +456,30 @@ def test_recorded_verdict_without_a_new_verdict_leaves_the_record_alone():
 
     assert sra_verdicts.recorded_verdict(registry, ACC, None, 10, linked=False) is None
     assert sra_verdicts.recorded_verdict(registry, ACC, None, 10, linked=True) is None
+
+
+def test_a_fresh_unverified_redownload_replaces_the_old_files_verdict(tmp_path):
+    """--redownload-truncated --no-verify-downloads: the new files are unverified, not the old ones'
+    'truncated', or every later run downloads the accession again."""
+    from prepare.cli.commands.sra_record import result_recorder
+    from prepare.data.registry_batch import registry_batch
+
+    registry_path = tmp_path / "prepare_registry.json"
+    registry = Registry(path=registry_path)
+    record_download(
+        registry,
+        ACC,
+        "downloaded",
+        tmp_path / "fastq",
+        complete={"verdict": "truncated", "reads_r1": 500, "expected_spots": 1000, "ratio": 0.5},
+    )
+    save_registry(registry)
+    _write_fastq(tmp_path / "fastq" / ACC, 3)
+
+    with registry_batch(registry_path) as batch:
+        result_recorder(tmp_path / "fastq", None, batch, {}, {})(ACC, True, "Downloaded 2 files, unverified")
+
+    verdict = load_registry(registry_path).datasets[ACC]["download"]["complete"]
+    assert verdict["verdict"] == "unverified"
+    args = _parse(tmp_path, "--redownload-truncated", "--no-verify-downloads")
+    assert sra_verdicts.registry_inputs(args, load_registry(registry_path), None)[2] == set()

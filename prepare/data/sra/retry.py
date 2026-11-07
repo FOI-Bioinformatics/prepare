@@ -345,12 +345,17 @@ def _handle_download_failure(fastq_path, failed_accessions, attempted=()):
             to another run on the same folder
     """
     failed_file = Path(fastq_path) / FAILED_ACCESSIONS_FILE
-    if not failed_accessions:
-        _remove_stale_failed_file(failed_file, set(attempted))
+    # The list only helps a rerun; every outcome is already recorded, so a write or read error
+    # here (a disk filled by this run) is a warning rather than a failure of the finished run.
+    try:
+        if not failed_accessions:
+            _remove_stale_failed_file(failed_file, set(attempted))
+            return
+        # Write failed accessions to file for easier retry; the command logs the retry hint.
+        write_text_atomic(failed_file, "".join(f"{acc}\n" for acc in failed_accessions))
+    except OSError as e:
+        logger.warning(f"Could not update {failed_file}: {e}")
         return
-
-    # Write failed accessions to file for easier retry; the command logs the retry hint.
-    write_text_atomic(failed_file, "".join(f"{acc}\n" for acc in failed_accessions))
     logger.info(f"Failed accessions written to {failed_file}")
 
 

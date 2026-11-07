@@ -6,6 +6,18 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `download_sra`: a download that writes new files records their own verdict. An `unverified`
+  redownload (no spot count, or `--no-verify-downloads`) replaced nothing before: the old files'
+  `truncated` verdict was kept, so `--redownload-truncated` fetched the accession again on every run,
+  and a forced redownload kept an old `complete` verdict for a copy that may be short.
+- `download_sra`: an interrupted download, or one whose tool wrote no reads, removes its `<ACC>_temp`
+  build folder (kept with `--keep-temp`); the partial output, often many GB, used to stay behind.
+- `download_sra`: a final registry write that still times out on the lock after its retry exits 4
+  (retry later), not 1. A `failed_accessions.txt` that cannot be written or read (a disk this run
+  filled) is a warning instead of failing the finished run.
+- `download_sra` with a shared store: a refetch that kept the earlier store copy is recorded as a
+  download attempt with its time and counted as downloaded, not as a plain link to a copy the store
+  already held.
 - `select_datasets --skip-downloaded` keeps the downloaded accessions of an earlier selection
   selected; it unselected them, so `extract_target_reads`, `status` and `results_table` lost them. The
   summary's "excluded" and "already downloaded" counts are those dropped from this table, not every

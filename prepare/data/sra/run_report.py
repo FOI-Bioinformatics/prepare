@@ -33,9 +33,9 @@ from prepare.data.sra.store_handoff import (
     SETTLED_PREFIXES,
     STORE_EXHAUSTED_SUFFIX,
     STORE_INCOMPLETE_PREFIX,
-    STORE_LINKED_PREFIX,
     STORE_PARTIAL_PREFIX,
     STORE_PROJECT_FOLDER_PREFIX,
+    plain_store_link,
 )
 
 REASONS = ("network", "not-found", "disk-full", "insufficient-space", "locked", "interrupted", "unknown")
@@ -83,7 +83,7 @@ def started_download(success: bool, message: str) -> bool:
     """
     body = accession_mod.result_body(message)
     if success:
-        return body != accession_mod.ALREADY_EXISTS and not body.startswith(STORE_LINKED_PREFIX)
+        return body != accession_mod.ALREADY_EXISTS and not plain_store_link(body)
     if body == DISK_FULL_NOT_ATTEMPTED or body.startswith((STORE_PARTIAL_PREFIX, STORE_PROJECT_FOLDER_PREFIX)):
         return False
     if body.startswith(STORE_INCOMPLETE_PREFIX) and body.endswith(STORE_EXHAUSTED_SUFFIX):
@@ -154,7 +154,7 @@ def attempt_timing(accession: str, success: bool, message: str, timings: Timings
     A dataset linked from the store was not downloaded, so it has no time even when the worker
     that linked it was timed.
     """
-    if success and accession_mod.result_body(message).startswith(STORE_LINKED_PREFIX):
+    if success and plain_store_link(accession_mod.result_body(message)):
         return None
     return timings.get(accession)
 

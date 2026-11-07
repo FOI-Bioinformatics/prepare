@@ -23,6 +23,7 @@ from prepare.data.sra import (
     result_body,
 )
 from prepare.data.sra.run_report import Timings, attempt_timing
+from prepare.data.sra.store_handoff import plain_store_link
 from prepare.store.layout import StorePaths
 from prepare.store.usage import ensure_project_identity, record_usage_many
 
@@ -123,8 +124,11 @@ def result_recorder(
             found = functools.partial(record_found, acc=accession, fastq_dir=fastq_dir, from_store=False, complete=None)
             batch.apply(found, label=accession)
             return
-        linked = bool(success) and body.startswith(STORE_LINKED_PREFIX)
-        from_store = linked or (bool(success) and body.endswith(STORE_SAVED_SUFFIX))
+        # A plain link downloaded nothing; a refetch that kept the earlier copy did (an attempt,
+        # recorded with its time), though it also ends linked to the store's copy.
+        linked = bool(success) and plain_store_link(body)
+        refetched = bool(success) and body.startswith(STORE_LINKED_PREFIX) and not linked
+        from_store = linked or refetched or (bool(success) and body.endswith(STORE_SAVED_SUFFIX))
         if from_store:
             usage_rows.append((accession, "", "linked" if linked else "downloaded", message))
         # A truncated download fails (unless accepted) but still carries its verdict. When an
@@ -142,7 +146,15 @@ def result_recorder(
         def _mutation(reg: Registry) -> None:
             if from_store:
                 ensure_project_identity(reg)
-            verdict = recorded_verdict(reg, accession, sidecar or complete, spot_counts.get(accession), bool(sidecar))
+            # A successful download that is not a plain link wrote new files (fresh).
+            verdict = recorded_verdict(
+                reg,
+                accession,
+                sidecar or complete,
+                spot_counts.get(accession),
+                bool(sidecar),
+                fresh=success and not (linked or refetched),
+            )
             record_download(
                 reg,
                 accession,

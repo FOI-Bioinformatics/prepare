@@ -39,6 +39,15 @@ STORE_READY_STATES = ("complete", "unverified")
 # needs to tell a link apart from a fresh download (the CLI's result recorder, this module's
 # own run summary) matches against this constant rather than a copy of the literal.
 STORE_LINKED_PREFIX = "linked from store"
+# The end of a link message after a refetch that downloaded the reads again but kept the earlier
+# copy (``_keep_previous``): a download ran, so it is an attempt with its time, not a plain link.
+STORE_REFETCHED_SUFFIX = "; refetched"
+
+
+def plain_store_link(body: str) -> bool:
+    """Whether a result body links a copy the store already held, with no download this run."""
+    return body.startswith(STORE_LINKED_PREFIX) and not body.endswith(STORE_REFETCHED_SUFFIX)
+
 
 # Starts of the failure messages for a store copy that is kept but not linked: a fetch or kept
 # refetch that left the copy incomplete, and the precheck's refusal of an incomplete copy under
@@ -400,9 +409,11 @@ def _keep_previous(
     linked only with ``accept_partial``, like any other incomplete copy.
     """
     if previous.state in STORE_READY_STATES and not _short_unverified(previous, expected_spots):
-        return _link_result(accession, project_fastq, store, link_mode, " (kept the earlier copy)")
+        success, message = _link_result(accession, project_fastq, store, link_mode, " (kept the earlier copy)")
+        return success, message + STORE_REFETCHED_SUFFIX
     if accept_partial:
-        return _link_result(accession, project_fastq, store, link_mode, " (partial)")
+        success, message = _link_result(accession, project_fastq, store, link_mode, " (partial)")
+        return success, message + STORE_REFETCHED_SUFFIX
     _drop_store_link(project_fastq, accession, store)
     return False, _incomplete_message(accession, previous)
 
