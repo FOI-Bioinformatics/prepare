@@ -14,44 +14,27 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tupl
 import pandas as pd
 
 from prepare.core.exceptions import DataAccessError, PrepareError, ProcessingError, TransientError
-from prepare.data.assembly import (  # noqa: F401 - re-exported; the assembly code moved there
-    _megahit_args,
-    assemble_extracted_reads,
-    fasta_length,
-    megahit_version,
-    resolve_assembly_threads,
-    summarise_contigs,
-)
+
+# Re-exported; the assembly code moved to prepare.data.assembly.
+from prepare.data.assembly import _megahit_args, assemble_extracted_reads, fasta_length  # noqa: F401
+from prepare.data.assembly import megahit_version, resolve_assembly_threads, summarise_contigs  # noqa: F401
 from prepare.data.extraction_locks import LockHeld, index_build_lock, sample_extraction_lock
 from prepare.data.extraction_staging import publish_staged, remove_published, require_nonempty, staged_sample_outputs
 from prepare.data.file_io import atomic_path, ensure_directory, write_text_atomic
 from prepare.data.project_selection import selection_for_genome
-from prepare.data.read_extraction_export import (  # noqa: F401 - re-exported; the export and coverage code moved there
-    FILTER_FLAGS,
-    MINIMAP2_MIN_VERSION,
-    UNEQUAL_MATES_MARKER,
-    _align_and_count_mapped,
-    _average_read_length,
-    _count_records,
-    _export_mapped_fastq,
-    _fastq_is_empty,
-    _filter_and_merge_bam,
-    _run_minimap2,
-    _minimap2_index_args,
-    _minimap2_map_args,
-    _refuse_old_minimap2,
-    _samtools_cat_args,
-    _samtools_count_args,
-    _samtools_coverage_args,
-    _samtools_fastq_paired_args,
-    _samtools_fastq_single_args,
-    _samtools_sort_args,
-    _samtools_view_args,
-    assembly_coverage,
-    coverage_table_path,
-    reference_coverage,
-    summarise_coverage_table,
-)
+
+# Re-exported; the export and coverage code moved to read_extraction_export.
+from prepare.data.read_extraction_export import FILTER_FLAGS, MINIMAP2_MIN_VERSION, UNEQUAL_MATES_MARKER  # noqa: F401
+from prepare.data.read_extraction_export import _align_and_count_mapped, _average_read_length  # noqa: F401
+from prepare.data.read_extraction_export import _count_records, _export_mapped_fastq, _fastq_is_empty  # noqa: F401
+from prepare.data.read_extraction_export import _filter_and_merge_bam, _run_minimap2  # noqa: F401
+from prepare.data.read_extraction_export import _minimap2_index_args, _minimap2_map_args  # noqa: F401
+from prepare.data.read_extraction_export import _refuse_old_minimap2, _samtools_cat_args  # noqa: F401
+from prepare.data.read_extraction_export import _samtools_count_args, _samtools_coverage_args  # noqa: F401
+from prepare.data.read_extraction_export import _samtools_fastq_paired_args, _samtools_fastq_single_args  # noqa: F401
+from prepare.data.read_extraction_export import _samtools_sort_args, _samtools_view_args  # noqa: F401
+from prepare.data.read_extraction_export import assembly_coverage, coverage_table_path  # noqa: F401
+from prepare.data.read_extraction_export import reference_coverage, summarise_coverage_table  # noqa: F401
 from prepare.data.sra import MATE1_SUFFIXES, fastq_files, fastq_stem, orphan_fastq, primary_fastq
 from prepare.utils.security import SecureSubprocess
 
@@ -233,6 +216,14 @@ def genome_signature(genome_path: Path) -> List[float]:
     return [st.st_size, st.st_mtime]
 
 
+def _other_genome(record: Dict[str, Any], genome_path: Path) -> bool:
+    """Whether the record names another FASTA, or the same path holding another assembly."""
+    fasta, signature = record.get("genome_fasta"), record.get("genome_signature")
+    if fasta is not None and Path(fasta).resolve() != genome_path.resolve():
+        return True
+    return signature is not None and list(signature) != genome_signature(genome_path)
+
+
 def _record_mismatch_reason(
     record: Dict[str, Any], genome_path: Path, preset: str, threshold: float, min_mapq: int = 0
 ) -> Optional[str]:
@@ -246,12 +237,7 @@ def _record_mismatch_reason(
     parameter mismatch from a recorded output file that has since been removed from disk, so
     a caller can log which one triggered the redo instead of always blaming the parameters.
     """
-    recorded_fasta = record.get("genome_fasta")
-    if recorded_fasta is not None and Path(recorded_fasta).resolve() != genome_path.resolve():
-        return _PARAMETERS_DIFFER
-    # The same path holding another assembly: the index is rebuilt, so the samples must be too.
-    recorded_signature = record.get("genome_signature")
-    if recorded_signature is not None and list(recorded_signature) != genome_signature(genome_path):
+    if _other_genome(record, genome_path):
         return _PARAMETERS_DIFFER
     recorded_preset = record.get("preset")
     if recorded_preset is not None and recorded_preset != preset:

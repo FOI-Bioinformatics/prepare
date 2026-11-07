@@ -228,17 +228,12 @@ def record_selection(
 
     ``ranked`` is the per-accession rank detail (``{"accession", "rank", "column", "value"}``)
     for the selected accessions; entries for accessions outside ``accessions`` are dropped so
-    the recorded list is always capped to what was actually selected. An earlier selection of an
-    accession in ``keep`` stays as it is (``--skip-downloaded`` leaves the downloaded ones out of
-    the new list without unselecting them). ``output`` and a ``criteria["table"]`` are recorded
-    relative to the project root, as every other registry path is.
+    the recorded list is always capped to what was actually selected. A selected accession in ``keep``
+    stays selected. ``output`` and ``criteria["table"]`` are recorded project-relative.
     """
     root = project_root(registry)
-    criteria = dict(criteria)
-    if criteria.get("table"):
-        criteria["table"] = _project_relative(criteria["table"], root)
-    output = _project_relative(output, root)
-    chosen = set(accessions) | set(keep)
+    criteria = {**criteria, **{k: _project_relative(v, root) for k, v in criteria.items() if k == "table" and v}}
+    output, chosen = _project_relative(output, root), set(accessions) | set(keep)
     for accession in registry.datasets:
         earlier = rb.selection_block(registry, accession)
         if earlier and earlier.selected and accession not in chosen:
@@ -685,15 +680,8 @@ def reconcile(registry: Registry, paths: ProjectPaths) -> ReconcileReport:
 
 
 # Re-exports for one release. registry_io and registry_scan import this module lazily at call time: no cycle.
-from prepare.data.registry_io import (  # noqa: E402,F401
-    KNOWN_KEYS,
-    _acquire_lock,
-    _write_registry,
-    load_registry,
-    parse_registry_document,
-    registry_transaction,
-    save_registry,
-)
+from prepare.data.registry_io import KNOWN_KEYS, _acquire_lock, _write_registry, load_registry  # noqa: E402,F401
+from prepare.data.registry_io import parse_registry_document, registry_transaction, save_registry  # noqa: E402,F401
 from prepare.data.registry_scan import (  # noqa: E402,F401
     _genome_ids_on_disk,
     _infer_assembly,

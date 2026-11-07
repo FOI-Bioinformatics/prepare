@@ -554,14 +554,7 @@ def download_accession(
             stop=stop,
             accept_partial=accept_partial,
         )
-        if not success:
-            _settle_temp_folder(temp_path, keep_temp)
-
-        # A truncated failure drops the archive too: prefetch would otherwise treat the short
-        # archive as fetched and the retry would dump the same reads again.
-        if using_prefetch and (success or "truncated" in message):
-            _discard_cached_archive(cache_path, accession, message, keep=keep_sra)
-
+        _after_dump(accession, success, message, temp_path, keep_temp, cache_path if using_prefetch else None, keep_sra)
         return success, message
 
     except _DownloadInterrupted:
@@ -593,6 +586,27 @@ def download_accession(
         # Clean up auto-created temp directory (from tempfile.mkdtemp)
         if temp_folder_path and not temp_folder:
             cleanup_mod._safe_rmtree(temp_folder_path)
+
+
+def _after_dump(
+    accession: str,
+    success: bool,
+    message: str,
+    temp_path: Path,
+    keep_temp: bool,
+    cache_path: Optional[Path],
+    keep_sra: bool,
+) -> None:
+    """Tidy up after fasterq-dump's output was handled: the failed build folder and the archive.
+
+    ``cache_path`` is the prefetch cache when prefetch was used, else None. A truncated failure
+    drops the archive too: prefetch would otherwise treat the short archive as fetched and the
+    retry would dump the same reads again.
+    """
+    if not success:
+        _settle_temp_folder(temp_path, keep_temp)
+    if cache_path is not None and (success or "truncated" in message):
+        _discard_cached_archive(cache_path, accession, message, keep=keep_sra)
 
 
 def _settle_temp_folder(temp_path: Path, keep: bool) -> None:

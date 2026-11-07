@@ -1008,7 +1008,7 @@ def test_extract_metadata_accepts_a_csv_with_a_utf8_bom(tmp_path):
 
     folder = tmp_path / "branchwater"
     folder.mkdir()
-    (folder / "G1.csv").write_bytes("﻿acc,containment,organism\nSRR0000001,0.5,gut\n".encode("utf-8"))
+    (folder / "G1.csv").write_bytes("\ufeffacc,containment,organism\nSRR0000001,0.5,gut\n".encode("utf-8"))
     errors = []
 
     df = extract_metadata_from_branchwater(folder, tmp_path / "out.csv", errors=errors)
