@@ -20,10 +20,6 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   download marked missing among the truncated or unverified ones, matching `project_report`.
 - `status --init --reconcile` on a project without a registry builds it and then reconciles it; it
   used to fail asking for `--init`.
-
-### Documentation
-
-- `runs` exits 2 (not 1) for a run selector that matches no run or more than one.
 - `extract_target_reads --temp-folder`: the SAM and sorted-BAM scratch files are named after the
   accession as well as the genome. Two jobs on different samples of one genome sharing a temp folder
   (a config-wide `PREPARE_TEMP_FOLDER`, a node-shared `$TMPDIR`) overwrote each other's alignments, so
@@ -90,6 +86,10 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   project path and name, not the subfolder.
 - `sra_profile` without named accessions skips a folder in `--fastq-folder` that is not named like an
   SRA accession, as `sra_validate` does, instead of failing it with exit 1.
+
+### Documentation
+
+- `runs` exits 2 (not 1) for a run selector that matches no run or more than one.
 
 ## [0.12.1] - 2026-10-25
 
