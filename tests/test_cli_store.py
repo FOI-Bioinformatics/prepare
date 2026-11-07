@@ -330,6 +330,19 @@ class TestStoreInitCommand:
         mock_run.assert_called_once()
         assert mock_run.call_args.args[0] == ["git", "ls-files", "fastq"]
 
+    def test_gitignore_guard_runs_at_the_project_root_from_a_subfolder(self, tmp_path, monkeypatch):
+        root = tmp_path / "store"
+        project_dir = tmp_path / "project"
+        (project_dir / "analysis").mkdir(parents=True)
+        (project_dir / ".git").mkdir()
+        monkeypatch.chdir(project_dir / "analysis")
+
+        with patch("prepare.cli.commands.store._shared.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            assert StoreInitCommand().execute(_init_args(root, project_dir)) == 0
+
+        assert "fastq/" in (project_dir / ".gitignore").read_text().splitlines()
+
     def test_gitignore_guard_skips_when_already_present(self, tmp_path, monkeypatch):
         root = tmp_path / "store"
         project_dir = tmp_path / "project"

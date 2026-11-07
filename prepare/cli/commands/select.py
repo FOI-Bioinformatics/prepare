@@ -290,8 +290,8 @@ class SelectDatasetsCommand(BaseCommand):
                 },
                 output=output,
                 ranked=ranked_records,
-                # Left out of this ranking by --skip-downloaded, not deselected: they stay selected.
-                keep=downloaded,
+                # Left out of this ranking by --skip-downloaded only, not rejected by it: they stay selected.
+                keep=downloaded.intersection(dropped),
             )
             # Loaded again inside the lock, so a download or exclusion another process recorded
             # while this one was ranking is kept; record_selection unselects earlier selections

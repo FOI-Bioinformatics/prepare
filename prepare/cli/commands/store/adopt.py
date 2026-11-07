@@ -12,7 +12,7 @@ from prepare.cli.commands.sra_verdicts import store_sidecar_verdict, store_spot_
 from prepare.cli.commands.store._shared import _gitignore_guard, _required_store
 from prepare.core.exceptions import DataAccessError
 from prepare.core.settings import setting_for
-from prepare.data.registry import load_registry, record_download, registry_transaction, update_linked
+from prepare.data.registry import load_registry, project_root, record_download, registry_transaction, update_linked
 from prepare.store.adopt import AdoptReport, adopt
 from prepare.store.layout import StorePaths, store_paths
 from prepare.store.locks import touch_dataset_use
@@ -231,7 +231,7 @@ class StoreAdoptCommand(BaseCommand):
         # holding the project's registry lock while queueing for it can time the registry
         # write out.
         record_usage_many(paths, usage_registry, [(acc, "", "linked", "store_adopt") for acc in newly_linked])
-        _gitignore_guard(Path.cwd(), logger)
+        _gitignore_guard(project_root(usage_registry), logger)  # the project root, not the cwd
 
     @staticmethod
     def _record_copied(args: argparse.Namespace, paths: StorePaths, copied: List[str]) -> None:

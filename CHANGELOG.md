@@ -6,6 +6,16 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `select_datasets --skip-downloaded` keeps selected only the downloaded accessions it left out of
+  this ranking; a downloaded accession the new criteria reject is unselected, as without the flag
+  (the earlier fix kept every downloaded accession selected).
+- `extract_target_reads`: a recorded extraction against a genome FASTA that is missing no longer
+  fails with `FileNotFoundError` while checking the FASTA's signature; the missing FASTA is reported
+  as before.
+- `store_adopt --move`: a `.<ACC>.adopt-old` folder left by an interrupted adopt beside a re-created
+  `<ACC>` folder fails that accession only (both kept); it stopped the whole run.
+- `store_init` and `store_adopt` add `fastq/` to the `.gitignore` of the project root, not of the
+  working directory, when run from a subfolder.
 - `diversity_analysis`: an abundance matrix with empty cells is refused (exit 2, naming the samples)
   instead of giving those samples a Bray-Curtis distance of 0 to every other one and empty indices.
   `chao1` is left empty, with a warning, for a matrix of fractions (a containment table), where it

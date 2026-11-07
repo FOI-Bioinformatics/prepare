@@ -856,6 +856,12 @@ class TestRecordMatches:
         del record["genome_signature"]  # a record from an earlier version: not held against it
         assert _record_matches(record, genome, "sr", 0.1, min_mapq=0)
 
+    def test_a_record_with_a_signature_does_not_crash_when_the_fasta_is_missing(self, tmp_path):
+        """The missing FASTA is reported later as a clear error; the record check must not stat it."""
+        record = {"genome_fasta": str(tmp_path / "g.fna"), "preset": "sr", "mapped_reads": 0}
+        record["genome_signature"] = [10, 1.5]
+        assert _record_matches(record, tmp_path / "g.fna", "sr", 0.1, min_mapq=0) in (True, False)
+
     def test_record_extraction_keeps_the_genome_signature(self, tmp_path):
         from prepare.data.registry import Registry, record_extraction
 

@@ -511,3 +511,23 @@ def test_counts_only_the_exclusions_that_dropped_an_accession_from_this_table(tm
         assert SelectDatasetsCommand().execute(_args(tmp_path, registry=str(registry_path))) == 0
 
     assert any("0 already downloaded, 1 excluded, 1 selected" in r.getMessage() for r in caplog.records)
+
+
+def test_skip_downloaded_unselects_a_downloaded_accession_the_new_criteria_reject(tmp_path, monkeypatch):
+    """Only the accessions --skip-downloaded left out of this ranking stay selected; a downloaded one
+    that the new threshold rejects is unselected, as it is without the flag."""
+    from prepare.data.registry import query
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.2\t0.2\nSRR2\t0.6\t0.6\n")
+    registry_path = tmp_path / "prepare_registry.json"
+    assert SelectDatasetsCommand().execute(_args(tmp_path, registry=str(registry_path), threshold=0.1)) == 0
+    registry = load_registry(registry_path)
+    for acc in ("SRR1", "SRR2"):
+        record_download(registry, acc, "downloaded", tmp_path / "fastq")
+    save_registry(registry)
+
+    args = _args(tmp_path, registry=str(registry_path), threshold=0.5, skip_downloaded=True)
+    assert SelectDatasetsCommand().execute(args) == 0
+
+    assert query(load_registry(registry_path), "selected") == ["SRR2"]

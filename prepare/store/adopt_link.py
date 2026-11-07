@@ -56,6 +56,10 @@ def link_blocker(accession: str, entry: Path, paths: StorePaths, ignored: Callab
 
     The caller holds the dataset lock, so the answer holds until it releases it.
     """
+    aside = aside_path(entry)
+    if aside.exists() or aside.is_symlink():
+        # An interrupted adopt left it beside a folder created since; only the user can tell which to keep.
+        return f"{aside.name}, left by an interrupted adopt, is in the way; move it back or remove it, then rerun"
     store_dir = sra_dir(paths, accession)
     if not store_dir.is_dir():
         return "the store copy is gone"
