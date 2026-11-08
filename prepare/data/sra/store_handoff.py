@@ -269,7 +269,25 @@ def _link_result(accession: str, project_fastq: Path, store, link_mode: str, not
     from prepare.store.link import link_dataset
 
     link = link_dataset(project_fastq, accession, store, mode=link_mode, locked=True)
+    _ensure_catalogued(store, accession)
     return True, f"{STORE_LINKED_PREFIX}{note}, {len(fastq_mod.fastq_files(link))} files"
+
+
+def _ensure_catalogued(store, accession: str) -> None:
+    """Record a linked copy that has no real catalogue row (a run killed between publishing it and
+    recording it leaves none, or an ``unknown`` placeholder that store_gc never offers); never raises."""
+    from prepare.store.catalog import Catalog
+
+    try:
+        with Catalog(store) as catalog:
+            row = catalog.get_dataset(accession)
+    except DataAccessError:
+        return
+    if row is not None and row["state"] != "unknown":
+        return
+    sidecar = _read_store_sidecar(store, accession)
+    if sidecar is not None:
+        _catalogue_published(store, sidecar)
 
 
 def _try_link(

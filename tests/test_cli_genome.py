@@ -321,9 +321,7 @@ class TestGenomeDownloadCommand:
             registry=str(registry_file),
         )
 
-        with patch(
-            "prepare.cli.commands.genome.genome_assembly_levels", return_value={"GCF_000009999.1": "Scaffold"}
-        ):
+        with patch("prepare.cli.commands.genome.genome_assembly_levels", return_value={"GCF_000009999.1": "Scaffold"}):
             assert GenomeDownloadCommand().execute(args) == 0
         assert "GCF_000005845.2" in load_registry(registry_file).genomes
         assert not zip_path.exists()

@@ -685,6 +685,32 @@ class TestStoreAdoptCommand:
             row = cat.conn.execute("SELECT stage FROM usage WHERE accession = ?", ("SRR1",)).fetchone()
         assert row["stage"] == "linked"
 
+    def test_a_rerun_records_links_a_killed_adopt_left_unrecorded(self, tmp_path, monkeypatch):
+        """A SIGKILL after a folder became a store link but before anything was recorded: the
+        rerun finds the link already in place and must record it, or store_gc can later remove
+        the only copy of a project that links from another --fastq-folder."""
+        adopt_mod = importlib.import_module("prepare.store.adopt")
+
+        root = tmp_path / "store"
+        init_store(root)
+        project_dir = tmp_path / "project"
+        (project_dir / "reads" / "SRR1").mkdir(parents=True)
+        (project_dir / "reads" / "SRR1" / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        monkeypatch.chdir(project_dir)
+        registry_path = project_dir / "prepare_registry.json"
+        args = _adopt_args(data_root=str(root), registry=str(registry_path), fastq_folder="reads")
+        # The killed run: the folder became a link, nothing was recorded.
+        adopt_mod.adopt(project_dir / "reads", store_paths(root), move=True, dry_run=False)
+        assert (project_dir / "reads" / "SRR1").is_symlink()
+
+        assert StoreAdoptCommand().execute(args) == 0
+
+        registry = load_registry(registry_path)
+        assert registry.datasets["SRR1"]["download"]["source"] == "store"
+        assert registry.store["linked"] == ["SRR1"]
+        with Catalog(store_paths(root)) as cat:
+            assert cat.conn.execute("SELECT 1 FROM usage WHERE accession = 'SRR1'").fetchone() is not None
+
     def test_adopt_copies_sidecar_completeness_and_records_usage(self, tmp_path, monkeypatch):
         """A newly adopted accession's registry record carries its sidecar's completeness
         verdict, and the store catalogue gets a 'linked' usage row for this project."""
@@ -1212,6 +1238,27 @@ class TestStoreVerifyCommand:
         fixed = read_sidecar(sidecar_path(paths, "SRR1"))
         assert [f["name"] for f in fixed.files] == ["SRR1_1.fastq.gz"]
         assert fixed.state == "complete"
+
+    def test_fix_state_repairs_a_placeholder_catalogue_row(self, tmp_path, monkeypatch):
+        """A good copy whose catalogue row is only an 'unknown' placeholder (a run killed between
+        publishing and recording it) is invisible to store_gc; --fix-state records it."""
+        paths = init_store(tmp_path / "store")
+        monkeypatch.chdir(tmp_path)
+        acc_dir = paths.sra / "SRR1"
+        acc_dir.mkdir(parents=True)
+        _write_fastq_gz(acc_dir / "SRR1_1.fastq.gz")
+        sc = _sidecar_matching_disk(acc_dir, "SRR1", state="complete", reads=1)
+        sc.ncbi = {"spots": 1}
+        sc.completeness = {"method": "spots", "ratio": 1.0, "verdict": "complete"}
+        write_sidecar(sidecar_path(paths, "SRR1"), sc)
+        with catalog_write(paths) as cat:
+            cat.upsert_project("p1", "P", str(tmp_path), str(tmp_path / "prepare_registry.json"))
+            cat.record_usage("SRR1", "p1", "", "linked", "")
+
+        StoreVerifyCommand().execute(_verify_args(data_root=str(paths.root), fix_state=True))
+
+        with Catalog(paths) as cat:
+            assert cat.get_dataset("SRR1")["state"] == "complete"
 
     def test_rescan_keeps_the_refetch_and_sketch_records(self, tmp_path, monkeypatch):
         """Losing refetch would reset the refetch limit; losing sketch, the cached signature."""

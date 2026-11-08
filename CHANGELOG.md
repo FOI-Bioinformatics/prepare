@@ -6,6 +6,14 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `store_adopt` rerun after a run killed outright (SIGKILL, out of memory, a job time limit) records
+  the store links that run made but never recorded; they were skipped as "already a link", and with
+  a non-default `--fastq-folder` `store_gc --yes` could then remove the only copy.
+- A store copy published by a run killed before it recorded the copy in the catalogue (left with an
+  `unknown` placeholder row that `store_gc` never offers) is recorded from its sidecar when it is
+  next linked, and by `store_verify --fix-state`.
+- `extract_target_reads` removes a staging folder of the same sample and genome left by a run that
+  was killed, instead of leaving it hidden in `targeted/<ACC>/` for good.
 - `store_gc` counts a project as using a dataset only when one of its links, or its download record,
   points into this store's copy; a name in the registry's `store.linked` is no longer enough on its
   own (it can refer to another store after `store_init` rebinds the project), so an unused copy is

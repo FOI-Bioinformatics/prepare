@@ -16,6 +16,7 @@ against being published empty.
 import json
 import logging
 import os
+import re
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
@@ -54,7 +55,13 @@ def staged_sample_outputs(out_dir: Path, genome_id: str) -> Iterator[Path]:
 
     The folder and whatever is left in it are removed when the block ends, whether it
     finished or was interrupted; files published with ``publish_staged`` have already left it.
+    The caller holds the sample's extraction lock, so a staging folder of this genome left by a
+    run that was killed (no ``finally`` ran) is removed first.
     """
+    leftover = re.compile(re.escape(f".{genome_id}.") + r"[^.]+\.\d+\.[0-9a-f]+\.tmp")
+    for stale in Path(out_dir).glob(f".{genome_id}.*.tmp"):
+        if stale.is_dir() and leftover.fullmatch(stale.name):
+            shutil.rmtree(stale, ignore_errors=True)
     staging = unique_temp_path(Path(out_dir) / genome_id)
     staging.mkdir(parents=True)
     try:
