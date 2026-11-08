@@ -142,8 +142,10 @@ ALLOWED_BIOINFORMATICS_TOOLS = {
     "datasets": {
         "safe_params": {
             "download",
+            "summary",
             "genome",
             "accession",
+            "--as-json-lines",
             "--include",
             "--filename",
             "--inputfile",

@@ -361,13 +361,31 @@ def _write_stdout(text: str) -> None:
     try:
         sys.stdout.write(text)
     except BrokenPipeError:
-        try:
-            devnull = os.open(os.devnull, os.O_WRONLY)
-            os.dup2(devnull, sys.stdout.fileno())
-            os.close(devnull)
-        except (OSError, ValueError, io.UnsupportedOperation):
-            pass
-        sys.stdout = _DiscardedOutput()
+        _discard_stdout()
+
+
+def flush_stdout() -> None:
+    """Flush stdout, dropping it as ``_write_stdout`` does when its reader has gone.
+
+    Output smaller than the buffer reaches the pipe only here (or at the interpreter's exit
+    flush, where a closed pipe would end the process with exit 120), so ``main`` flushes once
+    the command returns.
+    """
+    try:
+        sys.stdout.flush()
+    except BrokenPipeError:
+        _discard_stdout()
+
+
+def _discard_stdout() -> None:
+    """Point stdout at the null device (its fd, for the exit flush) and drop later writes."""
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        os.close(devnull)
+    except (OSError, ValueError, io.UnsupportedOperation):
+        pass
+    sys.stdout = _DiscardedOutput()
 
 
 class CommandRegistry:

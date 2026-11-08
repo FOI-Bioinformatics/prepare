@@ -6,6 +6,18 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `store_gc` counts a project as using a dataset only when one of its links, or its download record,
+  points into this store's copy; a name in the registry's `store.linked` is no longer enough on its
+  own (it can refer to another store after `store_init` rebinds the project), so an unused copy is
+  removed again.
+- `enrich_taxonomy` and `explore_containment` offline write the part of the map the cache holds; they
+  fail with exit 4 only when nothing at all is known. A GTDB reply saying the service is unavailable
+  (a 5xx or 429 from the search endpoint) is a network failure (exit 4), not "no taxonomy found".
+- A reader that closes stdout before a small output is flushed (`prepare ... | true`) no longer ends
+  the process with exit 120; stdout is flushed when the command returns.
+- `genome_download`/`genome_prepare` remove the hidden zip of a download that failed or was
+  interrupted. With `--assembly-level`, a left-out genome that NCBI does not have at all is reported
+  as missing (exit 1) again; only those at another level are logged as filtered (`datasets summary`).
 - `genome_download --assembly-level` no longer fails (exit 1, and again on every rerun) because
   `datasets` left out the genomes at another level, as asked; it logs which ones. Each download
   uses its own hidden zip in the output folder, removed after extraction, so two runs into one

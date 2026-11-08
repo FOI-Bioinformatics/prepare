@@ -112,6 +112,17 @@ class TestEnrichGenomesWithTaxonomy:
         with pytest.raises(NetworkError):
             enrich_genomes_with_taxonomy(["GCF_000005845.2", "GCF_000009999.1"])
 
+    @patch("requests.Session.get", side_effect=requests.exceptions.ConnectionError("no network"))
+    def test_offline_with_part_of_the_map_cached_keeps_the_cached_part(self, _get, tmp_path):
+        """GTDB unreachable for the uncached genomes only: the cached ones still make a map."""
+        cache_file = tmp_path / "cache.tsv"
+        save_taxonomy_cache({"GCF_A": TaxonomyInfo(genome_id="GCF_A", family="FamA")}, cache_file)
+
+        result = enrich_genomes_with_taxonomy(["GCF_A", "GCF_000009999.1"], cache_file=cache_file)
+
+        assert result["GCF_A"].family == "FamA"
+        assert result["GCF_000009999.1"].family is None
+
     @patch("prepare.data.genome_taxonomy._lookup_genome_taxonomy_gtdb")
     def test_none_result_gives_empty_info(self, mock_lookup):
         mock_lookup.return_value = None
@@ -571,3 +582,14 @@ def test_full_save_and_single_append_write_the_same_rows(tmp_path):
     _append_taxonomy_cache_row(appended, second)
     assert saved.read_text() == appended.read_text()
     assert saved.read_text().count("genome_id") == 1
+
+
+@pytest.mark.parametrize("status", [429, 503])
+@patch("requests.Session.get")
+def test_a_gtdb_outage_reply_is_a_network_error_not_no_taxonomy(mock_get, status):
+    """A 5xx or 429 (after the session's retries) is GTDB unavailable, like a connection error."""
+    from prepare.core.exceptions import NetworkError
+
+    mock_get.return_value = _resp(status, {})
+    with pytest.raises(NetworkError):
+        _lookup_genome_taxonomy_gtdb("GCF_000005845.2")

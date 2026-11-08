@@ -366,3 +366,34 @@ def test_a_bad_line_in_an_accessions_file_exits_2_and_creates_nothing(tmp_path, 
 
 def test_validation_errors_are_usage_errors():
     assert exit_code_for(ValidationError("bad input")) == ExitCode.USAGE
+
+
+def test_a_reader_gone_before_the_output_is_flushed_still_exits_0(tmp_path):
+    """Small output stays in Python's buffer until exit; the broken pipe then surfaced at the
+    interpreter's own flush (exit 120). `prepare ... | true` must exit 0."""
+    import os
+    import subprocess
+    import sys
+
+    from prepare.data.registry import load_registry, record_exclusion, save_registry
+
+    registry = load_registry(tmp_path / "r.json")
+    record_exclusion(registry, "SRR000001", "host reads")
+    save_registry(registry)
+    read_end, write_end = os.pipe()
+    os.close(read_end)  # the reader is gone before anything is written
+    env = dict(os.environ, HOME=str(tmp_path), XDG_CONFIG_HOME=str(tmp_path / "xdg"))
+    env.pop("PYTHONUNBUFFERED", None)
+    env.pop("PREPARE_DATA", None)
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "prepare.cli.main", "blacklist", "--list", "--registry", str(tmp_path / "r.json")],
+            stdout=write_end,
+            stderr=subprocess.PIPE,
+            cwd=tmp_path,
+            env=env,
+            timeout=120,
+        )
+    finally:
+        os.close(write_end)
+    assert result.returncode == 0, result.stderr.decode()
