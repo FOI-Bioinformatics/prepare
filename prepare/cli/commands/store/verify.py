@@ -391,6 +391,7 @@ class StoreVerifyCommand(BaseCommand):
             or sidecar.error
         )
         if not changed:
+            _repair_placeholder_row(paths, sidecar)
             result["fix"] = {
                 "action": "unchanged",
                 "state_before": state_before,
@@ -565,3 +566,15 @@ class StoreVerifyCommand(BaseCommand):
                 self._print_fixes(results)
         failed = any(r["verdict"] in ("corrupt", "truncated", "missing") for r in results)
         return 1 if failed else 0
+
+
+def _repair_placeholder_row(paths: StorePaths, sidecar: Any) -> None:
+    """Record a verified copy whose catalogue row is missing or only an ``unknown`` placeholder.
+
+    A run killed between publishing a dataset and recording it leaves one, and store_gc never
+    offers such a row; the sidecar is unchanged, so only the catalogue is written.
+    """
+    with catalog_write(paths) as catalog:
+        row = catalog.get_dataset(sidecar.accession)
+        if row is None or row["state"] == "unknown":
+            catalog.upsert_dataset(sidecar)

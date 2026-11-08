@@ -247,3 +247,34 @@ def test_each_download_gets_its_own_zip(tmp_path):
     assert first != second
     assert first.parent == second.parent == tmp_path
     assert first.name.startswith(".") and first.suffix == ".zip"
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("datasets failed"), KeyboardInterrupt()])
+def test_a_failed_or_interrupted_download_leaves_no_partial_zip(tmp_path, failure):
+    """Each run has its own hidden zip; one that datasets did not finish is removed, not left."""
+
+    def datasets_writing_then_failing(executable, args, **kwargs):
+        Path(args[args.index("--filename") + 1]).write_bytes(b"partial")
+        raise failure
+
+    with patch("prepare.data.genome_download.SecureSubprocess.run_secure", side_effect=datasets_writing_then_failing):
+        with pytest.raises((DataAccessError, KeyboardInterrupt)):
+            download_genomes(["GCF_000005845.2"], tmp_path)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_genome_assembly_levels_reads_the_datasets_summary(tmp_path):
+    from prepare.data.genome_download import genome_assembly_levels
+
+    lines = (
+        '{"accession": "GCF_000005845.2", "assembly_info": {"assembly_level": "Complete Genome"}}\n'
+        '{"accession": "GCA_000001405.1", "assembly_info": {"assembly_level": "Scaffold"}}\n'
+    )
+    with patch(
+        "prepare.data.genome_download.SecureSubprocess.run_secure", return_value=MagicMock(returncode=0, stdout=lines)
+    ) as run:
+        levels = genome_assembly_levels(["GCF_000005845.2", "GCA_000001405.1", "GCF_000009999.1"])
+
+    assert levels == {"GCF_000005845.2": "Complete Genome", "GCA_000001405.1": "Scaffold"}
+    assert run.call_args[0][1][:3] == ["summary", "genome", "accession"]

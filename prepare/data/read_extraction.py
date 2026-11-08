@@ -18,6 +18,14 @@ from prepare.core.exceptions import DataAccessError, PrepareError, ProcessingErr
 # Re-exported; the assembly code moved to prepare.data.assembly.
 from prepare.data.assembly import _megahit_args, assemble_extracted_reads, fasta_length  # noqa: F401
 from prepare.data.assembly import megahit_version, resolve_assembly_threads, summarise_contigs  # noqa: F401
+from prepare.data.extraction_records import (  # noqa: F401 - re-exported; the record checks moved there
+    _OUTPUT_FILE_MISSING,
+    _PARAMETERS_DIFFER,
+    _record_matches,
+    _record_mismatch_reason,
+    genome_signature,
+    reads_signature,
+)
 from prepare.data.extraction_locks import LockHeld, index_build_lock, sample_extraction_lock
 from prepare.data.extraction_staging import publish_staged, remove_published, require_nonempty, staged_sample_outputs
 from prepare.data.file_io import atomic_path, ensure_directory, write_text_atomic
@@ -203,67 +211,6 @@ def selected_samples(
     return kept
 
 
-#: Why a registry extraction record was rejected: the call's own parameters (genome, preset,
-#: min_mapq) changed since the record was written, versus the parameters still matching but
-#: one of the recorded output files being gone from disk.
-_PARAMETERS_DIFFER = "recorded parameters differ from this call"
-_OUTPUT_FILE_MISSING = "recorded output file missing"
-
-
-def genome_signature(genome_path: Path) -> List[float]:
-    """``[size, mtime]`` of the genome FASTA, recorded with an extraction to notice a replaced file."""
-    st = Path(genome_path).stat()
-    return [st.st_size, st.st_mtime]
-
-
-def _other_genome(record: Dict[str, Any], genome_path: Path) -> bool:
-    """Whether the record names another FASTA, or the same path holding another assembly."""
-    fasta, signature = record.get("genome_fasta"), record.get("genome_signature")
-    if fasta is not None and Path(fasta).resolve() != genome_path.resolve():
-        return True
-    # A missing FASTA is reported by the caller with its own error; it cannot be compared here.
-    return signature is not None and genome_path.is_file() and list(signature) != genome_signature(genome_path)
-
-
-def _record_mismatch_reason(
-    record: Dict[str, Any], genome_path: Path, preset: str, threshold: float, min_mapq: int = 0
-) -> Optional[str]:
-    """Why a registry extraction record does not match the current call, or None when it does.
-
-    The identity of an extraction is the genome FASTA, the minimap2 preset and the mapping
-    quality floor; the containment threshold only decides which samples are tried, so it is
-    recorded for information and never compared. A parameter that is absent or None is a
-    wildcard. Records rebuilt from disk by ``status --init`` carry no parameters at all, and
-    rejecting them would remap every sample of an already extracted project. Distinguishes a
-    parameter mismatch from a recorded output file that has since been removed from disk, so
-    a caller can log which one triggered the redo instead of always blaming the parameters.
-    """
-    if _other_genome(record, genome_path):
-        return _PARAMETERS_DIFFER
-    recorded_preset = record.get("preset")
-    if recorded_preset is not None and recorded_preset != preset:
-        return _PARAMETERS_DIFFER
-    recorded_mapq = record.get("min_mapq")
-    if recorded_mapq is not None and int(recorded_mapq) != int(min_mapq):
-        return _PARAMETERS_DIFFER
-    if record.get("mapped_reads") == 0:
-        return None
-    if not all(Path(p).exists() for p in record.get("files", [])):
-        return _OUTPUT_FILE_MISSING
-    return None
-
-
-def _record_matches(
-    record: Dict[str, Any], genome_path: Path, preset: str, threshold: float, min_mapq: int = 0
-) -> bool:
-    """True when a registry extraction record matches the current call and its files are still usable.
-
-    The key is the genome FASTA, preset and ``min_mapq``; ``threshold`` is accepted for the
-    call signature and ignored (see ``_record_mismatch_reason``).
-    """
-    return _record_mismatch_reason(record, genome_path, preset, threshold, min_mapq=min_mapq) is None
-
-
 def _skipped_result(record: Dict[str, Any]) -> ExtractionResult:
     """The result of a sample whose recorded extraction still stands."""
     return ExtractionResult(
@@ -272,6 +219,11 @@ def _skipped_result(record: Dict[str, Any]) -> ExtractionResult:
         unequal_mates=bool(record.get("unequal_mates", False)),
         skipped=True,
     )
+
+
+def sample_fastq(fastq_folder: Path, accession: str) -> Optional[List[Path]]:
+    """Every FASTQ file of one accession (what its ``reads_signature`` covers), or None when it has none."""
+    return fastq_files(fastq_folder / accession) or None
 
 
 def _sample_reads(fastq_folder: Path, accession: str) -> List[Path]:
@@ -291,20 +243,30 @@ def _sample_reads(fastq_folder: Path, accession: str) -> List[Path]:
     primary = primary_fastq(acc_dir)
     if primary is None:
         return files
+    lone_mate_two = next((p for p in files if fastq_stem(p).endswith(("_2", "_R2"))), None)
+    if lone_mate_two is not None and not fastq_stem(primary).endswith(MATE1_SUFFIXES):
+        # Mate 1 is missing: the mate-2 file holds the spots, the bare file only unpaired leftovers.
+        logger.warning("%s: no mate-1 file; mapping %s as single-end reads", accession, lone_mate_two.name)
+        return [lone_mate_two]
+    return _pair_with_mate_two(acc_dir, accession, files, primary)
 
+
+def _pair_with_mate_two(acc_dir: Path, accession: str, files: List[Path], primary: Path) -> List[Path]:
+    """``[primary, mate 2]`` when ``primary`` is a mate-1 file whose mate 2 exists, else ``[primary]``."""
     stem = fastq_stem(primary)
-    for marker in MATE1_SUFFIXES:
-        if stem.endswith(marker):
-            mate_stem = stem[: -len(marker)] + marker[:-1] + "2"
-            mate_two = next((p for p in files if fastq_stem(p) == mate_stem), None)
-            if mate_two is None:
-                return files
-            orphan = orphan_fastq(acc_dir)
-            if orphan is not None:
-                logger.debug("%s: mapping the mate files only; %s holds unpaired reads", accession, orphan.name)
-            return [primary, mate_two]
-
-    return [primary]
+    marker = next((m for m in MATE1_SUFFIXES if stem.endswith(m)), None)
+    if marker is None:
+        return [primary]
+    mate_stem = stem[: -len(marker)] + marker[:-1] + "2"
+    mate_two = next((p for p in files if fastq_stem(p) == mate_stem), None)
+    if mate_two is None:
+        # Never pair the unpaired-reads file with mate 1; map mate 1 on its own.
+        logger.warning("%s: no mate-2 file; mapping %s as single-end reads", accession, primary.name)
+        return [primary]
+    orphan = orphan_fastq(acc_dir)
+    if orphan is not None:
+        logger.debug("%s: mapping the mate files only; %s holds unpaired reads", accession, orphan.name)
+    return [primary, mate_two]
 
 
 def _map_and_extract(
@@ -416,8 +378,9 @@ def _resolve_done_state(
     threshold: float,
     force: bool,
     min_mapq: int = 0,
+    reads: Optional[List[Path]] = None,
 ) -> bool:
-    """True when a recorded extraction still stands and can be skipped.
+    """True when a recorded extraction still stands and can be skipped (for ``reads``, when given).
 
     Logs the reason for a redo (parameters differ vs. a recorded output file missing) when
     a record exists, is not forced, and does not match. Split out of ``_extract_one_sample``
@@ -425,7 +388,7 @@ def _resolve_done_state(
     """
     if not record or force:
         return False
-    mismatch_reason = _record_mismatch_reason(record, genome_path, preset, threshold, min_mapq=min_mapq)
+    mismatch_reason = _record_mismatch_reason(record, genome_path, preset, threshold, min_mapq=min_mapq, reads=reads)
     if mismatch_reason is not None:
         logger.info("%s: redoing extraction, %s", accession, mismatch_reason)
         return False
@@ -466,7 +429,16 @@ def _extract_one_sample(
     mapping run itself holds this sample's own lock; one already held elsewhere (an
     overlapping SLURM shard extracting the same sample) is reported skipped, not run twice.
     """
-    done = _resolve_done_state(accession, record, genome_path, preset, threshold, force, min_mapq=min_mapq)
+    done = _resolve_done_state(
+        accession,
+        record,
+        genome_path,
+        preset,
+        threshold,
+        force,
+        min_mapq=min_mapq,
+        reads=sample_fastq(fastq_root, accession),
+    )
     if done and not dry_run:
         result = _skipped_result(record or {})
         logger.info(

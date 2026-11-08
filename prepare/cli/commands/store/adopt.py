@@ -12,9 +12,11 @@ from prepare.cli.commands.sra_verdicts import store_sidecar_verdict, store_spot_
 from prepare.cli.commands.store._shared import _gitignore_guard, _required_store
 from prepare.core.exceptions import DataAccessError
 from prepare.core.settings import setting_for
+from prepare.data import registry_blocks as rb
 from prepare.data.registry import load_registry, project_root, record_download, registry_transaction, update_linked
 from prepare.store.adopt import AdoptReport, adopt
 from prepare.store.layout import StorePaths, store_paths
+from prepare.store.link import is_store_link
 from prepare.store.locks import touch_dataset_use
 from prepare.store.usage import ensure_project_identity, record_usage_many
 
@@ -177,13 +179,32 @@ class StoreAdoptCommand(BaseCommand):
         # adoption (report.copied); those are not linked, but still count as usage (below), so
         # store_gc does not see the store's copy as unused just because this project kept its
         # own copy too.
-        newly_linked = sorted(set(report.adopted) | (set(report.deduplicated) if args.move else set()))
+        newly_linked = sorted(
+            set(report.adopted)
+            | (set(report.deduplicated) if args.move else set())
+            | set(self._unrecorded_links(args, paths, report.skipped))
+        )
         if newly_linked:
             self._record_linked(args, paths, newly_linked)
 
         copied = sorted(set(report.copied) | (set(report.deduplicated) if not args.move else set()))
         if copied:
             self._record_copied(args, paths, copied)
+
+    @staticmethod
+    def _unrecorded_links(args: argparse.Namespace, paths: StorePaths, skipped: List[str]) -> List[str]:
+        """Links into this store found in place but not recorded as such (an adopt killed before it
+        recorded them, a link made by hand); recording them keeps store_gc from seeing those
+        datasets as unused."""
+        registry = load_registry(args.registry)
+        linked = set(rb.store_block(registry).linked or [])
+        fastq = Path(args.fastq_folder)
+        return [
+            acc
+            for acc in skipped
+            if is_store_link(fastq / acc, paths)
+            and (acc not in linked or (rb.download_block(registry, acc) or rb.DownloadBlock()).source != "store")
+        ]
 
     @staticmethod
     def _raise_if_stopped(term: Any) -> None:

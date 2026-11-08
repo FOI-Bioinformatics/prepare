@@ -44,3 +44,18 @@ def test_assembly_imports_without_loading_read_extraction():
         [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, cwd=repo_root, check=False
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_fasta_length_reads_a_gzipped_genome(tmp_path):
+    """Extraction accepts .fna.gz, so the assembly step must read its length too (it raised
+    UnicodeDecodeError before the first sample)."""
+    import gzip
+
+    from prepare.data.assembly import fasta_length
+
+    plain = tmp_path / "g.fna"
+    plain.write_text(">a\nACGT\nAC\n>b\nGGG\n")
+    packed = tmp_path / "g.fna.gz"
+    packed.write_bytes(gzip.compress(plain.read_bytes()))
+
+    assert fasta_length(plain) == fasta_length(packed) == 9

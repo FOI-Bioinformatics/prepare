@@ -8,7 +8,7 @@ annotating containment data with taxonomy information.
 import csv
 import logging
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 import pandas as pd
 import requests
@@ -99,6 +99,13 @@ def _same_assembly(found: Optional[str], requested: str) -> bool:
     return str(found).split("_", 1)[-1] == requested.split("_", 1)[-1]
 
 
+def _raise_if_unavailable(response: Any, accession: str) -> None:
+    """``NetworkError`` for a reply saying GTDB is unavailable (a 5xx or 429, after the session's retries)."""
+    status = getattr(response, "status_code", None)
+    if isinstance(status, int) and (status == 429 or status >= 500):
+        raise NetworkError(f"GTDB is unavailable (HTTP {status}) looking up genome '{accession}'")
+
+
 def _lookup_genome_taxonomy_gtdb(accession: str) -> Optional[TaxonomyInfo]:
     """Query the GTDB API for a single genome's taxonomy.
 
@@ -121,6 +128,9 @@ def _lookup_genome_taxonomy_gtdb(accession: str) -> Optional[TaxonomyInfo]:
         # Fallback: search endpoint
         params: Dict[str, Union[str, int]] = {"search": accession, "page": 1, "itemsPerPage": 1}
         response = session.get(search_url, params=params, timeout=REQUEST_TIMEOUT)
+        # The genome endpoint may fail for one genome while search answers; only the search
+        # endpoint failing as well says GTDB itself is unavailable.
+        _raise_if_unavailable(response, accession)
         if response.status_code == 200:
             rows = _extract_search_rows(response.json())
             if rows and _same_assembly(rows[0].get("accession") or rows[0].get("gid"), accession):
@@ -248,8 +258,9 @@ def enrich_genomes_with_taxonomy(
                 unreachable += isinstance(e, NetworkError)
                 logger.warning("Failed to retrieve taxonomy for '%s'", accession)
                 taxonomy[accession] = TaxonomyInfo(genome_id=accession)
-        if unreachable == len(missing):
-            # Nothing could be looked up at all: a blank map is no result, and a rerun is the remedy.
+        if unreachable == len(missing) == len(set(genome_ids)):
+            # Nothing is known at all, from the cache or GTDB: a blank map is no result, and a
+            # rerun is the remedy. With part of the map cached, the cached part is still written.
             raise NetworkError(f"GTDB could not be reached for any of {len(missing)} genome(s); try again later")
 
     return taxonomy

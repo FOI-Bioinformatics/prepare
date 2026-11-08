@@ -15,7 +15,14 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from prepare import __version__
-from prepare.cli.base import BaseCommand, DefaultsHelpFormatter, add_global_options, command_registry, emit_error_json
+from prepare.cli.base import (
+    BaseCommand,
+    DefaultsHelpFormatter,
+    add_global_options,
+    command_registry,
+    emit_error_json,
+    flush_stdout,
+)
 from prepare.core import settings
 from prepare.core.exceptions import ConfigurationError, DataAccessError, PrepareError, exit_code_for
 from prepare.data import run_log
@@ -261,7 +268,9 @@ def _log_failure(message: str, error: BaseException) -> None:
 def _run_command(parsed_args: argparse.Namespace) -> int:
     """Run the parsed command and map an exception that leaves it to its exit code."""
     try:
-        return parsed_args.func(parsed_args)
+        code = parsed_args.func(parsed_args)
+        flush_stdout()  # a closed pipe surfaces here, not at the interpreter's exit flush (exit 120)
+        return code
     except PrepareError as e:
         _log_failure(f"Error: {e}", e)
         return exit_code_for(e)

@@ -778,6 +778,43 @@ class TestExtractTargetReadsCommand:
             assert "samtools" in tools_after_forced_run
 
     @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_rerun_redoes_a_sample_whose_reads_were_downloaded_again(self, mock_run):
+        """Replaced reads (download_sra --force) make the recorded extraction stale."""
+        import os
+
+        mock_run.side_effect = _fake_tools({})
+        cmd = ExtractTargetReadsCommand()
+        with tempfile.TemporaryDirectory() as tmp:
+            root, table, genome = _tree(tmp)
+            args = _args(
+                tmp,
+                parsed_containment=str(table),
+                genome_fasta=str(genome),
+                fastq_folder=str(root / "fastq"),
+                output_folder=str(root / "targeted"),
+                threshold=0.5,
+                registry=str(root / "registry.json"),
+            )
+            assert cmd.execute(args) == 0
+            recorded = json.loads((root / "registry.json").read_text())["datasets"]
+            assert any(recorded[acc]["extractions"]["GCF_1"].get("reads_signature") for acc in recorded)
+            for reads in (root / "fastq").rglob("*.fastq*"):
+                stat = reads.stat()
+                os.utime(reads, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+            calls_before = len(mock_run.call_args_list)
+
+            assert cmd.execute(args) == 0
+            tools = [c.args[0] for c in mock_run.call_args_list[calls_before:]]
+            redone = json.loads((root / "registry.json").read_text())["datasets"]
+        assert "minimap2" in tools
+        assert all(
+            redone[acc]["extractions"]["GCF_1"]["reads_signature"]
+            != recorded[acc]["extractions"]["GCF_1"]["reads_signature"]
+            for acc in recorded
+            if recorded[acc].get("extractions")
+        )
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
     def test_second_run_skips_after_the_project_directory_is_renamed(self, mock_run, tmp_path):
         """The registry stores paths relative to itself, so a project directory renamed
         between two runs still lets the second run recognise the earlier extraction."""

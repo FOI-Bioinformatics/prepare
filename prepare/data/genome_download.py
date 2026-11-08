@@ -5,6 +5,7 @@ using the datasets command-line tool, extracting FASTA files, and creating
 manifests suitable for downstream analysis tools such as sourmash.
 """
 
+import json
 import logging
 import re
 import shutil
@@ -103,16 +104,57 @@ def download_genomes(
 
     logger.info(f"Downloading {len(accessions)} genome(s) from NCBI datasets")
 
+    finished = False
     try:
         SecureSubprocess.run_secure("datasets", args)
+        finished = True
     except Exception as e:
         raise DataAccessError(f"Failed to download genomes: {e}")
+    finally:
+        if not finished:
+            # The zip is this run's own; a failed or interrupted download's partial one is not kept.
+            zip_path.unlink(missing_ok=True)
 
     if not zip_path.exists():
         raise DataAccessError("Download completed but zip file was not created.")
 
     logger.info(f"Downloaded genomes to {zip_path}")
     return zip_path
+
+
+def genome_assembly_levels(accessions: Sequence[str]) -> Dict[str, str]:
+    """Accession -> assembly level for the accessions NCBI knows (``datasets summary``).
+
+    An accession NCBI does not know is absent from the result. Used to tell a genome that
+    ``--assembly-level`` left out (it exists at another level) from one that does not exist.
+    """
+    if not accessions:
+        return {}
+    validate_genome_accessions(accessions)
+    args = ["summary", "genome", "accession", *accessions, "--as-json-lines"]
+    try:
+        result = SecureSubprocess.run_secure("datasets", args, check=False)
+    except Exception as e:
+        raise DataAccessError(f"Failed to look up genome assembly levels: {e}")
+    levels: Dict[str, str] = {}
+    for line in str(result.stdout or "").splitlines():
+        parsed = _assembly_level(line)
+        if parsed is not None:
+            levels[parsed[0]] = parsed[1]
+    return levels
+
+
+def _assembly_level(line: str) -> Optional[Tuple[str, str]]:
+    """``(accession, assembly level)`` from one ``datasets summary --as-json-lines`` line, or None."""
+    try:
+        record = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(record, dict) or not isinstance(record.get("accession"), str):
+        return None
+    info = record.get("assembly_info")
+    level = info.get("assembly_level") if isinstance(info, dict) else None
+    return record["accession"], str(level or "")
 
 
 class MissingGenomesError(DataAccessError):

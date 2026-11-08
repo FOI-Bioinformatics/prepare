@@ -507,6 +507,7 @@ def record_extraction(
         date=_now(),
         genome_fasta=_project_relative(genome_fasta, root) if genome_fasta is not None else None,
         genome_signature=params.get("genome_signature"),
+        reads_signature=params.get("reads_signature"),
         preset=params.get("preset"),
         threshold=params.get("threshold"),
         filter_flags=params.get("filter_flags"),

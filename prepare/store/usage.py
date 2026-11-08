@@ -213,38 +213,73 @@ def linked_by(
 
 
 def _project_links(project_path: str, registry_file: str, accession: str, target: Path) -> bool:
-    """Whether one catalogued project links ``accession``.
+    """Whether one catalogued project uses ``target`` (this store's copy of ``accession``).
 
-    True for a ``fastq/<accession>`` symlink to ``target`` under the recorded path or beside the
-    registry (a moved project), or when the registry lists the accession in ``store.linked`` (a
-    link made with another ``--fastq-folder``). Anything unreadable counts as not linking it.
+    True for a symlink resolving to ``target`` at ``fastq/<accession>`` under the recorded path or
+    beside the registry (a moved project), or when the registry's download record for the
+    accession names files inside ``target`` (a link made with another ``--fastq-folder``: the
+    recorded paths resolve through the link). A name in ``store.linked`` is not enough on its
+    own: it can refer to another store (a project rebound with ``store_init``). Anything
+    unreadable counts as not using it.
     """
-    folders = {Path(p) for p in (project_path, str(Path(registry_file).parent) if registry_file else "") if p}
-    for folder in folders:
-        link_path = folder / "fastq" / accession
-        try:
-            if link_path.is_symlink() and link_path.resolve() == target:
-                return True
-        except OSError:
-            continue
-    return bool(registry_file) and accession in _registry_linked(registry_file)
+    root = Path(registry_file).parent if registry_file else None
+    folders = {Path(p) for p in (project_path, str(root) if root else "") if p}
+    if any(_links_to(folder / "fastq" / accession, target) for folder in folders):
+        return True
+    if root is None:
+        return False
+    return any(
+        _inside(root, recorded, target) for recorded in _registry_download_files(registry_file).get(accession, ())
+    )
 
 
-def _registry_linked(registry_file: str) -> FrozenSet[str]:
-    """The ``store.linked`` accessions a project registry lists, read once per file version."""
+def _links_to(link_path: Path, target: Path) -> bool:
+    """Whether ``link_path`` is a symlink resolving to ``target``; False when it cannot be checked."""
+    try:
+        return link_path.is_symlink() and link_path.resolve() == target
+    except OSError:
+        return False
+
+
+def _inside(root: Path, recorded: str, target: Path) -> bool:
+    """Whether the recorded path (relative to ``root`` unless absolute) resolves to or inside ``target``."""
+    path = Path(recorded)
+    try:
+        resolved = (path if path.is_absolute() else root / path).resolve()
+    except OSError:
+        return False
+    return resolved == target or target in resolved.parents
+
+
+def _registry_download_files(registry_file: str) -> Dict[str, FrozenSet[str]]:
+    """Accession -> the file paths of its recorded download, for accessions recorded as downloaded."""
     try:
         mtime_ns = os.stat(registry_file).st_mtime_ns
     except OSError:
-        return frozenset()
-    return _registry_linked_at(registry_file, mtime_ns)
+        return {}
+    return _registry_download_files_at(registry_file, mtime_ns)
 
 
 @functools.lru_cache(maxsize=256)
-def _registry_linked_at(registry_file: str, mtime_ns: int) -> FrozenSet[str]:
+def _registry_download_files_at(registry_file: str, mtime_ns: int) -> Dict[str, FrozenSet[str]]:
+    """``_registry_download_files`` for one version of the file (``mtime_ns``), read once."""
     try:
         data = json.loads(Path(registry_file).read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        return {}
+    datasets = data.get("datasets") if isinstance(data, dict) else None
+    recorded: Dict[str, FrozenSet[str]] = {}
+    for accession, entry in datasets.items() if isinstance(datasets, dict) else ():
+        paths = _downloaded_paths(entry)
+        if paths:
+            recorded[str(accession)] = paths
+    return recorded
+
+
+def _downloaded_paths(entry: Any) -> FrozenSet[str]:
+    """The file paths a raw dataset entry's download records, when it is recorded as downloaded."""
+    download = entry.get("download") if isinstance(entry, dict) else None
+    if not isinstance(download, dict) or download.get("state") != "downloaded":
         return frozenset()
-    store = data.get("store") if isinstance(data, dict) else None
-    linked = store.get("linked") if isinstance(store, dict) else None
-    return frozenset(acc for acc in linked or [] if isinstance(acc, str))
+    files = download.get("files") or []
+    return frozenset(f["path"] for f in files if isinstance(f, dict) and isinstance(f.get("path"), str) and f["path"])

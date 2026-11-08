@@ -321,9 +321,36 @@ class TestGenomeDownloadCommand:
             registry=str(registry_file),
         )
 
-        assert GenomeDownloadCommand().execute(args) == 0
+        with patch("prepare.cli.commands.genome.genome_assembly_levels", return_value={"GCF_000009999.1": "Scaffold"}):
+            assert GenomeDownloadCommand().execute(args) == 0
         assert "GCF_000005845.2" in load_registry(registry_file).genomes
         assert not zip_path.exists()
+
+    @patch("prepare.cli.commands.genome.download_genomes")
+    def test_assembly_level_still_fails_for_a_genome_ncbi_does_not_have(self, mock_download, tmp_path):
+        """A left-out accession NCBI knows was filtered by level; one it does not know is missing."""
+        import zipfile
+
+        zip_path = tmp_path / "genomes" / ".download.zip"
+        zip_path.parent.mkdir()
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("ncbi_dataset/data/GCF_000005845.2/GCF_000005845.2_genomic.fna", ">s\nACGT\n")
+        mock_download.return_value = zip_path
+        args = argparse.Namespace(
+            accessions=["GCF_000005845.2", "GCF_000009999.1"],
+            accession_file=None,
+            species=None,
+            genus=None,
+            output_dir=str(tmp_path / "genomes"),
+            representative_only=True,
+            assembly_level="complete",
+            force=False,
+            dry_run=False,
+            registry=str(tmp_path / "prepare_registry.json"),
+        )
+
+        with patch("prepare.cli.commands.genome.genome_assembly_levels", return_value={}):
+            assert GenomeDownloadCommand().execute(args) == 1
 
     @patch("prepare.cli.commands.genome.extract_and_organize")
     @patch("prepare.cli.commands.genome.download_genomes")

@@ -35,7 +35,7 @@ For each sample with kept reads, `samtools coverage` runs on the kept alignments
 
 ## Skipping and redoing
 
-A sample already extracted with the same genome FASTA, preset and `--min-mapq` is skipped on a rerun, including samples that mapped zero reads. The containment threshold only decides which samples are tried; it is recorded with the extraction but a different threshold does not redo a sample. `--force` redoes extraction and assembly. Re-extracting a sample drops its recorded assembly from the registry, since that assembly was built from the reads being replaced. The assembly folder stays on disk.
+A sample already extracted with the same genome FASTA, preset and `--min-mapq` is skipped on a rerun, including samples that mapped zero reads. The extraction also records the name, size and modification time of the sample's FASTQ files, so a sample whose reads were downloaded again (`download_sra --force`, `--redownload-truncated`) is extracted again; an extraction recorded before 0.12.2 has no such record and is reused as before. The containment threshold only decides which samples are tried; it is recorded with the extraction but a different threshold does not redo a sample. `--force` redoes extraction and assembly. Re-extracting a sample drops its recorded assembly from the registry, since that assembly was built from the reads being replaced. The assembly folder stays on disk.
 
 ## Incomplete downloads and --allow-truncated
 

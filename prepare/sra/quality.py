@@ -178,7 +178,7 @@ class SequenceQualityAnalyzer:
                 read_lengths.append(len(sequence))
                 gc_contents.append(self._calculate_gc_content(sequence))
                 qualities.append(quality.encode("ascii"))
-                n_contents.append(sequence.count("N") / len(sequence) if sequence else 0.0)
+                n_contents.append((sequence.count("N") + sequence.count("n")) / len(sequence) if sequence else 0.0)
                 sequences.append(sequence)
 
         return read_lengths, gc_contents, quality_histogram(qualities), n_contents, sequences
@@ -209,7 +209,7 @@ class SequenceQualityAnalyzer:
             seq = seq_bytes.decode("utf-8")
             read_lengths.append(len(seq))
             gc_contents.append(self._calculate_gc_content(seq))
-            n_contents.append((seq.count("N") / len(seq)) if seq else 0.0)
+            n_contents.append(((seq.count("N") + seq.count("n")) / len(seq)) if seq else 0.0)
             sequences.append(seq)
 
         return read_lengths, gc_contents, quality_histogram(q for _s, q in records), n_contents, sequences
@@ -226,7 +226,7 @@ class SequenceQualityAnalyzer:
 
     def _calculate_gc_content(self, sequence: str) -> float:
         """Calculate GC content of sequence."""
-        gc_count = sequence.count("G") + sequence.count("C")
+        gc_count = sequence.count("G") + sequence.count("C") + sequence.count("g") + sequence.count("c")
         return gc_count / len(sequence) if len(sequence) > 0 else 0.0
 
     def _get_length_distribution(self, lengths: List[int]) -> Dict[str, int]:

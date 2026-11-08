@@ -359,6 +359,8 @@ class ExtractionBlock(RegistryBlock):
     genome_fasta: Optional[str] = None
     # [size, mtime] of genome_fasta when extracted (read_extraction.genome_signature); None before 0.12.2.
     genome_signature: Optional[List[float]] = _optional()
+    # [[name, size, mtime], ...] of the read files mapped (extraction_records.reads_signature); None before 0.12.2.
+    reads_signature: Optional[List[List[Any]]] = _optional()
     preset: Any = None
     threshold: Any = None
     filter_flags: Any = None

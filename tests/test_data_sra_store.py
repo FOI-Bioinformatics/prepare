@@ -1373,3 +1373,31 @@ def test_summary_counts_a_store_link_made_by_the_retry_pass_as_a_link(tmp_path, 
 
     assert "Newly downloaded: 0" in caplog.text
     assert "Linked from store: 1" in caplog.text
+
+
+def test_linking_a_ready_copy_without_a_catalogue_row_records_it(tmp_path):
+    """A run killed between publishing a dataset and recording it leaves the copy without a
+    catalogue row (a later usage write makes it an 'unknown' placeholder that store_gc never
+    offers). The next link of that ready copy records it from its sidecar."""
+    from prepare.store.catalog import Catalog, catalog_write
+    from prepare.store.layout import init_store, sidecar_path, sra_dir
+    from prepare.store.sidecar import build_sidecar, write_sidecar
+
+    paths = init_store(tmp_path / "store")
+    with catalog_write(paths):
+        pass
+    store_dir = sra_dir(paths, "SRR1")
+    store_dir.mkdir(parents=True)
+    with gzip.open(store_dir / "SRR1.fastq.gz", "wt") as handle:
+        handle.write("@r\nACGT\n+\nIIII\n")
+    sidecar = build_sidecar("SRR1", store_dir, {}, "3.0", "gzip")
+    write_sidecar(sidecar_path(paths, "SRR1"), sidecar)
+    with catalog_write(paths) as cat:  # the placeholder a usage write leaves
+        cat.upsert_project("p1", "P", str(tmp_path), str(tmp_path / "prepare_registry.json"))
+        cat.record_usage("SRR1", "p1", "", "linked", "")
+
+    result = store_handoff_mod._try_link("SRR1", tmp_path / "fastq", paths, "absolute", "", locked=False)
+
+    assert result is not None and result[0] is True
+    with Catalog(paths) as cat:
+        assert cat.get_dataset("SRR1")["state"] == sidecar.state

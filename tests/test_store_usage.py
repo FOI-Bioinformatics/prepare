@@ -290,19 +290,46 @@ class TestMovedOrCustomFolderProjects:
             row = cat.conn.execute("SELECT path FROM projects WHERE project_id = 'proj1'").fetchone()
         assert row["path"] == str(moved.resolve())
 
+    @staticmethod
+    def _project_linking(tmp_path, folder, store_copy, accession):
+        """A project whose ``<folder>/<accession>`` links ``store_copy``, recorded as download_sra does."""
+        from prepare.data.registry import record_download, save_registry
+
+        project_dir = tmp_path / "proj"
+        (project_dir / folder).mkdir(parents=True, exist_ok=True)
+        (project_dir / folder / accession).symlink_to(store_copy, target_is_directory=True)
+        registry = Registry(path=project_dir / "prepare_registry.json")
+        registry.project = {"id": "proj1", "name": "P", "path": str(project_dir)}
+        registry.store = {"linked": [accession]}
+        record_download(registry, accession, "downloaded", project_dir / folder, source="store", store_name=accession)
+        save_registry(registry)
+        return project_dir, registry.path
+
     def test_a_link_in_a_non_default_fastq_folder_protects_the_dataset(self, paths, tmp_path):
-        """A project linking from reads/ instead of fastq/ lists the accession in its registry's
-        store.linked; gc must not see the dataset as unused."""
+        """A project linking from reads/ instead of fastq/: its download record points into this
+        store's copy, so gc must not see the dataset as unused."""
         acc_dir = paths.sra / "SRR1"
         acc_dir.mkdir(parents=True)
-        project_dir = tmp_path / "proj"
-        (project_dir / "reads").mkdir(parents=True)
-        (project_dir / "reads" / "SRR1").symlink_to(acc_dir, target_is_directory=True)
-        registry_file = project_dir / "prepare_registry.json"
-        registry_file.write_text(json.dumps({"project": {"id": "proj1"}, "store": {"linked": ["SRR1"]}}))
+        (acc_dir / "SRR1.fastq.gz").write_bytes(b"x")
+        project_dir, registry_file = self._project_linking(tmp_path, "reads", acc_dir, "SRR1")
         with catalog_write(paths) as cat:
             cat.upsert_project("proj1", "Custom", str(project_dir), str(registry_file))
 
         with Catalog(paths, create=True) as cat:
             cat.migrate()
             assert linked_by(paths, cat, "SRR1") == ["Custom"]
+
+    def test_a_linked_list_naming_the_accession_is_not_enough(self, paths, tmp_path):
+        """store.linked may name an accession linked from another store (a project rebound with
+        store_init); only a link or a download record into this store's copy protects it."""
+        (paths.sra / "SRR2").mkdir(parents=True)
+        other_copy = tmp_path / "other" / "sra" / "SRR2"
+        other_copy.mkdir(parents=True)
+        (other_copy / "SRR2.fastq.gz").write_bytes(b"x")
+        project_dir, registry_file = self._project_linking(tmp_path, "fastq", other_copy, "SRR2")
+        with catalog_write(paths) as cat:
+            cat.upsert_project("proj1", "Rebound", str(project_dir), str(registry_file))
+
+        with Catalog(paths, create=True) as cat:
+            cat.migrate()
+            assert linked_by(paths, cat, "SRR2") == []

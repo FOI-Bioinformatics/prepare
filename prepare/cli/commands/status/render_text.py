@@ -160,9 +160,19 @@ def _print_stages(stages: Dict[str, Any], registry: Registry, emit: Callable[[st
         info = stages[stage]
         detail = details.get(stage)
         emit(f"  {stage:<10s} : {info['count']}" + (f"   {detail}" if detail else ""))
+    _print_gone_from_disk(stages, emit)
     truncated = download_verdicts(registry)["truncated"]
     if truncated:
         emit(f"  truncated downloads: {len(truncated)} (" + ", ".join(truncated) + ")")
+
+
+def _print_gone_from_disk(stages: Dict[str, Any], emit: Callable[[str], None]) -> None:
+    """Name the recorded downloads, extractions and assemblies whose files are no longer on disk."""
+    gone = {stage: stages[stage]["missing_on_disk"] for stage in STAGES if stages[stage].get("missing_on_disk")}
+    for stage, accessions in gone.items():
+        emit(f"  {stage} but gone from disk: {len(accessions)} (" + _named(accessions) + ")")
+    if gone:
+        emit("  run `prepare status --reconcile` to update the registry")
 
 
 def _print_funnel(report: Dict[str, Any], emit: Callable[[str], None]) -> None:
@@ -251,9 +261,18 @@ def _print_reconcile_notes(drift: Dict[str, Any], emit: Callable[[str], None]) -
     filled = drift.get("metadata_filled") or []
     if filled:
         emit(f"  Metadata filled from XML                : {len(filled)}")
-    dropped = drift.get("assemblies_dropped") or []
-    if dropped:
-        emit(f"  Assemblies older than their extraction  : {len(dropped)} record(s) dropped: " + _named(dropped))
+    for key, label in _DROPPED_RECORDS:
+        dropped = drift.get(key) or []
+        if dropped:
+            emit(f"  {label:<39s} : {len(dropped)} record(s) dropped: " + _named(dropped))
+
+
+# The drift lists of records reconcile removed, with the label each is reported under.
+_DROPPED_RECORDS = (
+    ("assemblies_dropped", "Assemblies older than their extraction"),
+    ("extractions_dropped", "Extractions whose files are gone"),
+    ("assemblies_missing", "Assemblies whose folder is gone"),
+)
 
 
 def _print_drift(drift: Dict[str, Any], emit: Callable[[str], None]) -> None:

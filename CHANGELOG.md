@@ -6,6 +6,55 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `status` re-checks the disk as documented: a download, extraction or assembly removed by hand is no
+  longer counted as done (it is listed under `missing_on_disk`), and `status --reconcile` removes
+  extraction and assembly records whose files are gone (new drift lists `extractions_dropped` and
+  `assemblies_missing`), so `results_table` stops reporting them and `status --next` suggests the work
+  again.
+- `extract_target_reads` redoes a sample whose reads were downloaded again since it was extracted
+  (`download_sra --force`, `--redownload-truncated`); it reused the extraction of the replaced reads.
+  An extraction now records its reads' names, sizes and modification times (`reads_signature`).
+- `status --init` with both `--parsed-containment` and `--accessions-file` records the accessions
+  file as the selection, instead of every accession of the table.
+- `status --next` suggestions run as printed from a subfolder of the project and carry a non-default
+  `--fastq-folder` to the extraction command.
+- A metadata XML holding a whole experiment package (written before 0.10.1, or fetched by hand) is
+  read for the run its file name names, not the first run in it; a sibling run's spot count could
+  make a truncated download look complete or the reverse.
+- `extract_target_reads --assemble` reads a gzipped genome FASTA (`.fna.gz`, accepted for
+  extraction) instead of failing before the first assembly.
+- `download_metadata` reads match CSVs row by row as `parse_containment` does: a stray comma in a free
+  text field, a trailing delimiter or a `-` containment cell no longer aborts the command or finds no
+  accessions; such rows are skipped with a warning.
+- With one mate file missing, extraction maps the mate file present as single-end reads, instead of
+  pairing mate 1 with the unpaired-reads file or mapping only the unpaired reads; `sra_profile` calls
+  a lone mate file single-end, as the store sidecar does.
+- GC and N content count lower-case bases.
+- A registry with hand-edited or old value types (an extraction count written as text, a null
+  analysis summary, extractions stored as a list) is read with those values normalised instead of
+  making `status`, `results_table` or `project_report` fail.
+- A `config.toml` saved with a UTF-8 BOM is read (every command exited 3), also by
+  `store_init --set-default`.
+- `store_adopt` rerun after a run killed outright (SIGKILL, out of memory, a job time limit) records
+  the store links that run made but never recorded; they were skipped as "already a link", and with
+  a non-default `--fastq-folder` `store_gc --yes` could then remove the only copy.
+- A store copy published by a run killed before it recorded the copy in the catalogue (left with an
+  `unknown` placeholder row that `store_gc` never offers) is recorded from its sidecar when it is
+  next linked, and by `store_verify --fix-state`.
+- `extract_target_reads` removes a staging folder of the same sample and genome left by a run that
+  was killed, instead of leaving it hidden in `targeted/<ACC>/` for good.
+- `store_gc` counts a project as using a dataset only when one of its links, or its download record,
+  points into this store's copy; a name in the registry's `store.linked` is no longer enough on its
+  own (it can refer to another store after `store_init` rebinds the project), so an unused copy is
+  removed again.
+- `enrich_taxonomy` and `explore_containment` offline write the part of the map the cache holds; they
+  fail with exit 4 only when nothing at all is known. A GTDB reply saying the service is unavailable
+  (a 5xx or 429 from the search endpoint) is a network failure (exit 4), not "no taxonomy found".
+- A reader that closes stdout before a small output is flushed (`prepare ... | true`) no longer ends
+  the process with exit 120; stdout is flushed when the command returns.
+- `genome_download`/`genome_prepare` remove the hidden zip of a download that failed or was
+  interrupted. With `--assembly-level`, a left-out genome that NCBI does not have at all is reported
+  as missing (exit 1) again; only those at another level are logged as filtered (`datasets summary`).
 - `genome_download --assembly-level` no longer fails (exit 1, and again on every rerun) because
   `datasets` left out the genomes at another level, as asked; it logs which ones. Each download
   uses its own hidden zip in the output folder, removed after extraction, so two runs into one

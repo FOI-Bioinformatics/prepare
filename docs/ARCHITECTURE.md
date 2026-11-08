@@ -480,7 +480,8 @@ itself if it wants that further run's own tools to start.
 - **registry_reconcile**: `scan_reconcile`/`apply_reconcile` for `status --reconcile` (see "Registry
   write model" below); the report, `StoreReconcileReport`, adds `store_unavailable`, `metadata_filled`,
   `verdicts_rechecked` and `assemblies_dropped` (assembly records dated before their extraction record,
-  which the apply step removes with `clear_assembly`) to the fields of `ReconcileReport`
+  which the apply step removes with `clear_assembly`), `extractions_dropped` and `assemblies_missing`
+  (records whose files or folder were deleted from disk) to the fields of `ReconcileReport`
 - **store** (`prepare/store/`): The shared data store package, described in "Shared data store"
   below; a project that never runs `store_init` never touches it
 - **run_log**: the per-project run log (`RunRecord`, `note_run`, `note_rows`, `record_run`, `read_runs`,

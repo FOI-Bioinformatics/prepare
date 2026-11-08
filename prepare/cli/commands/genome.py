@@ -3,7 +3,7 @@
 import argparse
 import csv
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
 from prepare.cli.base import BaseCommand
 from prepare.core.constants import GENOME_FASTA_GLOBS
@@ -16,6 +16,7 @@ from prepare.data.genome_download import (
     download_genomes,
     extract_and_organize,
     partition_present_genomes,
+    genome_assembly_levels,
     validate_genome_accessions,
 )
 from prepare.data.gtdb import (
@@ -235,13 +236,7 @@ class GenomeDownloadCommand(BaseCommand):
             finally:
                 zip_path.unlink(missing_ok=True)
             left_out = [acc for acc in to_download if acc not in genome_paths] if args.assembly_level else []
-            if left_out:
-                self.logger.info(
-                    "%d genome(s) not at assembly level %s, not downloaded: %s",
-                    len(left_out),
-                    args.assembly_level,
-                    ", ".join(left_out),
-                )
+            missing_error = missing_error or self._report_left_out(left_out, args.assembly_level, genome_paths)
             self.logger.info("Downloaded and extracted %d genome(s)", len(genome_paths))
 
             if genome_paths:
@@ -258,6 +253,28 @@ class GenomeDownloadCommand(BaseCommand):
             return 0
         except PrepareError as e:
             return self.fail(e, "Error downloading genomes")
+
+    def _report_left_out(
+        self, left_out: List[str], level: str, genome_paths: Dict[str, Path]
+    ) -> Optional[MissingGenomesError]:
+        """Log the genomes ``--assembly-level`` left out; the error for any NCBI does not have at all.
+
+        datasets leaves out a genome at another level without saying so, as it does one that does
+        not exist; ``datasets summary`` tells the two apart.
+        """
+        if not left_out:
+            return None
+        levels = genome_assembly_levels(left_out)
+        filtered = [acc for acc in left_out if acc in levels]
+        if filtered:
+            shown = ", ".join(f"{acc} ({levels[acc] or 'unknown level'})" for acc in filtered)
+            self.logger.info("%d genome(s) not at assembly level %s, not downloaded: %s", len(filtered), level, shown)
+        unknown = [acc for acc in left_out if acc not in levels]
+        if not unknown:
+            return None
+        return MissingGenomesError(
+            f"{len(unknown)} requested genome(s) missing from the NCBI download: {', '.join(unknown)}", genome_paths
+        )
 
 
 class GenomePrepareCommand(BaseCommand):

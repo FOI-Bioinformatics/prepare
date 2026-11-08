@@ -226,3 +226,19 @@ class TestZeroMappingForcedRerun:
         assert result.files == []
         assert not (out_dir / "GCF_1_1.fastq.gz").exists()
         assert not (out_dir / ".GCF_1.extracted.json").exists()
+
+
+def test_a_killed_runs_staging_folder_is_removed_by_the_next_run(tmp_path):
+    """The caller holds the sample's extraction lock, so any other staging folder for this genome is
+    a leftover of a run that was killed; another genome's staging folder is left alone."""
+    leftover = tmp_path / ".GCF_000001.1.otherhost.4242.deadbeef.tmp"
+    leftover.mkdir()
+    (leftover / "partial.fastq.gz").write_bytes(b"x")
+    other_genome = tmp_path / ".GCF_000001.10.otherhost.4242.deadbeef.tmp"
+    other_genome.mkdir()
+
+    with staged_sample_outputs(tmp_path, "GCF_000001.1"):
+        pass
+
+    assert not leftover.exists()
+    assert other_genome.exists()

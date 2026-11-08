@@ -1496,3 +1496,50 @@ def test_bom_files_are_read_like_any_other(tmp_path):
     (paths.matches / "G1.csv").write_bytes("\ufeffacc,containment\nSRR1001,0.5\n".encode("utf-8"))
     registry = reg.bootstrap_from_disk(paths)
     assert registry.datasets["SRR1001"]["screening"]["genomes"]["G1"]["containment"] == 0.5
+
+
+def test_hand_edited_value_types_are_normalised_on_load(tmp_path):
+    """A registry edited by hand (or written by an older version) with a string count, a null
+    analysis summary or extractions stored as a list must not crash status or the reports."""
+    import json as json_mod
+
+    path = tmp_path / "prepare_registry.json"
+    path.write_text(
+        json_mod.dumps(
+            {
+                "version": 1,
+                "datasets": {
+                    "SRR1": {"extractions": {"G1": {"mapped_reads": "40", "mapped_total": "x"}}},
+                    "SRR2": {"extractions": [], "analyses": {"profile": {"summary": None, "date": "d"}}},
+                },
+            }
+        )
+    )
+
+    registry = reg.load_registry(path)
+
+    assert registry.datasets["SRR1"]["extractions"]["G1"]["mapped_reads"] == 40
+    assert registry.datasets["SRR1"]["extractions"]["G1"]["mapped_total"] is None
+    assert registry.datasets["SRR2"]["extractions"] == {}
+    assert registry.datasets["SRR2"]["analyses"]["profile"]["summary"] == {}
+    assert reg.query(registry, "extracted") == ["SRR1"]
+
+
+def test_bootstrap_selects_the_accessions_file_not_the_whole_table(tmp_path):
+    """status --init with both files (as local_test.sh runs it): the selection is the accessions
+    file; the table only says what was screened."""
+    paths = reg.ProjectPaths(
+        fastq=tmp_path / "fastq",
+        metadata=tmp_path / "metadata",
+        genomes=tmp_path / "genomes",
+        targeted=tmp_path / "targeted",
+        matches=tmp_path / "matches",
+    )
+    table = tmp_path / "parsed_containment.txt"
+    table.write_text("\tG1\nSRR1\t0.9\nSRR2\t0.5\nSRR3\t0.1\n")
+    accessions = tmp_path / "accessions.txt"
+    accessions.write_text("SRR1\n")
+
+    registry = reg.bootstrap_from_disk(paths, accessions_file=accessions, parsed_containment=table)
+
+    assert reg.query(registry, "selected") == ["SRR1"]

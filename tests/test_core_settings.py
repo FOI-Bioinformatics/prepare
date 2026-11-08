@@ -579,3 +579,11 @@ def test_prefetch_max_size_from_the_config_file(tmp_path):
     resolved = settings.resolve_setting("prefetch_max_size")
     assert resolved.value == "50G"
     assert resolved.source == "config [runtime] prefetch_max_size"
+
+
+def test_a_config_file_saved_with_a_bom_is_read(tmp_path):
+    """Editors on Windows may save config.toml with a UTF-8 BOM, which tomllib refuses on its own."""
+    path = _write_config(tmp_path, "[runtime]\nlog_level = 'WARNING'\n")
+    path.write_bytes("\ufeff".encode("utf-8") + path.read_bytes())
+
+    assert settings.read_config()["runtime"]["log_level"] == "WARNING"

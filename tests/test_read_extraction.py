@@ -891,6 +891,27 @@ class TestRecordMatches:
         assert _record_matches(record, tmp_path / "g.fna", "sr", 0.1, min_mapq=20)
         assert not _record_matches(record, tmp_path / "g.fna", "sr", 0.1, min_mapq=0)
 
+    def test_replaced_reads_make_the_record_stale(self, tmp_path):
+        """A record names the reads it mapped; reads downloaded again (another size or mtime) differ."""
+        import os
+
+        from prepare.data.extraction_records import _READS_REPLACED, _record_mismatch_reason, reads_signature
+
+        (tmp_path / "g.fna").write_text(">a\nA\n")
+        reads = tmp_path / "SRR1.fastq"
+        reads.write_text("@r\nACGT\n+\nIIII\n")
+        record = {"preset": "sr", "mapped_reads": 0, "reads_signature": reads_signature([reads])}
+        record = json.loads(json.dumps(record))  # as read back from the registry
+        assert _record_mismatch_reason(record, tmp_path / "g.fna", "sr", 0.1, reads=[reads]) is None
+        # Unknown reads (none on disk) and records without a signature never count as replaced.
+        assert _record_mismatch_reason(record, tmp_path / "g.fna", "sr", 0.1, reads=None) is None
+        old = {"preset": "sr", "mapped_reads": 0}
+        assert _record_mismatch_reason(old, tmp_path / "g.fna", "sr", 0.1, reads=[reads]) is None
+
+        stat = reads.stat()
+        os.utime(reads, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+        assert _record_mismatch_reason(record, tmp_path / "g.fna", "sr", 0.1, reads=[reads]) == _READS_REPLACED
+
 
 class TestExtractionIdempotency:
     @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
@@ -1752,3 +1773,37 @@ class TestMegahitVersion:
     def test_returns_empty_when_the_tool_cannot_be_run(self, mock_run, _which):
         mock_run.side_effect = SecurityError("not installed")
         assert megahit_version() == ""
+
+
+class TestSampleReadsWithAMissingMate:
+    """One mate file missing: never pair the unpaired-reads file with a mate, never drop the mate."""
+
+    @staticmethod
+    def _folder(tmp_path, *names):
+        acc_dir = tmp_path / "fastq" / "SRR1"
+        acc_dir.mkdir(parents=True)
+        for name in names:
+            (acc_dir / name).write_text("@r\nACGT\n+\nIIII\n")
+        return tmp_path / "fastq"
+
+    def test_mate_one_without_mate_two_is_mapped_alone(self, tmp_path):
+        from prepare.data.read_extraction import _sample_reads
+
+        fastq = self._folder(tmp_path, "SRR1.fastq", "SRR1_1.fastq")
+        assert [p.name for p in _sample_reads(fastq, "SRR1")] == ["SRR1_1.fastq"]
+
+    def test_mate_two_without_mate_one_is_mapped_not_the_unpaired_reads(self, tmp_path):
+        from prepare.data.read_extraction import _sample_reads
+
+        fastq = self._folder(tmp_path, "SRR1.fastq", "SRR1_2.fastq")
+        assert [p.name for p in _sample_reads(fastq, "SRR1")] == ["SRR1_2.fastq"]
+
+
+def test_profile_layout_matches_the_store_sidecars():
+    """A lone mate-2 file is not a paired dataset; sra_profile and the store sidecar agree."""
+    from prepare.sra.profiles import _layout
+    from prepare.store.sidecar import detect_layout
+
+    for names in (["A_2.fastq"], ["A_1.fastq", "A_2.fastq"], ["A.fastq"], ["A.fastq", "A_1.fastq"]):
+        files = [Path(name) for name in names]
+        assert _layout(files) == detect_layout(files), names
