@@ -4,6 +4,11 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-08
+
+Fixes from further audits of the pipeline and the optional tool version checks (PRs #44-#48),
+including regressions introduced by the earlier fixes.
+
 ### Fixed
 
 - `status` re-checks the disk as documented: a download, extraction or assembly removed by hand is no
