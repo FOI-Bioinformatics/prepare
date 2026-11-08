@@ -4,7 +4,7 @@ This guide describes the project registry and the commands that read it: `status
 
 ## The registry
 
-PREPARE keeps a journal of every dataset a project touches in `prepare_registry.json` in the project root. It records which genomes a dataset was screened against and with what containment, whether it was selected (by which threshold and filter), whether it is excluded and why, the download outcome with file sizes and dates, which analyses ran, and for each target genome the number of mapped reads and the assembly statistics. Commands update it as they finish. `status` reads it and always re-checks the disk, so a deleted folder shows up as missing rather than done. Commit `prepare_registry.json` with the project if the decisions should travel with the results. The design of the file is described in [ARCHITECTURE.md](ARCHITECTURE.md).
+PREPARE keeps a journal of every dataset a project touches in `prepare_registry.json` in the project root. It records which genomes a dataset was screened against and with what containment, whether it was selected (by which threshold and filter), whether it is excluded and why, the download outcome with file sizes and dates, which analyses ran, and for each target genome the number of mapped reads and the assembly statistics. Commands update it as they finish. `status` reads it and always re-checks the disk, so a deleted folder shows up as missing rather than done: a download whose reads, an extraction whose read files or an assembly whose folder were removed by hand is not counted in its stage, and is listed under `missing_on_disk` of that stage in `--json` (and named in the text report) until `status --reconcile` updates the registry. Commit `prepare_registry.json` with the project if the decisions should travel with the results. The design of the file is described in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 The registry keeps the latest outcome of each step. Two limits apply:
 
@@ -30,7 +30,7 @@ prepare status --json                      # the report as one JSON document
 - `--init` creates the registry from what is on disk. A genome is registered when a match CSV, an extraction folder or a `genome_prepare` record names it; a FASTA under `genomes/` on its own is not registered. It fills every metadata block it creates from an `<ACCESSION>_metadata.xml` that records a spot count (spot count, size, md5, assay type, organism, collection date, library layout and strategy, platform), in the same write that creates the registry.
 - `--reconcile` compares the registry with the disk, records files that were removed by hand and registers untracked work. It re-checks `unverified` download verdicts and fills metadata in the same way as `--init` (see [reads.md](reads.md) for the spot-count sources). A store link costs nothing for this check, since its read count comes from the sidecar, but a plain project download is counted again from its mate-1 file and its file of unpaired reads. The first reconcile after spot counts become known therefore reads, once, the mate-1 file of every `unverified` plain download that has a spot count; later runs read nothing again. On a large project, run that first reconcile as a cluster job rather than on a login node.
 
-The reconcile report, and the `drift` object of `status --json`, add four lists:
+The reconcile report, and the `drift` object of `status --json`, add six lists:
 
 | List | Content |
 | --- | --- |
@@ -38,8 +38,10 @@ The reconcile report, and the `drift` object of `status --json`, add four lists:
 | `metadata_filled` | Accessions whose metadata block was filled from an XML file. |
 | `verdicts_rechecked` | Accessions whose `unverified` verdict became `complete` or `truncated`. |
 | `assemblies_dropped` | `ACC/GENOME` assembly records dated before their extraction record. Reconcile removes the record and leaves the folder on disk, and the next `extract_target_reads --assemble` builds the assembly again. |
+| `extractions_dropped` | `ACC/GENOME` extraction records whose read files were removed from disk. Reconcile removes the record, so `results_table` stops reporting its figures and `status --next` suggests the extraction again. |
+| `assemblies_missing` | `ACC/GENOME` assembly records whose folder was removed from disk. Reconcile removes the record and keeps the extraction. |
 
-The four keys are always present in `--json`, as empty lists when there is nothing to report. The text report prints a warning for the first and a line for each of the other three, only when the list is not empty.
+The six keys are always present in `--json`, as empty lists when there is nothing to report. The text report prints a warning for the first and a line for each of the others, only when the list is not empty.
 
 ### Suggested next commands
 
@@ -81,7 +83,7 @@ The extraction and assembly figures cover only the pairs that reached the stage 
 
 `status --export-tsv registry` writes `registry_datasets.tsv` and `registry_extractions.tsv`. The extraction table has the timing columns followed by `coverage_tsv`, `n90`, `largest` and `assembly_dir`.
 
-`extract_target_reads` skips samples already extracted or assembled with the same genome, preset and `--min-mapq`, and `--force` redoes them (see [extraction_assembly.md](extraction_assembly.md)).
+`extract_target_reads` skips samples already extracted or assembled with the same genome, preset and `--min-mapq` from the same reads, and `--force` redoes them (see [extraction_assembly.md](extraction_assembly.md)).
 
 ## results_table
 

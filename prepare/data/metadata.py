@@ -87,28 +87,39 @@ def _match_file_accessions(csv_file: Path, threshold: float) -> List[str]:
         reader = csv.DictReader(handle)
         fields = [str(name).strip() for name in reader.fieldnames or []]
         reader.fieldnames = fields
-        column = "acc" if "acc" in fields else "SRA accession" if "SRA accession" in fields else None
-        if column is None:
-            raise ValueError("no 'acc' or 'SRA accession' column")
-        if threshold > 0 and "containment" not in fields:
-            raise ValueError("no 'containment' column")
+        column = _accession_column(fields, threshold)
         for row in reader:
-            accession = (row.get(column) or "").strip()
-            if threshold > 0:
-                try:
-                    containment = float(row.get("containment") or "")
-                except ValueError:
-                    skipped += 1
-                    continue
-                if containment < threshold:
-                    continue
-            if not validate_accession(accession):
+            accession = _row_match(row, column, threshold)
+            if accession is None:
                 skipped += 1
-                continue
-            found.append(accession)
+            elif accession:
+                found.append(accession)
     if skipped:
         logger.warning("%s: skipped %d row(s) without a valid SRA accession or containment", csv_file.name, skipped)
     return found
+
+
+def _accession_column(fields: List[str], threshold: float) -> str:
+    """The match CSV's accession column; ValueError when it, or a needed containment column, is absent."""
+    column = "acc" if "acc" in fields else "SRA accession" if "SRA accession" in fields else None
+    if column is None:
+        raise ValueError("no 'acc' or 'SRA accession' column")
+    if threshold > 0 and "containment" not in fields:
+        raise ValueError("no 'containment' column")
+    return column
+
+
+def _row_match(row: Dict[str, Any], column: str, threshold: float) -> Optional[str]:
+    """The row's accession when it meets ``threshold``, "" when it falls below it, None when unusable."""
+    accession = (row.get(column) or "").strip()
+    if threshold > 0:
+        try:
+            containment = float(row.get("containment") or "")
+        except ValueError:
+            return None
+        if containment < threshold:
+            return ""
+    return accession if validate_accession(accession) else None
 
 
 def _read_accessions_file(path: Union[str, Path]) -> List[str]:

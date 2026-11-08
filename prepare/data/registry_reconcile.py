@@ -30,6 +30,12 @@ removes such a record (``clear_assembly``), so ``status`` and ``results_table`` 
 it, and lists it in ``StoreReconcileReport.assemblies_dropped``; the assembly folder on disk is
 left alone and the next ``extract_target_reads --assemble`` builds the assembly again.
 
+Work deleted from disk by hand is dropped the same way: an extraction record whose recorded read
+files are not all on disk any more is removed (``StoreReconcileReport.extractions_dropped``), and
+an assembly record whose folder is gone is cleared (``assemblies_missing``), so ``status`` and
+``results_table`` stop reporting figures nothing on disk backs and ``status --next`` suggests the
+work again. A record that names no files (or no folder) is kept: there is nothing to check.
+
 The module sits next to ``prepare.data.registry``, which is held at its current size by
 the module size ceiling; that module re-exports ``reconcile``.
 """
@@ -39,7 +45,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from prepare.core.exceptions import DataAccessError
 from prepare.data import registry as _registry
@@ -91,13 +97,17 @@ class StoreReconcileReport(ReconcileReport):
     included, from the project's metadata XML file. ``verdicts_rechecked`` lists accessions whose
     ``unverified`` verdict became ``complete`` or ``truncated``. ``assemblies_dropped`` lists, as
     ``"ACC/GENOME"``, the assembly records removed because they were dated earlier than their
-    extraction record. Each list is sorted.
+    extraction record. ``extractions_dropped`` and ``assemblies_missing`` list, the same way, the
+    extraction records whose read files and the assembly records whose folder were deleted from
+    disk. Each list is sorted.
     """
 
     store_unavailable: List[str] = field(default_factory=list)
     metadata_filled: List[str] = field(default_factory=list)
     verdicts_rechecked: List[str] = field(default_factory=list)
     assemblies_dropped: List[str] = field(default_factory=list)
+    extractions_dropped: List[str] = field(default_factory=list)
+    assemblies_missing: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -208,6 +218,7 @@ def _reconcile(registry: Registry, plan: ReconcilePlan, compute: bool) -> StoreR
     """The reconcile itself; with ``compute`` False it only uses figures ``plan`` already holds."""
     report = StoreReconcileReport()
     _mark_missing(registry, plan, report, warn=not compute)
+    report.extractions_dropped, report.assemblies_missing = _drop_vanished_work(registry)
     _record_untracked(registry, plan, report)
     for acc, per_genome_files in plan.extractions.items():
         for genome_id, files in per_genome_files.items():
@@ -239,6 +250,44 @@ def _drop_stale_assemblies(registry: Registry) -> List[str]:
     return sorted(dropped)
 
 
+def extraction_files_present(registry: Registry, extraction: Mapping[str, Any]) -> bool:
+    """False when the raw extraction record names read files and one of them is not on disk."""
+    files = extraction.get("files") or []
+    return all(resolve_project_path(registry, f).exists() for f in files if isinstance(f, str) and f)
+
+
+def assembly_dir_present(registry: Registry, assembly: Mapping[str, Any]) -> bool:
+    """False when the raw assembly record names a folder that is not on disk."""
+    folder = assembly.get("dir")
+    return not isinstance(folder, str) or not folder or resolve_project_path(registry, folder).is_dir()
+
+
+def _drop_vanished_work(registry: Registry) -> Tuple[List[str], List[str]]:
+    """Remove extraction records whose files, and clear assembly records whose folder, are gone.
+
+    Returns the dropped extractions and the cleared assemblies, each as sorted "ACC/GENOME". Checks a
+    few paths per record, so the apply step looks again under the lock without the scan's help.
+    """
+    extractions_dropped: List[str] = []
+    assemblies_missing: List[str] = []
+    for acc, entry in registry.datasets.items():
+        extractions = entry.get("extractions") if isinstance(entry, dict) else None
+        if not isinstance(extractions, dict):
+            continue
+        for genome_id, extraction in list(extractions.items()):
+            if not isinstance(extraction, dict):
+                continue
+            if not extraction_files_present(registry, extraction):
+                del extractions[genome_id]
+                extractions_dropped.append(f"{acc}/{genome_id}")
+                continue
+            assembly = extraction.get("assembly")
+            if isinstance(assembly, dict) and not assembly_dir_present(registry, assembly):
+                clear_assembly(registry, acc, genome_id)
+                assemblies_missing.append(f"{acc}/{genome_id}")
+    return sorted(extractions_dropped), sorted(assemblies_missing)
+
+
 def _mark_missing(registry: Registry, plan: ReconcilePlan, report: StoreReconcileReport, warn: bool) -> None:
     """Mark downloaded accessions whose reads are gone as missing, except links into an unmounted store.
 
@@ -257,7 +306,7 @@ def _mark_missing(registry: Registry, plan: ReconcilePlan, report: StoreReconcil
         # A download another process finished after the scan is not in the scan's listing;
         # one look at its folder (a few stat calls) keeps it from being marked missing. So do the
         # files the download recorded, when they live outside the folder this reconcile scans.
-        if accession_has_fastq(plan.paths.fastq / acc) or _recorded_files_present(registry, download):
+        if accession_has_fastq(plan.paths.fastq / acc) or recorded_files_present(registry, download):
             continue
         download.state, download.date = "missing", _registry._now()
         rb.set_download_block(registry, acc, download)
@@ -276,7 +325,7 @@ def _mark_missing(registry: Registry, plan: ReconcilePlan, report: StoreReconcil
         )
 
 
-def _recorded_files_present(registry: Registry, download: rb.DownloadBlock) -> bool:
+def recorded_files_present(registry: Registry, download: rb.DownloadBlock) -> bool:
     """True when the download records its files and every one of them is still on disk."""
     files = [entry.path for entry in download.files or [] if entry.path]
     return bool(files) and all(resolve_project_path(registry, path).is_file() for path in files)

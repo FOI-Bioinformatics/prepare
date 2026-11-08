@@ -6,6 +6,18 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- `status` re-checks the disk as documented: a download, extraction or assembly removed by hand is no
+  longer counted as done (it is listed under `missing_on_disk`), and `status --reconcile` removes
+  extraction and assembly records whose files are gone (new drift lists `extractions_dropped` and
+  `assemblies_missing`), so `results_table` stops reporting them and `status --next` suggests the work
+  again.
+- `extract_target_reads` redoes a sample whose reads were downloaded again since it was extracted
+  (`download_sra --force`, `--redownload-truncated`); it reused the extraction of the replaced reads.
+  An extraction now records its reads' names, sizes and modification times (`reads_signature`).
+- `status --init` with both `--parsed-containment` and `--accessions-file` records the accessions
+  file as the selection, instead of every accession of the table.
+- `status --next` suggestions run as printed from a subfolder of the project and carry a non-default
+  `--fastq-folder` to the extraction command.
 - A metadata XML holding a whole experiment package (written before 0.10.1, or fetched by hand) is
   read for the run its file name names, not the first run in it; a sibling run's spot count could
   make a truncated download look complete or the reverse.

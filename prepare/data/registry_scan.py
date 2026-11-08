@@ -185,7 +185,9 @@ def _bootstrap_selection(
 ) -> None:
     _r = _registry_module()
     wanted = _read_accession_list(accessions_file)
-    if parsed_containment and Path(parsed_containment).exists():
+    # The accessions file is the selection; the table names every accession screened, and is
+    # the selection only when there is no accessions file.
+    if not wanted and parsed_containment and Path(parsed_containment).exists():
         with open(parsed_containment) as handle:
             next(handle, None)
             wanted += [ln.split("\t", 1)[0].strip() for ln in handle if ln.strip()]

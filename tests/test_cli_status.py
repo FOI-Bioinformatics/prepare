@@ -650,8 +650,8 @@ class TestStatusWithRegistry:
         StatusCommand().execute(_status_args(tmp_path, next=True))
         out = json.loads(capsys.readouterr().out)
         extract = next(s for s in out["next"] if "extract_target_reads" in s["command"])
-        # Recorded relative to the project root, which is where the suggested command runs.
-        assert "--parsed-containment tables/containment.txt" in extract["command"]
+        # Run from outside the project, the recorded path is shown absolute so the command works here.
+        assert f"--parsed-containment {table.resolve()}" in extract["command"]
         assert f"--genome-fasta {tmp_path / 'genomes' / 'GCF_1.fasta'}" in extract["command"]
 
     def test_next_uses_the_recorded_genome_fasta(self, tmp_path, capsys):
@@ -1291,7 +1291,11 @@ def _mixed_registry(tmp_path):
     record_selection(r, ["SRR1", "SRR2", "SRR3", "SRR5"], {"min_containment": 0.1}, tmp_path / "sel.txt")
     record_exclusion(r, "SRR3", "amplicon")
     for acc in ("SRR1", "SRR2", "SRR4"):
+        # On disk too: status counts a download only while its reads are there.
+        (tmp_path / "fastq" / acc).mkdir(parents=True)
+        (tmp_path / "fastq" / acc / f"{acc}.fastq").write_text("@r\nACGT\n+\nIIII\n")
         record_download(r, acc, "downloaded", tmp_path / "fastq", attempt=False)
+    (tmp_path / "asm").mkdir()
     record_extraction(r, "SRR1", "G1", [], 50, False, {})
     record_extraction(r, "SRR2", "G1", [], 0, False, {})
     record_extraction(r, "SRR2", "G2", [], 9, False, {})
@@ -1351,6 +1355,7 @@ def _timed_project(tmp_path):
     set_download_timing(seeded, "SRR2", "2026-10-01T10:00:10+00:00", 30.0)
     record_extraction(seeded, "SRR1", "GCF_1", [], 5, False, {})
     set_extraction_timing(seeded, "SRR1", "GCF_1", "2026-10-01T10:01:00+00:00", 2.5)
+    (tmp_path / "asm").mkdir()
     record_assembly(seeded, "SRR1", "GCF_1", tmp_path / "asm", {"contigs": 1}, "v1", {})
     set_assembly_timing(seeded, "SRR1", "GCF_1", "2026-10-01T10:02:00+00:00", 45.0)
     save_registry(seeded)
@@ -1602,6 +1607,8 @@ def test_reconcile_json_drift_always_carries_the_new_keys(tmp_path, capsys):
     assert report["drift"]["metadata_filled"] == []
     assert report["drift"]["verdicts_rechecked"] == []
     assert report["drift"]["assemblies_dropped"] == []
+    assert report["drift"]["extractions_dropped"] == []
+    assert report["drift"]["assemblies_missing"] == []
 
 
 def test_text_report_unchanged_when_the_three_new_lists_are_empty(tmp_path, capsys):
@@ -1746,6 +1753,91 @@ def test_reconcile_text_names_the_dropped_assemblies(tmp_path, capsys):
     assert "Assemblies older than their extraction  : 1 record(s) dropped: SRR1/GCF_1" in out
 
 
+def _seed_deleted_work(tmp_path, capsys):
+    """SRR1 and SRR2 extracted against GCF_1 and assembled; then fastq/SRR1 and SRR2's targeted work are deleted."""
+    import shutil
+
+    from prepare.data.registry import record_assembly
+
+    _project_tree(tmp_path)
+    StatusCommand().execute(_status_args(tmp_path, init=True))
+    capsys.readouterr()
+    with registry_transaction(tmp_path / "prepare_registry.json") as registry:
+        for acc in ("SRR1", "SRR2"):
+            out = tmp_path / "targeted" / acc
+            out.mkdir(parents=True)
+            reads = out / f"{acc}_GCF_1_1.fastq.gz"
+            reads.write_bytes(gzip.compress(b"@r\nACGT\n+\nIIII\n"))
+            record_extraction(registry, acc, "GCF_1", [reads], 1, False, {})
+            (out / "GCF_1_assembly").mkdir()
+            record_assembly(registry, acc, "GCF_1", out / "GCF_1_assembly", {"contigs": 2}, "v1", {})
+    shutil.rmtree(tmp_path / "fastq" / "SRR1")
+    shutil.rmtree(tmp_path / "targeted" / "SRR2")
+
+
+def test_plain_status_does_not_count_deleted_work_as_done(tmp_path, capsys):
+    _seed_deleted_work(tmp_path, capsys)
+
+    assert StatusCommand().execute(_status_args(tmp_path, json=True)) == 0
+    report = json.loads(capsys.readouterr().out)
+
+    assert report["stages"]["downloaded"]["accessions"] == ["SRR2"]
+    assert report["stages"]["downloaded"]["missing_on_disk"] == ["SRR1"]
+    assert report["stages"]["extracted"]["accessions"] == ["SRR1"]
+    assert report["stages"]["extracted"]["missing_on_disk"] == ["SRR2"]
+    assert report["stages"]["assembled"]["accessions"] == ["SRR1"]
+    assert report["stages"]["assembled"]["missing_on_disk"] == ["SRR2"]
+    assert report["genomes"]["GCF_1"]["extracted"] == 1
+    assert report["genomes"]["GCF_1"]["assembled"] == 1
+    # Plain status only reports; the registry keeps its records until a reconcile.
+    registry = load_registry(tmp_path / "prepare_registry.json")
+    assert registry.datasets["SRR2"]["extractions"]["GCF_1"]["mapped_reads"] == 1
+
+    StatusCommand().execute(_status_args(tmp_path, json=False))
+    assert "status --reconcile" in capsys.readouterr().out
+
+
+def test_reconcile_drops_extractions_and_assemblies_deleted_from_disk(tmp_path, capsys):
+    _seed_deleted_work(tmp_path, capsys)
+
+    assert StatusCommand().execute(_status_args(tmp_path, reconcile=True, json=True)) == 0
+    report = json.loads(capsys.readouterr().out)
+
+    assert report["drift"]["recorded_missing"] == ["SRR1"]
+    assert report["drift"]["extractions_dropped"] == ["SRR2/GCF_1"]
+    registry = load_registry(tmp_path / "prepare_registry.json")
+    assert "GCF_1" not in (registry.datasets["SRR2"].get("extractions") or {})
+    assert registry.datasets["SRR1"]["extractions"]["GCF_1"]["assembly"]["contigs"] == 2
+    assert report["stages"]["extracted"] == {"count": 1, "accessions": ["SRR1"]}
+
+    StatusCommand().execute(_status_args(tmp_path, reconcile=True, json=True))
+    assert json.loads(capsys.readouterr().out)["drift"]["extractions_dropped"] == []
+
+
+def test_reconcile_drops_an_assembly_whose_folder_is_gone(tmp_path, capsys):
+    import shutil
+
+    _seed_deleted_work(tmp_path, capsys)
+    shutil.rmtree(tmp_path / "targeted" / "SRR1" / "GCF_1_assembly")
+
+    assert StatusCommand().execute(_status_args(tmp_path, reconcile=True, json=True)) == 0
+    report = json.loads(capsys.readouterr().out)
+
+    assert report["drift"]["assemblies_missing"] == ["SRR1/GCF_1"]
+    registry = load_registry(tmp_path / "prepare_registry.json")
+    assert registry.datasets["SRR1"]["extractions"]["GCF_1"].get("assembly") is None
+    assert registry.datasets["SRR1"]["extractions"]["GCF_1"]["mapped_reads"] == 1
+
+    text_project = tmp_path / "text"
+    text_project.mkdir()
+    _seed_deleted_work(text_project, capsys)
+    shutil.rmtree(text_project / "targeted" / "SRR1" / "GCF_1_assembly")
+    StatusCommand().execute(_status_args(text_project, reconcile=True, json=False))
+    out = capsys.readouterr().out
+    assert "Assemblies whose folder is gone         : 1 record(s) dropped: SRR1/GCF_1" in out
+    assert "Extractions whose files are gone        : 1 record(s) dropped: SRR2/GCF_1" in out
+
+
 class TestNextStepsAreRunnableAndRelevant:
     """P4: extraction is suggested only for screened pairs, and every value is shell-quoted."""
 
@@ -1843,3 +1935,47 @@ def test_init_and_reconcile_together_initialise_then_reconcile(tmp_path):
     _project_tree(tmp_path)
     assert StatusCommand().execute(_status_args(tmp_path, init=True, reconcile=True)) == 0
     assert (tmp_path / "prepare_registry.json").exists()
+
+
+class TestNextStepsFromASubfolderOrAnotherFastqFolder:
+    """The suggested commands must work when pasted where status ran."""
+
+    @staticmethod
+    def _project(tmp_path):
+        from prepare.data.registry import record_download, record_genome, record_screening, record_selection
+
+        (tmp_path / "analysis").mkdir()
+        registry = load_registry(tmp_path / "prepare_registry.json")
+        record_genome(registry, "G1", tmp_path / "genomes" / "G1.fna", tmp_path / "m.json")
+        record_selection(registry, ["SRR1", "SRR2"], {"table": "tables/t.txt"}, "accessions.txt")
+        record_download(registry, "SRR1", "downloaded", tmp_path / "reads")
+        record_screening(registry, "SRR1", "G1", 0.9, None, "matches", 0.0, None)
+        record_screening(registry, "SRR2", "G1", 0.9, None, "matches", 0.0, None)
+        return registry
+
+    def test_paths_are_absolute_when_status_runs_from_a_subfolder(self, tmp_path, monkeypatch):
+        from prepare.data.registry import ProjectPaths
+
+        monkeypatch.chdir(tmp_path)
+        registry = self._project(tmp_path)
+        monkeypatch.chdir(tmp_path / "analysis")
+
+        commands = [s["command"] for s in next_steps(registry, ProjectPaths.anchored(tmp_path))]
+
+        download = next(shlex.split(c) for c in commands if c.startswith("prepare download_sra"))
+        assert download[download.index("--accessions-file") + 1] == str(tmp_path.resolve() / "accessions.txt")
+        extract = next(shlex.split(c) for c in commands if "extract_target_reads" in c)
+        assert extract[extract.index("--parsed-containment") + 1] == str(tmp_path.resolve() / "tables" / "t.txt")
+
+    def test_a_non_default_fastq_folder_is_passed_on(self, tmp_path, monkeypatch):
+        from prepare.data.registry import ProjectPaths
+
+        monkeypatch.chdir(tmp_path)
+        registry = self._project(tmp_path)
+
+        commands = [s["command"] for s in next_steps(registry, ProjectPaths.anchored(tmp_path, fastq="reads"))]
+
+        for command in commands:
+            if command.startswith(("prepare download_sra", "prepare extract_target_reads")):
+                tokens = shlex.split(command)
+                assert tokens[tokens.index("--fastq-folder") + 1] == "reads", command

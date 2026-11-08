@@ -70,14 +70,23 @@ def _normalise_datasets(datasets: Any, target: Path) -> None:
             logger.warning("%s: %s extractions is not a mapping; read as none", target, accession)
             entry["extractions"] = {}
         for extraction in (entry.get("extractions") or {}).values():
-            for key in _EXTRACTION_COUNTS if isinstance(extraction, dict) else ():
-                if isinstance(extraction.get(key), str):
-                    text = extraction[key].strip()
-                    extraction[key] = int(text) if text.isdigit() else None
-        analyses = entry.get("analyses")
-        for analysis in analyses.values() if isinstance(analyses, dict) else ():
-            if isinstance(analysis, dict) and "summary" in analysis and not isinstance(analysis["summary"], dict):
-                analysis["summary"] = {}
+            _normalise_counts(extraction)
+        _normalise_summaries(entry.get("analyses"))
+
+
+def _normalise_summaries(analyses: Any) -> None:
+    """Replace an analysis ``summary`` that is not a mapping with an empty one, in place."""
+    for analysis in analyses.values() if isinstance(analyses, dict) else ():
+        if isinstance(analysis, dict) and "summary" in analysis and not isinstance(analysis["summary"], dict):
+            analysis["summary"] = {}
+
+
+def _normalise_counts(extraction: Any) -> None:
+    """Turn an extraction's counts written as text into numbers (None when not one), in place."""
+    for key in _EXTRACTION_COUNTS if isinstance(extraction, dict) else ():
+        if isinstance(extraction.get(key), str):
+            text = extraction[key].strip()
+            extraction[key] = int(text) if text.isdigit() else None
 
 
 def _registry_module() -> ModuleType:

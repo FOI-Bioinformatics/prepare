@@ -1523,3 +1523,23 @@ def test_hand_edited_value_types_are_normalised_on_load(tmp_path):
     assert registry.datasets["SRR2"]["extractions"] == {}
     assert registry.datasets["SRR2"]["analyses"]["profile"]["summary"] == {}
     assert reg.query(registry, "extracted") == ["SRR1"]
+
+
+def test_bootstrap_selects_the_accessions_file_not_the_whole_table(tmp_path):
+    """status --init with both files (as local_test.sh runs it): the selection is the accessions
+    file; the table only says what was screened."""
+    paths = reg.ProjectPaths(
+        fastq=tmp_path / "fastq",
+        metadata=tmp_path / "metadata",
+        genomes=tmp_path / "genomes",
+        targeted=tmp_path / "targeted",
+        matches=tmp_path / "matches",
+    )
+    table = tmp_path / "parsed_containment.txt"
+    table.write_text("\tG1\nSRR1\t0.9\nSRR2\t0.5\nSRR3\t0.1\n")
+    accessions = tmp_path / "accessions.txt"
+    accessions.write_text("SRR1\n")
+
+    registry = reg.bootstrap_from_disk(paths, accessions_file=accessions, parsed_containment=table)
+
+    assert reg.query(registry, "selected") == ["SRR1"]

@@ -138,15 +138,23 @@ def genome_assembly_levels(accessions: Sequence[str]) -> Dict[str, str]:
         raise DataAccessError(f"Failed to look up genome assembly levels: {e}")
     levels: Dict[str, str] = {}
     for line in str(result.stdout or "").splitlines():
-        try:
-            record = json.loads(line)
-        except ValueError:
-            continue
-        accession = record.get("accession") if isinstance(record, dict) else None
-        info = record.get("assembly_info") if isinstance(record, dict) else None
-        if isinstance(accession, str):
-            levels[accession] = str((info or {}).get("assembly_level") or "")
+        parsed = _assembly_level(line)
+        if parsed is not None:
+            levels[parsed[0]] = parsed[1]
     return levels
+
+
+def _assembly_level(line: str) -> Optional[Tuple[str, str]]:
+    """``(accession, assembly level)`` from one ``datasets summary --as-json-lines`` line, or None."""
+    try:
+        record = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(record, dict) or not isinstance(record.get("accession"), str):
+        return None
+    info = record.get("assembly_info")
+    level = info.get("assembly_level") if isinstance(info, dict) else None
+    return record["accession"], str(level or "")
 
 
 class MissingGenomesError(DataAccessError):

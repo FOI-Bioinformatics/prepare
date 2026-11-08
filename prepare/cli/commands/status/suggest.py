@@ -19,6 +19,7 @@ from prepare.data.registry import (
     ProjectPaths,
     Registry,
     known_genome_ids,
+    project_root,
     query,
     resolve_project_path,
 )
@@ -150,7 +151,30 @@ def reselect_command(criteria: Dict[str, Any], output: str) -> str:
     return command
 
 
-def download_next_steps(registry: Registry) -> List[Dict[str, Any]]:
+def _from_here(registry: Registry, value: str) -> str:
+    """A recorded project-relative path as the suggested command should name it.
+
+    Unchanged when status runs from the project root; from anywhere else, absolute, since the
+    commands read a file path against the working directory.
+    """
+    if Path.cwd().resolve() == project_root(registry):
+        return str(value)
+    return str(resolve_project_path(registry, value))
+
+
+def _fastq_flag(registry: Registry, paths: Optional[ProjectPaths]) -> str:
+    """`` --fastq-folder ...`` when status was given a fastq folder other than the default one."""
+    if paths is None or paths.fastq.resolve() == (project_root(registry) / "fastq").resolve():
+        return ""
+    root = project_root(registry)
+    try:
+        shown = str(paths.fastq.resolve().relative_to(root)) if Path.cwd().resolve() == root else str(paths.fastq)
+    except ValueError:
+        shown = str(paths.fastq)
+    return f" --fastq-folder {shlex.quote(shown)}"
+
+
+def download_next_steps(registry: Registry, paths: Optional[ProjectPaths] = None) -> List[Dict[str, Any]]:
     """Suggested commands for selected accessions that are neither excluded nor downloaded yet."""
     selected, excluded, downloaded = (set(query(registry, s)) for s in ("selected", "excluded", "downloaded"))
     wanted = selected - excluded - downloaded
@@ -172,12 +196,19 @@ def download_next_steps(registry: Registry) -> List[Dict[str, Any]]:
             group[1].append(acc)
             continue
         by_output.setdefault(output, []).append(acc)
+    fastq = _fastq_flag(registry, paths)
     steps = [
-        {"command": f"prepare download_sra --accessions-file {shlex.quote(str(output))}", "accessions": accs}
+        {
+            "command": f"prepare download_sra --accessions-file {shlex.quote(_from_here(registry, output))}{fastq}",
+            "accessions": accs,
+        }
         for output, accs in by_output.items()
     ]
     for output, (criteria, accs) in reselect_groups.items():
-        steps.append({"command": reselect_command(criteria, output), "accessions": accs})
+        shown = dict(criteria)
+        if shown.get("table"):
+            shown["table"] = _from_here(registry, shown["table"])
+        steps.append({"command": reselect_command(shown, _from_here(registry, output)), "accessions": accs})
     return steps
 
 
@@ -226,12 +257,13 @@ def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict
     steps: List[Dict[str, Any]] = []
     excluded = set(query(registry, "excluded"))
     downloaded = [acc for acc in query(registry, "downloaded") if acc not in excluded]
-    table = _selection_table(registry)
+    table = _from_here(registry, _selection_table(registry))
+    fastq = _fastq_flag(registry, paths)
     for genome_id in sorted(known_genome_ids(registry)):
         genome_fasta = _genome_fasta(registry, paths, genome_id)
         base = (
             f"prepare extract_target_reads --parsed-containment {shlex.quote(table)} "
-            f"--genome-id {shlex.quote(genome_id)} --genome-fasta {shlex.quote(str(genome_fasta))}"
+            f"--genome-id {shlex.quote(genome_id)} --genome-fasta {shlex.quote(str(genome_fasta))}{fastq}"
         )
         # Any record, including a zero-mapped one, means the sample has been tried.
         recorded = {acc for acc in registry.datasets if rb.extraction_block(registry, acc, genome_id) is not None}
@@ -252,4 +284,4 @@ def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict
 
 def next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict[str, Any]]:
     """Every suggested next command for the project: downloads first, then read extractions."""
-    return download_next_steps(registry) + _extraction_next_steps(registry, paths)
+    return download_next_steps(registry, paths) + _extraction_next_steps(registry, paths)

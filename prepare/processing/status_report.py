@@ -25,7 +25,12 @@ from prepare.data.registry import (
     query,
     stage_members,
 )
-from prepare.data.registry_reconcile import StoreReconcileReport
+from prepare.data.registry_reconcile import (
+    StoreReconcileReport,
+    assembly_dir_present,
+    extraction_files_present,
+    recorded_files_present,
+)
 from prepare.data.registry_timing import timing_summary
 from prepare.data.sra import STORE_READY_STATES, accession_has_fastq, is_transient_folder
 from prepare.processing.project_funnel import funnel
@@ -177,11 +182,13 @@ def stage_filter_accessions(registry: Registry, stage: str, genomes: Optional[Li
     return list(seen)
 
 
-def genome_counts(registry: Registry) -> Dict[str, Dict[str, Any]]:
+def genome_counts(registry: Registry, on_disk: bool = False) -> Dict[str, Dict[str, Any]]:
     """The ``"genomes"`` part of ``stage_counts``, from one pass over the recorded extractions.
 
     ``stage_counts`` runs three passes over every dataset for each genome; this reads each
     dataset's extractions once and gives the same counts and the same ``zero_mapped`` order.
+    With ``on_disk``, an extraction whose read files, or an assembly whose folder, were deleted
+    is not counted (as ``status`` reports it).
     """
     genomes: Dict[str, Dict[str, Any]] = {
         g: {"extracted": 0, "assembled": 0, "zero_mapped": []} for g in sorted(known_genome_ids(registry))
@@ -190,14 +197,60 @@ def genome_counts(registry: Registry) -> Dict[str, Dict[str, Any]]:
         for genome_id, extraction in (record.get("extractions") or {}).items():
             if not isinstance(extraction, dict):
                 continue
+            if on_disk and not extraction_files_present(registry, extraction):
+                continue
             info = genomes[genome_id]
             mapped = extraction.get("mapped_reads") or 0
             if mapped == 0:
                 info["zero_mapped"].append(acc)
             info["extracted"] += int(mapped > 0)
-            assembly = extraction.get("assembly")
-            info["assembled"] += int(isinstance(assembly, dict) and (assembly.get("contigs") or 0) > 0)
+            info["assembled"] += int(_assembled(registry, extraction, on_disk))
     return genomes
+
+
+def _assembled(registry: Registry, extraction: Dict[str, Any], on_disk: bool) -> bool:
+    """Whether the raw extraction record carries an assembly with contigs (still on disk, with ``on_disk``)."""
+    assembly = extraction.get("assembly")
+    if not isinstance(assembly, dict) or (assembly.get("contigs") or 0) <= 0:
+        return False
+    return not on_disk or assembly_dir_present(registry, assembly)
+
+
+def _gone_from_disk(registry: Registry, paths: ProjectPaths, members: Dict[str, List[str]]) -> Dict[str, List[str]]:
+    """The downloaded, extracted and assembled accessions whose work is no longer on disk.
+
+    ``status`` re-checks the disk rather than trusting the registry: a download counts while its
+    folder holds reads (or its recorded files exist), an accession stays extracted (assembled)
+    while one of its extractions with mapped reads (assemblies with contigs) is still on disk.
+    The records themselves are left alone; ``status --reconcile`` updates them.
+    """
+    gone = {"downloaded": [acc for acc in members["downloaded"] if not _download_on_disk(registry, paths, acc)]}
+    for stage in ("extracted", "assembled"):
+        gone[stage] = [acc for acc in members[stage] if not _stage_on_disk(registry, acc, stage)]
+    return gone
+
+
+def _download_on_disk(registry: Registry, paths: ProjectPaths, acc: str) -> bool:
+    """Whether a recorded download's reads are on disk: in its project folder, or at its recorded paths."""
+    if accession_has_fastq(paths.fastq / acc):
+        return True
+    download = rb.download_block(registry, acc)
+    return download is not None and recorded_files_present(registry, download)
+
+
+def _stage_on_disk(registry: Registry, acc: str, stage: str) -> bool:
+    """Whether one of ``acc``'s extraction records puts it in ``stage`` with its work still on disk."""
+    extractions = registry.datasets[acc].get("extractions") or {}
+    return any(_still_in_stage(registry, e, stage) for e in extractions.values() if isinstance(e, dict))
+
+
+def _still_in_stage(registry: Registry, extraction: Dict[str, Any], stage: str) -> bool:
+    """Whether one raw extraction record puts its accession in ``stage`` with its work on disk."""
+    if not extraction_files_present(registry, extraction):
+        return False
+    if stage == "extracted":
+        return (extraction.get("mapped_reads") or 0) > 0
+    return _assembled(registry, extraction, on_disk=True)
 
 
 def _genome_report(
@@ -243,6 +296,9 @@ def _drift_report(drift: StoreReconcileReport) -> Dict[str, Any]:
         "verdicts_rechecked": list(drift.verdicts_rechecked),
         # Assembly records ("ACC/GENOME") dated before their extraction, removed by this reconcile.
         "assemblies_dropped": list(drift.assemblies_dropped),
+        # Records ("ACC/GENOME") whose extraction files or assembly folder were deleted from disk.
+        "extractions_dropped": list(drift.extractions_dropped),
+        "assemblies_missing": list(drift.assemblies_missing),
     }
 
 
@@ -335,10 +391,17 @@ def build_report(
         report["store"] = _store_block(store_root, store_available)
     # One pass over the registry lists every stage; the counts are the lengths of those lists.
     members = stage_members(registry)
-    report["stages"] = {s: {"count": len(members[s]), "accessions": members[s]} for s in STAGES}
+    gone = _gone_from_disk(registry, paths, members)
+    report["stages"] = {}
+    for s in STAGES:
+        kept = [acc for acc in members[s] if acc not in gone.get(s, ())]
+        report["stages"][s] = {"count": len(kept), "accessions": kept}
+        if gone.get(s):
+            report["stages"][s]["missing_on_disk"] = gone[s]
+        members[s] = kept
     report["funnel"] = funnel(registry, members)
     report["downloads"] = download_verdicts(registry)
-    report["genomes"] = _genome_report(registry, paths, args.genome, genome_counts(registry))
+    report["genomes"] = _genome_report(registry, paths, args.genome, genome_counts(registry, on_disk=True))
     report["drift"] = _drift_report(drift) if drift else {}
     report["timing"] = timing_summary(registry)
     return report

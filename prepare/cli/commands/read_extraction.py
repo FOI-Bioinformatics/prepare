@@ -21,7 +21,9 @@ from prepare.data.read_extraction import (
     _sample_reads,
     extract_target_reads,
     genome_signature,
+    reads_signature,
     resolve_index_path,
+    sample_fastq,
     selected_samples,
 )
 from prepare.data.registry import (
@@ -242,6 +244,14 @@ class ExtractTargetReadsCommand(BaseCommand):
             )
 
     @staticmethod
+    def _reads_signature(args: argparse.Namespace, accession: str) -> Optional[List[List[Any]]]:
+        """The signature of the reads this extraction mapped, or None when they cannot be read."""
+        try:
+            return reads_signature(sample_fastq(Path(args.fastq_folder), accession) or []) or None
+        except OSError:
+            return None
+
+    @staticmethod
     def _mate_signature(reads: List[Path]) -> List[List[Any]]:
         """``[[name, size bytes, mtime], ...]`` for the mate files a count was taken from."""
         signature = []
@@ -336,7 +346,14 @@ class ExtractTargetReadsCommand(BaseCommand):
             done = (
                 record is not None
                 and not args.force
-                and _record_matches(record, genome_path, args.preset, args.threshold, min_mapq=args.min_mapq)
+                and _record_matches(
+                    record,
+                    genome_path,
+                    args.preset,
+                    args.threshold,
+                    min_mapq=args.min_mapq,
+                    reads=sample_fastq(Path(args.fastq_folder), accession),
+                )
             )
             return done or (accession in truncated and not args.allow_truncated)
 
@@ -421,6 +438,7 @@ class ExtractTargetReadsCommand(BaseCommand):
                 {
                     "genome_fasta": str(Path(args.genome_fasta)),
                     "genome_signature": genome_signature(Path(args.genome_fasta)),
+                    "reads_signature": self._reads_signature(args, accession),
                     "preset": args.preset,
                     "threshold": args.threshold,
                     "filter_flags": "0x904",

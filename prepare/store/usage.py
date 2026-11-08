@@ -223,24 +223,32 @@ def _project_links(project_path: str, registry_file: str, accession: str, target
     unreadable counts as not using it.
     """
     root = Path(registry_file).parent if registry_file else None
-    for folder in {Path(p) for p in (project_path, str(root) if root else "") if p}:
-        link_path = folder / "fastq" / accession
-        try:
-            if link_path.is_symlink() and link_path.resolve() == target:
-                return True
-        except OSError:
-            continue
+    folders = {Path(p) for p in (project_path, str(root) if root else "") if p}
+    if any(_links_to(folder / "fastq" / accession, target) for folder in folders):
+        return True
     if root is None:
         return False
-    for recorded in _registry_download_files(registry_file).get(accession, ()):
-        path = Path(recorded)
-        try:
-            resolved = (path if path.is_absolute() else root / path).resolve()
-        except OSError:
-            continue
-        if resolved == target or target in resolved.parents:
-            return True
-    return False
+    return any(
+        _inside(root, recorded, target) for recorded in _registry_download_files(registry_file).get(accession, ())
+    )
+
+
+def _links_to(link_path: Path, target: Path) -> bool:
+    """Whether ``link_path`` is a symlink resolving to ``target``; False when it cannot be checked."""
+    try:
+        return link_path.is_symlink() and link_path.resolve() == target
+    except OSError:
+        return False
+
+
+def _inside(root: Path, recorded: str, target: Path) -> bool:
+    """Whether the recorded path (relative to ``root`` unless absolute) resolves to or inside ``target``."""
+    path = Path(recorded)
+    try:
+        resolved = (path if path.is_absolute() else root / path).resolve()
+    except OSError:
+        return False
+    return resolved == target or target in resolved.parents
 
 
 def _registry_download_files(registry_file: str) -> Dict[str, FrozenSet[str]]:
@@ -261,12 +269,17 @@ def _registry_download_files_at(registry_file: str, mtime_ns: int) -> Dict[str, 
         return {}
     datasets = data.get("datasets") if isinstance(data, dict) else None
     recorded: Dict[str, FrozenSet[str]] = {}
-    for accession, entry in (datasets or {}).items() if isinstance(datasets, dict) else ():
-        download = entry.get("download") if isinstance(entry, dict) else None
-        if not isinstance(download, dict) or download.get("state") != "downloaded":
-            continue
-        files = download.get("files") or []
-        paths = {f["path"] for f in files if isinstance(f, dict) and isinstance(f.get("path"), str) and f["path"]}
+    for accession, entry in datasets.items() if isinstance(datasets, dict) else ():
+        paths = _downloaded_paths(entry)
         if paths:
-            recorded[str(accession)] = frozenset(paths)
+            recorded[str(accession)] = paths
     return recorded
+
+
+def _downloaded_paths(entry: Any) -> FrozenSet[str]:
+    """The file paths a raw dataset entry's download records, when it is recorded as downloaded."""
+    download = entry.get("download") if isinstance(entry, dict) else None
+    if not isinstance(download, dict) or download.get("state") != "downloaded":
+        return frozenset()
+    files = download.get("files") or []
+    return frozenset(f["path"] for f in files if isinstance(f, dict) and isinstance(f.get("path"), str) and f["path"])

@@ -891,6 +891,27 @@ class TestRecordMatches:
         assert _record_matches(record, tmp_path / "g.fna", "sr", 0.1, min_mapq=20)
         assert not _record_matches(record, tmp_path / "g.fna", "sr", 0.1, min_mapq=0)
 
+    def test_replaced_reads_make_the_record_stale(self, tmp_path):
+        """A record names the reads it mapped; reads downloaded again (another size or mtime) differ."""
+        import os
+
+        from prepare.data.extraction_records import _READS_REPLACED, _record_mismatch_reason, reads_signature
+
+        (tmp_path / "g.fna").write_text(">a\nA\n")
+        reads = tmp_path / "SRR1.fastq"
+        reads.write_text("@r\nACGT\n+\nIIII\n")
+        record = {"preset": "sr", "mapped_reads": 0, "reads_signature": reads_signature([reads])}
+        record = json.loads(json.dumps(record))  # as read back from the registry
+        assert _record_mismatch_reason(record, tmp_path / "g.fna", "sr", 0.1, reads=[reads]) is None
+        # Unknown reads (none on disk) and records without a signature never count as replaced.
+        assert _record_mismatch_reason(record, tmp_path / "g.fna", "sr", 0.1, reads=None) is None
+        old = {"preset": "sr", "mapped_reads": 0}
+        assert _record_mismatch_reason(old, tmp_path / "g.fna", "sr", 0.1, reads=[reads]) is None
+
+        stat = reads.stat()
+        os.utime(reads, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+        assert _record_mismatch_reason(record, tmp_path / "g.fna", "sr", 0.1, reads=[reads]) == _READS_REPLACED
+
 
 class TestExtractionIdempotency:
     @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
