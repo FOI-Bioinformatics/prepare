@@ -114,9 +114,8 @@ class TestGetUniqueAccessions:
         # Create malformed CSV
         (matches_dir / "malformed.csv").write_text("invalid,csv\ncontent")
 
-        with patch("pandas.read_csv", side_effect=pd.errors.ParserError("Read error")):
-            with pytest.raises(DataAccessError, match="malformed.csv: Read error"):
-                _get_unique_accessions(matches_dir, threshold=0.0)
+        with pytest.raises(DataAccessError, match="malformed.csv: no 'acc' or 'SRA accession' column"):
+            _get_unique_accessions(matches_dir, threshold=0.0)
 
 
 class TestDownloadSingleMetadata:
@@ -1338,14 +1337,23 @@ def _reference_fields(tree):
 
 
 def _reference_parse_metadata(folder):
-    """``parse_metadata`` as it was before the single-pass change (two parses per file, dense rows)."""
+    """``parse_metadata`` as it was before the single-pass change (two parses per file, dense rows).
+
+    Each file is first narrowed to its own run (``_own_run``), as ``parse_metadata`` now does for a
+    file that holds sibling runs.
+    """
     from lxml import etree
+
+    from prepare.data.metadata import _own_run
+
+    def parse(xml_file):
+        return _own_run(etree.parse(str(xml_file)).getroot(), xml_file.name.removesuffix("_metadata.xml"))
 
     files = sorted(p for p in Path(folder).glob("*.xml") if not p.name.startswith("."))
     unique = set()
     for xml_file in files:
         try:
-            tree = etree.parse(str(xml_file))
+            tree = parse(xml_file)
         except etree.XMLSyntaxError:
             continue
         for tag in tree.findall(".//SAMPLE_ATTRIBUTES/SAMPLE_ATTRIBUTE/TAG"):
@@ -1354,7 +1362,7 @@ def _reference_parse_metadata(folder):
     records = []
     for xml_file in files:
         try:
-            tree = etree.parse(str(xml_file))
+            tree = parse(xml_file)
         except etree.XMLSyntaxError:
             continue
         record = _reference_fields(tree)
@@ -1386,7 +1394,8 @@ _EDGE_CASE_XML = {
     "<size>77</size><md5>m5</md5><Total_spots>9</Total_spots><spot_length>150</spot_length>"
     "<Statistics><Read average='75.5'/><Read average='x'/><Read/></Statistics>"
     "</RUN></RUN_SET></EXPERIMENT_PACKAGE></EXPERIMENT_PACKAGE_SET>",
-    # Two packages: every field comes from the first match in document order.
+    # Two packages: the fields come from the package holding the file's own run (SRR900003), not
+    # from the sibling run's (no SRP2 project id).
     "SRR900003": "<EXPERIMENT_PACKAGE_SET>"
     "<EXPERIMENT_PACKAGE><STUDY><DESCRIPTOR><STUDY_TITLE>first study</STUDY_TITLE></DESCRIPTOR></STUDY>"
     "<RUN_SET><RUN accession='SRR900003' total_spots='5'><IDENTIFIERS><PRIMARY_ID>SRR900003</PRIMARY_ID>"
@@ -1505,3 +1514,40 @@ def test_unique_accessions_skip_an_empty_or_malformed_acc(tmp_path, caplog):
     (matches / "G1.csv").write_text("acc,containment\nSRR0000001,0.5\n,0.4\n../x,0.3\n")
 
     assert _get_unique_accessions(matches, 0) == {"SRR0000001"}
+
+
+def test_a_metadata_file_holding_sibling_runs_is_read_for_its_own_run(tmp_path):
+    """Files written before 0.10.1 (and hand-fetched ones) hold the whole experiment package: the
+    run named in the file name must be read, not the first RUN in the file."""
+    xml_text = _package_xml(
+        [
+            ("SRR1", {"total_spots": "100", "total_bases": "1000"}),
+            ("SRR2", {"total_spots": "250", "total_bases": "2500"}),
+        ]
+    )
+    path = tmp_path / "SRR2_metadata.xml"
+    path.write_text(xml_text)
+
+    parsed = parse_metadata_xml(path)
+
+    assert parsed["Run_ID"] == "SRR2"
+    assert parsed["Run_Total_Spots"] == "250"
+
+
+@pytest.mark.parametrize(
+    "csv_text",
+    [
+        "acc,containment,name\nSRR0000001,0.5,gut, human\nSRR0000002,0.6,soil\n",  # unquoted comma in free text
+        "acc,containment,name\nSRR0000001,0.5,gut,\nSRR0000002,0.6,soil,\n",  # trailing delimiter on every row
+        "acc,containment\nSRR0000001,0.5\nSRR0000002,0.6\nSRR0000003,-\n",  # a containment cell holding "-"
+    ],
+    ids=["stray-comma", "trailing-delimiter", "dash-cell"],
+)
+def test_unique_accessions_read_match_files_as_parse_containment_does(tmp_path, csv_text):
+    """download_metadata and parse_containment read the same match files; a row one of them
+    tolerates must not abort, or silently empty, the other."""
+    matches = tmp_path / "matches"
+    matches.mkdir()
+    (matches / "G1.csv").write_text(csv_text)
+
+    assert _get_unique_accessions(matches, 0.1) == {"SRR0000001", "SRR0000002"}

@@ -119,8 +119,11 @@ def load_quality_profiles(profiles_dir: Union[str, Path]) -> Dict[str, QualityPr
 
 
 def _layout(files: Sequence[Path]) -> str:
-    """``PAIRED`` when a second-mate file is among ``files``, else ``SINGLE``."""
-    return "PAIRED" if any(fastq_stem(f).endswith(_MATE2_SUFFIXES) for f in files) else "SINGLE"
+    """``PAIRED`` when both a mate-1 and a mate-2 file are among ``files``, else ``SINGLE``
+    (the store sidecar's ``detect_layout`` rule, so the two agree on a lone mate file)."""
+    stems = [fastq_stem(f) for f in files]
+    has_mate1 = any(stem.endswith(MATE1_SUFFIXES) for stem in stems)
+    return "PAIRED" if has_mate1 and any(stem.endswith(_MATE2_SUFFIXES) for stem in stems) else "SINGLE"
 
 
 def statistics_row(

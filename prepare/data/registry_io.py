@@ -6,6 +6,7 @@ functions, because it imports this module and so cannot be imported from here at
 """
 
 import json
+import logging
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
@@ -16,6 +17,8 @@ from prepare.core.exceptions import DataAccessError
 from prepare.core.settings import settings_or
 from prepare.data.file_io import write_text_atomic
 from prepare.utils.lockfile import LockPolicy, verify_held
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from prepare.data.registry import Registry
@@ -44,7 +47,37 @@ def parse_registry_document(text: str, target: Path, supported_version: int) -> 
         raise DataAccessError(
             f"Registry {target} was written by a newer prepare (schema {version}); upgrade prepare or use that version"
         )
+    _normalise_datasets(data.get("datasets"), target)
     return {**data, "version": version}
+
+
+# Counts in an extraction block that readers compare as numbers.
+_EXTRACTION_COUNTS = ("mapped_reads", "mapped_total")
+
+
+def _normalise_datasets(datasets: Any, target: Path) -> None:
+    """Give hand-edited or old values the types every reader expects, in place.
+
+    An ``extractions`` that is not a mapping becomes empty, an extraction count written as text
+    becomes a number (None when it is not one), and an analysis ``summary`` that is not a mapping
+    becomes empty; other keys and values are left exactly as they are.
+    """
+    for accession, entry in datasets.items() if isinstance(datasets, dict) else ():
+        if not isinstance(entry, dict):
+            continue
+        extractions = entry.get("extractions")
+        if extractions is not None and not isinstance(extractions, dict):
+            logger.warning("%s: %s extractions is not a mapping; read as none", target, accession)
+            entry["extractions"] = {}
+        for extraction in (entry.get("extractions") or {}).values():
+            for key in _EXTRACTION_COUNTS if isinstance(extraction, dict) else ():
+                if isinstance(extraction.get(key), str):
+                    text = extraction[key].strip()
+                    extraction[key] = int(text) if text.isdigit() else None
+        analyses = entry.get("analyses")
+        for analysis in analyses.values() if isinstance(analyses, dict) else ():
+            if isinstance(analysis, dict) and "summary" in analysis and not isinstance(analysis["summary"], dict):
+                analysis["summary"] = {}
 
 
 def _registry_module() -> ModuleType:

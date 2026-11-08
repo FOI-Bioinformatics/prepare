@@ -1752,3 +1752,37 @@ class TestMegahitVersion:
     def test_returns_empty_when_the_tool_cannot_be_run(self, mock_run, _which):
         mock_run.side_effect = SecurityError("not installed")
         assert megahit_version() == ""
+
+
+class TestSampleReadsWithAMissingMate:
+    """One mate file missing: never pair the unpaired-reads file with a mate, never drop the mate."""
+
+    @staticmethod
+    def _folder(tmp_path, *names):
+        acc_dir = tmp_path / "fastq" / "SRR1"
+        acc_dir.mkdir(parents=True)
+        for name in names:
+            (acc_dir / name).write_text("@r\nACGT\n+\nIIII\n")
+        return tmp_path / "fastq"
+
+    def test_mate_one_without_mate_two_is_mapped_alone(self, tmp_path):
+        from prepare.data.read_extraction import _sample_reads
+
+        fastq = self._folder(tmp_path, "SRR1.fastq", "SRR1_1.fastq")
+        assert [p.name for p in _sample_reads(fastq, "SRR1")] == ["SRR1_1.fastq"]
+
+    def test_mate_two_without_mate_one_is_mapped_not_the_unpaired_reads(self, tmp_path):
+        from prepare.data.read_extraction import _sample_reads
+
+        fastq = self._folder(tmp_path, "SRR1.fastq", "SRR1_2.fastq")
+        assert [p.name for p in _sample_reads(fastq, "SRR1")] == ["SRR1_2.fastq"]
+
+
+def test_profile_layout_matches_the_store_sidecars():
+    """A lone mate-2 file is not a paired dataset; sra_profile and the store sidecar agree."""
+    from prepare.sra.profiles import _layout
+    from prepare.store.sidecar import detect_layout
+
+    for names in (["A_2.fastq"], ["A_1.fastq", "A_2.fastq"], ["A.fastq"], ["A.fastq", "A_1.fastq"]):
+        files = [Path(name) for name in names]
+        assert _layout(files) == detect_layout(files), names

@@ -80,7 +80,8 @@ def _gc_fraction(seq: str) -> float:
     """Fraction of ``seq`` that is G or C; 0.0 for an empty sequence."""
     if not seq:
         return 0.0
-    return (seq.count("G") + seq.count("C")) / len(seq)
+    # Lower-case (soft-masked or user-supplied) bases count the same as upper-case ones.
+    return (seq.count("G") + seq.count("C") + seq.count("g") + seq.count("c")) / len(seq)
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -264,7 +265,7 @@ def compute_dataset_stats(
         "length_histogram": _length_histogram(sample_lengths),
         "quality_summary": _quality_summary(qualities),
         "duplication_rate": (1.0 - len(set(sequences)) / len(sequences)) if sequences else 0.0,
-        "n_content": _mean([(s.count("N") / len(s)) if s else 0.0 for s in sequences]),
+        "n_content": _mean([((s.count("N") + s.count("n")) / len(s)) if s else 0.0 for s in sequences]),
         "sample_size": sample_size,
         "sampled": sampled,
         "sample_scope": SAMPLE_SCOPE,

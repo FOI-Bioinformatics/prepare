@@ -473,3 +473,23 @@ class TestSeqkitPath:
                 stats = compute_dataset_stats([fastq], use_seqkit=True)
 
         assert stats["reads_total"] == 4
+
+
+def test_gc_and_n_content_count_lowercase_bases(tmp_path):
+    """Soft-masked or user-supplied reads in lower case have the same GC and N content."""
+    upper, lower = tmp_path / "U.fastq", tmp_path / "L.fastq"
+    _write_fastq(upper, ["GGCCAATN"] * 4)
+    _write_fastq(lower, ["ggccaatn"] * 4)
+
+    a = compute_dataset_stats([upper], use_seqkit=False)
+    b = compute_dataset_stats([lower], use_seqkit=False)
+
+    assert a["gc_content"] == b["gc_content"] == 0.5
+    assert a["n_content"] == b["n_content"] == 0.125
+
+
+def test_quality_analyzer_gc_counts_lowercase_bases():
+    from prepare.sra.quality import SequenceQualityAnalyzer
+
+    analyzer = SequenceQualityAnalyzer()
+    assert analyzer._calculate_gc_content("ggcc") == analyzer._calculate_gc_content("GGCC") == 1.0

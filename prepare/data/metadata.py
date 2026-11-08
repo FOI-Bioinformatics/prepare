@@ -4,6 +4,8 @@ Metadata handling for PREPARE.
 This module provides functions for downloading and processing metadata from NCBI.
 """
 
+import copy
+import csv
 import logging
 import os
 import xml.etree.ElementTree as ET
@@ -64,45 +66,49 @@ def _get_unique_accessions(matches_folder, threshold):
         raise DataAccessError(f"No match CSV in {matches_path}")
 
     for csv_file in csv_files:
-        # Read CSV file
         try:
-            df = pd.read_csv(csv_file)
-
-            # Determine accession column name based on format
-            if "acc" in df.columns:
-                accession_col = "acc"
-                containment_col = "containment"
-            elif "SRA accession" in df.columns:
-                accession_col = "SRA accession"
-                containment_col = "containment"
-            else:
-                raise ValueError("no 'acc' or 'SRA accession' column")
-
-            # Filter by threshold
-            if threshold > 0:
-                df = df[df[containment_col] >= threshold]
-
-            unique_accessions.update(_valid_accessions(df[accession_col], csv_file.name))
-
-        # pandas' ParserError and EmptyDataError are ValueErrors; KeyError is a missing
-        # containment column; TypeError is a containment column holding text.
-        except (OSError, ValueError, KeyError, TypeError) as e:
+            unique_accessions.update(_match_file_accessions(csv_file, threshold))
+        except (OSError, ValueError, csv.Error) as e:  # UnicodeDecodeError is a ValueError
             raise DataAccessError(f"Cannot read match file {csv_file}: {e}") from e
 
     return unique_accessions
 
 
-def _valid_accessions(column: pd.Series, file_name: str) -> List[str]:
-    """The SRA accessions in a match file's accession column.
+def _match_file_accessions(csv_file: Path, threshold: float) -> List[str]:
+    """The SRA accessions one match CSV holds at ``threshold`` or above (any containment at 0).
 
-    An empty or malformed accession (NaN for an empty cell) is skipped with a warning, as
-    parse_containment skips it, rather than sent to NCBI.
+    Read row by row with the csv module, as ``parse_containment`` reads the same files: a stray
+    comma in a free-text field or a trailing delimiter does not shift the columns, and a row
+    without a valid accession or containment value is skipped with a warning, not the file.
     """
-    values = [str(value).strip() for value in column.dropna()]
-    valid = [value for value in values if validate_accession(value)]
-    if len(valid) < len(column):
-        logger.warning("%s: skipped %d row(s) without a valid SRA accession", file_name, len(column) - len(valid))
-    return valid
+    found: List[str] = []
+    skipped = 0
+    with open(csv_file, newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        fields = [str(name).strip() for name in reader.fieldnames or []]
+        reader.fieldnames = fields
+        column = "acc" if "acc" in fields else "SRA accession" if "SRA accession" in fields else None
+        if column is None:
+            raise ValueError("no 'acc' or 'SRA accession' column")
+        if threshold > 0 and "containment" not in fields:
+            raise ValueError("no 'containment' column")
+        for row in reader:
+            accession = (row.get(column) or "").strip()
+            if threshold > 0:
+                try:
+                    containment = float(row.get("containment") or "")
+                except ValueError:
+                    skipped += 1
+                    continue
+                if containment < threshold:
+                    continue
+            if not validate_accession(accession):
+                skipped += 1
+                continue
+            found.append(accession)
+    if skipped:
+        logger.warning("%s: skipped %d row(s) without a valid SRA accession or containment", csv_file.name, skipped)
+    return found
 
 
 def _read_accessions_file(path: Union[str, Path]) -> List[str]:
@@ -441,8 +447,32 @@ def _parse_metadata_file(xml_file: Union[str, Path]) -> Tuple[Dict[str, Any], Di
 
     Raises OSError when the file cannot be read and ``lxml.etree.XMLSyntaxError`` on malformed XML.
     """
-    root = parse_xml_file(xml_file)
+    root = _own_run(parse_xml_file(xml_file), Path(xml_file).name.removesuffix("_metadata.xml"))
     return _extract_metadata_fields(root, xml_file), _extract_sample_attributes(root)
+
+
+def _own_run(root: Any, accession: str) -> Any:
+    """The part of ``root`` describing ``accession``'s run, for a file that holds sibling runs.
+
+    A file written before 0.10.1 (or fetched by hand) holds the whole experiment package, and
+    the field readers take the first RUN they find. The package holding the run named in the file
+    name is returned with its other RUNs left out; a file with one RUN, or none matching, as is.
+    """
+    runs = root.findall(".//RUN")
+    if len(runs) < 2:
+        return root
+    own = next((run for run in runs if run.get("accession") == accession), None)
+    if own is None:
+        logger.warning("%s: none of its %d runs is the file's own; reading the first", accession, len(runs))
+        return root
+    package = own.getparent()
+    while package is not None and package.tag != "EXPERIMENT_PACKAGE":
+        package = package.getparent()
+    narrowed = copy.deepcopy(package if package is not None else root)
+    for run in narrowed.findall(".//RUN"):
+        if run.get("accession") != accession:
+            run.getparent().remove(run)
+    return narrowed
 
 
 def parse_metadata_xml(path: Union[str, Path]) -> Dict[str, Any]:

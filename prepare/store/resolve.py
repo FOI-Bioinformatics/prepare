@@ -74,7 +74,7 @@ def write_config_data_root(root: Path) -> Path:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    existing_text = path.read_text() if path.exists() else ""
+    existing_text = path.read_text(encoding="utf-8-sig") if path.exists() else ""
     remaining_text = _strip_store_table(existing_text)
 
     if remaining_text and not remaining_text.endswith("\n"):

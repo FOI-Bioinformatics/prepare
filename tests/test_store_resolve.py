@@ -309,3 +309,19 @@ def test_set_default_replaces_a_dotted_or_inline_store_key(tmp_path, monkeypatch
     data = tomllib.loads(config.read_text())
     assert data["store"]["data_root"] == (tmp_path / "new").as_posix()
     assert data["runtime"]["threads"] == 2
+
+
+def test_set_default_rewrites_a_config_saved_with_a_bom(tmp_path, monkeypatch):
+    import tomllib
+
+    from prepare.store.resolve import write_config_data_root
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    config = tmp_path / "xdg" / "prepare" / "config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_bytes("\ufeff[runtime]\nthreads = 2\n".encode("utf-8"))
+
+    write_config_data_root(tmp_path / "new")
+
+    data = tomllib.loads(config.read_text())
+    assert data["runtime"]["threads"] == 2 and data["store"]["data_root"] == (tmp_path / "new").as_posix()

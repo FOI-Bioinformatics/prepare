@@ -6,6 +6,7 @@ present on the system. This module does not import ``read_extraction``; that mod
 the names defined here so existing imports keep working.
 """
 
+import gzip
 import logging
 import platform
 import re
@@ -323,9 +324,10 @@ def summarise_contigs(contigs: Union[str, Path]) -> Dict[str, Any]:
 
 
 def fasta_length(path: Union[str, Path]) -> int:
-    """Total base count of a FASTA file (sequence lines only, headers excluded)."""
+    """Total base count of a FASTA file, plain or gzipped (sequence lines only, headers excluded)."""
     total = 0
-    with open(path) as handle:
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "rt") as handle:
         for line in handle:
             if not line.startswith(">"):
                 total += len(line.strip())

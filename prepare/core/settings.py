@@ -71,11 +71,11 @@ def read_config() -> Dict[str, Any]:
     if not path.exists():
         return {}
     try:
-        with path.open("rb") as handle:
-            return tomllib.load(handle)
+        # utf-8-sig: an editor that saves with a byte-order mark would otherwise make every command fail.
+        return tomllib.loads(path.read_text(encoding="utf-8-sig"))
     except tomllib.TOMLDecodeError as e:
         raise ConfigurationError(f"Config file {path} is not valid TOML: {e}{_offending_line(path, str(e))}") from e
-    except OSError as e:
+    except (OSError, UnicodeDecodeError) as e:
         raise ConfigurationError(f"Config file {path} could not be read: {e}") from e
 
 

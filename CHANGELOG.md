@@ -6,6 +6,23 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ### Fixed
 
+- A metadata XML holding a whole experiment package (written before 0.10.1, or fetched by hand) is
+  read for the run its file name names, not the first run in it; a sibling run's spot count could
+  make a truncated download look complete or the reverse.
+- `extract_target_reads --assemble` reads a gzipped genome FASTA (`.fna.gz`, accepted for
+  extraction) instead of failing before the first assembly.
+- `download_metadata` reads match CSVs row by row as `parse_containment` does: a stray comma in a free
+  text field, a trailing delimiter or a `-` containment cell no longer aborts the command or finds no
+  accessions; such rows are skipped with a warning.
+- With one mate file missing, extraction maps the mate file present as single-end reads, instead of
+  pairing mate 1 with the unpaired-reads file or mapping only the unpaired reads; `sra_profile` calls
+  a lone mate file single-end, as the store sidecar does.
+- GC and N content count lower-case bases.
+- A registry with hand-edited or old value types (an extraction count written as text, a null
+  analysis summary, extractions stored as a list) is read with those values normalised instead of
+  making `status`, `results_table` or `project_report` fail.
+- A `config.toml` saved with a UTF-8 BOM is read (every command exited 3), also by
+  `store_init --set-default`.
 - `store_adopt` rerun after a run killed outright (SIGKILL, out of memory, a job time limit) records
   the store links that run made but never recorded; they were skipped as "already a link", and with
   a non-default `--fastq-folder` `store_gc --yes` could then remove the only copy.
