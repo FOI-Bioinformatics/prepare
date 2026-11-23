@@ -297,7 +297,7 @@ def _plain_verdict(
 
 def _verdict_message(n_files: int, verdict: Dict[str, Any]) -> str:
     """The result message carrying the completeness verdict, in the format ``parse_verdict_message`` reads."""
-    if not verdict.get("mates_match", True):
+    if not verdict.get("mates_match", True) and verdict["verdict"] == "truncated":
         return f"Downloaded {n_files} files, {fastq_mod.mates_message(verdict['reads_mate1'], verdict['reads_r2'])}"
     if verdict["verdict"] == "unverified":
         return f"Downloaded {n_files} files, unverified"

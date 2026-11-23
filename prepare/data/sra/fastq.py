@@ -353,10 +353,11 @@ def verify_download(
     ``expected_spots`` is unknown (e.g. NCBI metadata was never fetched for this accession).
 
     For paired data the mate-2 file must hold as many records as the mate-1 file (the orphan
-    file aside); when it does not, the verdict is ``"truncated"`` whatever ``expected_spots`` is,
-    and ``mates_match`` is False. This reads the mate-2 file once unless ``reads_r2`` is given.
-    A mate-1 file with no mate-2 file beside it is not judged on mates, since some runs yield
-    only ``_1``.
+    file aside). When it does not, ``mates_match`` is False, ``reads_r1`` counts only the spots
+    with both mates (the smaller mate count, plus the orphan file) and is judged against
+    ``expected_spots`` as usual, and without a spot count the verdict is ``"truncated"``. This
+    reads the mate-2 file once unless ``reads_r2`` is given. A mate-1 file with no mate-2 file
+    beside it is not judged on mates, since some runs yield only ``_1``.
 
     A caller that has already counted the records of the primary file (``reads_r1``), the
     orphan file (``reads_orphan``) or the mate-2 file (``reads_r2``) passes them in, and that
@@ -373,12 +374,23 @@ def verify_download(
     bytes_total = sum(p.stat().st_size for p in files)
 
     reads_r2 = _mate2_reads(acc_dir, primary, orphan, reads_r2)
+    return {**_judged(reads_r1, mate1_reads, reads_r2, expected_spots), "bytes_total": bytes_total}
+
+
+def _judged(reads_r1: int, mate1_reads: int, reads_r2: Optional[int], expected_spots: Optional[int]) -> Dict[str, Any]:
+    """The verdict fields of ``verify_download`` for these counts (see there)."""
     mates_match = reads_r2 is None or reads_r2 == mate1_reads
+    if reads_r2 is not None and not mates_match:
+        # Only the spots with both mates are complete: every later recompute from reads_r1 (a
+        # registry merge, a reverify) then reaches the same verdict.
+        reads_r1 -= mate1_reads - min(mate1_reads, reads_r2)
 
     # Imported here: the spots module imports COMPLETE_RATIO_THRESHOLD from this one.
     from prepare.data.sra.spots import verdict_for_count
 
     verdict = verdict_for_count(reads_r1, expected_spots)
+    if not mates_match and verdict["verdict"] == "unverified":
+        verdict["verdict"] = "truncated"
     return {
         "reads_r1": reads_r1,
         "reads_mate1": mate1_reads,
@@ -386,8 +398,7 @@ def verify_download(
         "mates_match": mates_match,
         "expected_spots": expected_spots,
         "ratio": verdict["ratio"],
-        "verdict": verdict["verdict"] if mates_match else "truncated",
-        "bytes_total": bytes_total,
+        "verdict": verdict["verdict"],
     }
 
 
@@ -434,9 +445,10 @@ def parse_verdict_message(message: str) -> Optional[Dict[str, Any]]:
     mates = _MATES_MESSAGE_RE.search(message)
     if mates:
         reads_r1, reads_r2 = int(mates.group(1)), int(mates.group(2))
+        # The complete spots are those with both mates: the smaller of the two counts.
         return {
             "verdict": "truncated",
-            "reads_r1": reads_r1,
+            "reads_r1": min(reads_r1, reads_r2),
             "reads_r2": reads_r2,
             "expected_spots": None,
             "ratio": None,

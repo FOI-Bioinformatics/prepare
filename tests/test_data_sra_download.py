@@ -3146,7 +3146,8 @@ class TestMateCountCheck:
         parsed = parse_verdict_message("Downloaded 2 files, truncated (mate files differ: 100 and 40 reads)")
 
         assert parsed["verdict"] == "truncated"
-        assert (parsed["reads_r1"], parsed["reads_r2"]) == (100, 40)
+        # reads_r1 is the number of spots with both mates.
+        assert (parsed["reads_r1"], parsed["reads_r2"]) == (40, 40)
 
     def test_handle_download_output_with_short_mate_two_fails_without_accept_partial(self, tmp_path):
         temp_path = tmp_path / "temp"

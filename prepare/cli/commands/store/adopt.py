@@ -191,13 +191,15 @@ class StoreAdoptCommand(BaseCommand):
             | (set(report.deduplicated) if args.move else set())
             | set(self._unrecorded_links(args, paths, report.skipped))
         )
+        # Both sets are recorded before any failure is reported: the copied ones need their usage
+        # rows and "just used" markers whatever happened to the linked ones.
+        errors = []
         if newly_linked and not self._record_linked(args, paths, newly_linked):
-            return usage_not_recorded("Linked", newly_linked)
-
+            errors.append(usage_not_recorded("Linked", newly_linked))
         copied = sorted(set(report.copied) | (set(report.deduplicated) if not args.move else set()))
         if copied and not self._record_copied(args, paths, copied):
-            return usage_not_recorded("Copied", copied, rerun="store_adopt --copy")
-        return None
+            errors.append(usage_not_recorded("Copied", copied, rerun="store_adopt --copy"))
+        return LockTimeoutError("; ".join(str(e) for e in errors)) if errors else None
 
     @staticmethod
     def _unrecorded_links(args: argparse.Namespace, paths: StorePaths, skipped: List[str]) -> List[str]:

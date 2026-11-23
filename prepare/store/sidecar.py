@@ -118,8 +118,8 @@ def _judge(
 ) -> Tuple[Dict[str, Any], int]:
     """The completeness block and per-mate read count of a dataset whose files all read cleanly.
 
-    The method is ``"mates"`` when the mate files differ in read count (the verdict is then
-    ``truncated``), ``"spots"`` when NCBI's spot count was compared, and ``"unverified"`` otherwise.
+    The method is ``"spots"`` when NCBI's spot count was compared, ``"mates"`` when there is none
+    and the mate files differ in read count (the verdict is then ``truncated``), else ``"unverified"``.
     """
     primary, orphan, mate2 = primary_fastq(acc_path), orphan_fastq(acc_path), mate2_fastq(acc_path)
     verdict = verify_download(
@@ -130,7 +130,7 @@ def _judge(
         reads_orphan=reads_by_path.get(orphan) if orphan is not None else None,
         reads_r2=reads_by_path.get(mate2) if mate2 is not None else None,
     )
-    method = "mates" if not verdict["mates_match"] else ("spots" if expected else "unverified")
+    method = "spots" if expected else ("mates" if not verdict["mates_match"] else "unverified")
     return {"method": method, "ratio": verdict["ratio"], "verdict": verdict["verdict"]}, verdict["reads_r1"]
 
 

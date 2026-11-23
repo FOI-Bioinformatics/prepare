@@ -483,3 +483,32 @@ def test_a_fresh_unverified_redownload_replaces_the_old_files_verdict(tmp_path):
     assert verdict["verdict"] == "unverified"
     args = _parse(tmp_path, "--redownload-truncated", "--no-verify-downloads")
     assert sra_verdicts.registry_inputs(args, load_registry(registry_path), None)[2] == set()
+
+
+@pytest.mark.parametrize("success", [True, False])
+def test_a_mate_mismatch_is_recorded_truncated_when_the_spot_count_is_known(tmp_path, success):
+    """Review: merging recomputed the verdict from reads_r1 (mate 1), which matched the spot count."""
+    from prepare.cli.commands.sra_record import result_recorder
+    from prepare.data.registry_batch import registry_batch
+
+    registry_path = tmp_path / "prepare_registry.json"
+    save_registry(Registry(path=registry_path))
+    message = "Downloaded 2 files, truncated (mate files differ: 100 and 40 reads)"
+
+    with registry_batch(registry_path) as batch:
+        result_recorder(tmp_path / "fastq", None, batch, {}, {ACC: 100})(ACC, success, message)
+
+    assert load_registry(registry_path).datasets[ACC]["download"]["complete"]["verdict"] == "truncated"
+
+
+def test_a_present_folder_with_unequal_mates_is_recorded_truncated(tmp_path):
+    fastq = tmp_path / "fastq" / ACC
+    fastq.mkdir(parents=True)
+    (fastq / f"{ACC}_1.fastq").write_text("@r\nACGT\n+\nIIII\n" * 100)
+    (fastq / f"{ACC}_2.fastq").write_text("@r\nACGT\n+\nIIII\n" * 40)
+    registry = Registry(path=tmp_path / "prepare_registry.json")
+
+    found = sra_verdicts.present_verdicts(tmp_path / "fastq", [ACC], registry, {ACC: 100})
+    verdict = sra_verdicts.recorded_verdict(registry, ACC, found[ACC], 100, linked=False)
+
+    assert verdict["verdict"] == "truncated"
