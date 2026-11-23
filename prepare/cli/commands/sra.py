@@ -6,7 +6,7 @@ import argparse
 import functools
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
 from prepare.cli.commands.sra_record import STORE_SAVED_SUFFIX  # noqa: F401 - re-exported
@@ -458,20 +458,10 @@ class DownloadSraCommand(BaseCommand):
         timings: Optional[Timings] = None,
         expected_spots: Optional[Dict[str, int]] = None,
     ) -> Callable[[str, bool, str], None]:
-        """The callback the download loop uses to record each accession's outcome.
-
-        See ``sra_record.result_recorder``. The helpers are passed from this class, so
-        ``_record_present`` and ``_sidecar_completeness`` stay the points to replace in tests.
-        """
-        return result_recorder(
-            fastq_dir,
-            store,
-            batch,
-            timings,
-            expected_spots,
-            self._record_present,
-            self._sidecar_completeness,
-            unrecorded=self._unrecorded_usage(),
+        """The outcome callback of ``sra_record.result_recorder``, with this class's helpers (replaced in tests)."""
+        recorder = functools.partial(result_recorder, unrecorded=self._unrecorded_usage())
+        return recorder(
+            fastq_dir, store, batch, timings, expected_spots, self._record_present, self._sidecar_completeness
         )
 
     def _unrecorded_usage(self) -> List[str]:
@@ -659,6 +649,9 @@ class DownloadSraCommand(BaseCommand):
         outcomes, started, aborted = RunOutcomes(), datetime.now(timezone.utc), None
         try:
             code = self._run(args, outcomes)
+            if unrecorded := self._unrecorded_usage():  # reported whatever else failed; exit 4 only if nothing did
+                usage_code = self.fail(usage_not_recorded("Linked or saved", unrecorded), "download_sra")
+                code = code or usage_code
         except KeyboardInterrupt:
             # download_sra has already cancelled pending downloads and stopped running tools.
             self.logger.error("Download interrupted by the user")
@@ -666,19 +659,6 @@ class DownloadSraCommand(BaseCommand):
         if not args.dry_run:
             self._write_run_summary(args, outcomes, started, code, aborted)
         return code
-
-    def _outcome_code(self, args: argparse.Namespace, download_stats: Dict[str, Any]) -> int:
-        """The exit code of a finished run: 1 when it was aborted, the failure code when a download failed."""
-        if not args.dry_run and download_stats.get("aborted"):
-            self.logger.error(
-                "Download run aborted (%s); accessions attempted before the abort were still recorded above",
-                download_stats["aborted"],
-            )
-            return 1
-        if not args.dry_run and download_stats["failed"] > 0:
-            self._report_failed_downloads(args, download_stats)
-            return self._failure_exit_code(download_stats)
-        return 0
 
     def _run(self, args: argparse.Namespace, outcomes: RunOutcomes) -> int:
         try:
@@ -701,12 +681,18 @@ class DownloadSraCommand(BaseCommand):
                 self._record_run_outcomes(args, download_stats, fastq_dir, store, inputs[1])
                 self._warn_if_transient_bytes_large(args, fastq_dir, store)
 
-            code = self._outcome_code(args, download_stats)
-            unrecorded = self._unrecorded_usage()
-            if unrecorded:
-                usage_code = self.fail(usage_not_recorded("Linked or saved", unrecorded), "Error downloading SRA data")
-                return code or usage_code
-            return code
+            if not args.dry_run and download_stats.get("aborted"):
+                self.logger.error(
+                    "Download run aborted (%s); accessions attempted before the abort were " "still recorded above",
+                    download_stats["aborted"],
+                )
+                return 1
+
+            if not args.dry_run and download_stats["failed"] > 0:
+                self._report_failed_downloads(args, download_stats)
+                return self._failure_exit_code(download_stats)
+
+            return 0
 
         except PrepareError as e:
             return self.fail(e, "Error downloading SRA data")

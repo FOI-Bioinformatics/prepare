@@ -372,11 +372,7 @@ def verify_download(
         reads_r1 += reads_orphan if reads_orphan is not None else _count_named(orphan)
     bytes_total = sum(p.stat().st_size for p in files)
 
-    mate2 = mate2_fastq(acc_dir) if orphan is not None or _is_mate1(primary) else None
-    if mate2 is None:
-        reads_r2 = None
-    elif reads_r2 is None:
-        reads_r2 = _count_named(mate2)
+    reads_r2 = _mate2_reads(acc_dir, primary, orphan, reads_r2)
     mates_match = reads_r2 is None or reads_r2 == mate1_reads
 
     # Imported here: the spots module imports COMPLETE_RATIO_THRESHOLD from this one.
@@ -403,9 +399,15 @@ def _count_named(path: Path) -> int:
         raise type(e)(f"{path.name}: {e}") from e
 
 
-def _is_mate1(path: Optional[Path]) -> bool:
-    """Whether ``path`` is a mate-1 file (``_1``/``_R1``)."""
-    return path is not None and fastq_stem(path).endswith(MATE1_SUFFIXES)
+def _mate2_reads(
+    acc_dir: Union[str, Path], primary: Optional[Path], orphan: Optional[Path], given: Optional[int]
+) -> Optional[int]:
+    """The read count of the mate-2 file beside a mate-1 file (``given`` when known), or None when there is none."""
+    paired = orphan is not None or (primary is not None and fastq_stem(primary).endswith(MATE1_SUFFIXES))
+    mate2 = mate2_fastq(acc_dir) if paired else None
+    if mate2 is None:
+        return None
+    return given if given is not None else _count_named(mate2)
 
 
 _VERDICT_MESSAGE_RE = re.compile(r", (complete|truncated) \((\d+) of (\d+) spots\)")

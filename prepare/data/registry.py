@@ -230,8 +230,7 @@ def record_selection(
     for the selected accessions; entries for accessions outside ``accessions`` are dropped so
     the recorded list is always capped to what was actually selected. An accession in ``keep`` (one that
     meets the criteria but was left out of ``accessions``, e.g. by ``--skip-downloaded``) is selected with
-    the same ``criteria``, whether or not it was selected before. ``output`` and ``criteria["table"]`` are
-    recorded project-relative.
+    the same ``criteria``. ``output`` and ``criteria["table"]`` are recorded project-relative.
     """
     root = project_root(registry)
     criteria = {**criteria, **{k: _project_relative(v, root) for k, v in criteria.items() if k == "table" and v}}
