@@ -18,6 +18,9 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 - The `status` funnel sums bytes, read pairs, assembled bases and times over the same disk-checked
   accessions it counts ("2 downloaded (3 bytes)" after a deletion). `project_report` still counts
   from the registry alone and now says so under its funnel.
+- `store_unlink` removes the project's usage rows for the dataset from the catalogue and the journal; the
+  dataset stayed in use for as long as the project existed, so `store_gc` never reclaimed it. A failure
+  to remove them exits with status 4.
 
 ### Fixed
 

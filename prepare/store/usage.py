@@ -24,6 +24,7 @@ from typing import AbstractSet, Any, Dict, FrozenSet, Iterable, List, Optional, 
 from prepare.core.exceptions import DataAccessError, LockTimeoutError
 from prepare.data.registry import Registry, load_registry, project_root
 from prepare.data.registry_blocks import project_block, set_project_block
+from prepare.store import journal
 from prepare.store.catalog import Catalog, catalog_write
 from prepare.store.layout import StorePaths
 
@@ -133,6 +134,29 @@ def record_usage_many(
         return True
     except Exception as e:
         logger.warning("Could not record usage batch (%d row(s)): %s", len(rows), e)
+        return False
+
+
+def forget_usage_many(paths: Optional[StorePaths], registry: Registry, accessions: Sequence[str]) -> bool:
+    """Remove this project's usage rows for ``accessions`` from the catalogue and the journal.
+
+    The rows are deleted and committed in one ``catalog_write`` session, then the matching
+    journal lines are pruned under the same lock (as ``store_gc`` does), so ``store_reindex``
+    does not bring them back. No store, no bound project or nothing to forget returns True; a
+    failure is logged at warning and returns False.
+    """
+    project_id = project_block(registry).id
+    if paths is None or not project_id or not accessions:
+        return True
+    try:
+        with catalog_write(paths) as catalog:
+            for accession in accessions:
+                catalog.forget_usage(accession, project_id)
+            catalog.commit_now()
+            journal.prune_usage(paths, accessions, project_id=project_id)
+        return True
+    except Exception as e:
+        logger.warning("Could not remove the project's usage of %d accession(s): %s", len(accessions), e)
         return False
 
 

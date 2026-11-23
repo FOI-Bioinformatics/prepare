@@ -16,7 +16,7 @@ from typing import List, Optional
 from prepare.cli.base import BaseCommand, anchored_folder, refuse_bad_accessions
 from prepare.cli.commands.sra_verdicts import store_sidecar_verdict, store_spot_count, store_verdict
 from prepare.cli.commands.store._shared import _required_store
-from prepare.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError, LockTimeoutError
 from prepare.data.registry import record_download
 from prepare.data import registry_blocks as rb
 from prepare.data.registry import load_registry, registry_transaction, update_linked
@@ -26,7 +26,7 @@ from prepare.store.layout import StorePaths, sidecar_path, store_paths
 from prepare.store.link import LINK_MODES, is_store_link, link_dataset, unlink_dataset
 from prepare.store.locks import dataset_lock
 from prepare.store.sidecar import read_sidecar
-from prepare.store.usage import ensure_project_identity, record_usage_many, usage_not_recorded
+from prepare.store.usage import ensure_project_identity, forget_usage_many, record_usage_many, usage_not_recorded
 from prepare.utils.lockfile import LockHeld
 
 
@@ -250,4 +250,13 @@ class StoreUnlinkCommand(BaseCommand):
                     update_linked(reg, accession, add=False)
 
         self.emit(f"Unlinked {len(removed)} of {len(args.accessions)} accession(s)")
+        # Every accession not refused, linked or not: a rerun after a failed write still forgets it.
+        forget = [acc for acc in args.accessions if acc not in refused]
+        if store is not None and not forget_usage_many(store, load_registry(args.registry), forget):
+            error = LockTimeoutError(
+                f"Unlinked, but could not remove this project's use of {len(forget)} accession(s) from the store "
+                f"catalogue; run store_unlink {' '.join(forget[:10])} again so store_gc can reclaim them"
+            )
+            code = self.fail(error, self.name)
+            return 1 if refused else code
         return 1 if refused else 0
