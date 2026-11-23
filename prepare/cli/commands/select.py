@@ -17,6 +17,13 @@ from prepare.data.registry_batch import registry_update
 from prepare.processing.selection import RunFilters, parse_size, select_accessions_ranked
 
 
+def _ranking_column(args: argparse.Namespace) -> str:
+    """The column label a ranking on ``args`` uses, as ``select_accessions_ranked`` builds it ("A+B")."""
+    if args.genome_ids:
+        return "+".join(args.genome_ids)
+    return args.genome_id or "max_containment"
+
+
 def _positive_int(value: str) -> int:
     """argparse type for --top-n: rejects zero and negative values with a clear message."""
     parsed = int(value)
@@ -268,7 +275,7 @@ class SelectDatasetsCommand(BaseCommand):
                     # The column the ranking actually used, which for --genome-ids is the
                     # combined label select_accessions_ranked builds (e.g. "A+B"), not the
                     # single --genome-id this falls back to when nothing was selected.
-                    "column": ranked[0][1] if ranked else (args.genome_id or "max_containment"),
+                    "column": ranked[0][1] if ranked else _ranking_column(args),
                     "threshold": args.threshold,
                     # The metadata table actually used, whether it was --metadata-file or the
                     # default resolve_metadata_table autodetected (see the top of execute()),
@@ -291,7 +298,7 @@ class SelectDatasetsCommand(BaseCommand):
                 output=output,
                 ranked=ranked_records,
                 # Met every criterion and were left out by --skip-downloaded only: selected with these criteria.
-                keep=downloaded.intersection(dropped),
+                keep=downloaded.intersection(dropped) - excluded,
             )
             # Loaded again inside the lock, so a download or exclusion another process recorded
             # while this one was ranking is kept; record_selection unselects earlier selections

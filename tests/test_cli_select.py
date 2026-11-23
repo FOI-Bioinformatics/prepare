@@ -586,3 +586,43 @@ def test_skip_downloaded_does_not_keep_a_download_below_the_threshold(tmp_path, 
     assert SelectDatasetsCommand().execute(args) == 0
 
     assert query(load_registry(registry_path), "selected") == ["SRR1"]
+
+
+def test_skip_downloaded_with_genome_ids_and_nothing_new_does_not_cover_other_genomes(tmp_path, monkeypatch):
+    """Review: an empty ranking fell back to column max_containment, which covers every genome."""
+    from prepare.data.project_selection import selection_for_genome
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "parsed_containment.txt").write_text(
+        "\tA\tB\tC\nSRR1\t0.9\t0.9\t0.0\nSRR2\t0.8\t0.8\t0.0\nSRR9\t0.0\t0.0\t0.9\n"
+    )
+    registry_path = tmp_path / "prepare_registry.json"
+    registry = load_registry(registry_path)
+    for acc in ("SRR1", "SRR2"):
+        record_download(registry, acc, "downloaded", tmp_path / "fastq")
+    save_registry(registry)
+
+    args = _args(tmp_path, registry=str(registry_path), genome_ids=["A", "B"], threshold=0.5, skip_downloaded=True)
+    assert SelectDatasetsCommand().execute(args) == 0
+
+    registry = load_registry(registry_path)
+    assert selection_for_genome(registry, "A") == {"SRR1", "SRR2"}
+    assert selection_for_genome(registry, "C") == set()
+
+
+def test_skip_downloaded_does_not_select_an_excluded_download(tmp_path, monkeypatch):
+    """Review: an accession both excluded and downloaded was kept, and so selected."""
+    from prepare.data.registry import query
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "parsed_containment.txt").write_text("\tG\nSRR1\t0.9\nSRR2\t0.8\n")
+    registry_path = tmp_path / "prepare_registry.json"
+    registry = load_registry(registry_path)
+    record_download(registry, "SRR2", "downloaded", tmp_path / "fastq")
+    record_exclusion(registry, "SRR2", "host reads")
+    save_registry(registry)
+
+    args = _args(tmp_path, registry=str(registry_path), genome_id="G", threshold=0.5, skip_downloaded=True)
+    assert SelectDatasetsCommand().execute(args) == 0
+
+    assert query(load_registry(registry_path), "selected") == ["SRR1"]
