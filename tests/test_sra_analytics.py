@@ -1339,3 +1339,43 @@ def test_compare_datasets_result_dumps(tmp_path):
 
     assert result.statistical_tests["gc_percent"]["test"] == "t-test"
     json.dumps(json_safe(result.statistical_tests))
+
+
+def _clean_profile(accession, **changes):
+    fields = dict(
+        accession=accession,
+        total_reads=10000,
+        total_bases=1500000,
+        avg_read_length=150,
+        read_length_distribution={},
+        gc_percent=45.0,
+        gc_histogram={},
+        quality_distribution={},
+        n_content=0.01,
+        contamination_indicators={"adapter_contamination": 0.0},
+        complexity_score=0.7,
+        duplication_rate=None,
+        technology_confidence=0.9,
+        quality_grade="good",
+        recommendations=[],
+    )
+    fields.update(changes)
+    return QualityProfile(**fields)
+
+
+def test_gc_only_anomaly_is_flagged():
+    """Each single anomaly flags its dataset; unusual GC (weight 0.2) alone was never flagged."""
+    profiles = {"SRR1": _clean_profile("SRR1", gc_percent=85.0), "SRR2": _clean_profile("SRR2")}
+    report = SRADatasetAnalyzer().detect_dataset_anomalies(["SRR1", "SRR2"], profiles=profiles)
+    assert report.anomalous_datasets == ["SRR1"]
+
+
+def test_adapter_at_seven_percent_is_flagged_and_counted(tmp_path):
+    """The anomaly flag and the report's contamination count use the same threshold."""
+    from prepare.sra.reporting import SRAReportGenerator
+
+    profiles = {"SRR1": _clean_profile("SRR1", contamination_indicators={"adapter_contamination": 0.07})}
+    report = SRADatasetAnalyzer().detect_dataset_anomalies(["SRR1"], profiles=profiles)
+    summary = SRAReportGenerator(tmp_path)._calculate_quality_summary(profiles)
+    assert report.anomalous_datasets == ["SRR1"]
+    assert summary["high_contamination_count"] == 1

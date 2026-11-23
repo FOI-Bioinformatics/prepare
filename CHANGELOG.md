@@ -4,6 +4,51 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-23
+
+Fixes for the medium-severity findings of the 2026-11-23 bug sweep. Three of them change behaviour:
+the default extraction threshold, re-screening and the accepted flag values (see Changed).
+
+### Changed
+
+- `extract_target_reads` without `--threshold` uses the lowest threshold recorded by the selections made
+  for the genome (0.1 when there is none; a threshold on `max_containment` or `--require any` can lower
+  0.1 but not raise it), so a sample selected below 0.1 is extracted. An explicit
+  `--threshold` that leaves out selected samples logs a warning. `status --next` suggests the same threshold.
+- Numeric flags reject values that mean nothing, as usage errors (exit 2): `store_gc --older-than` below 0,
+  `extract_target_reads --threads`, `--assembly-threads` and `--min-contig-len` below 1, `single_sample
+  --top-n` below 1, `--registry-max-screened` below 1, and `download_metadata --batch-size` outside 1-500
+  (it failed with a raw `ValueError` and exit 1).
+- `parse_containment` and `branchwater_search` remove the screening entry of an accession that is no longer
+  in a genome's matches; `results_table`, `status` and `status --next` kept reporting it. `branchwater_search`
+  removes only its own entries at or above its `--threshold`, and nothing after an empty reply.
+
+### Fixed
+
+- `sra_profile` without `--accession`/`--accessions-file` leaves out excluded accessions and downloads
+  whose sidecar records them as unfinished; they entered the totals and the registry analyses.
+- `status` no longer lists an excluded accession of the selection as wanted or missing, and `--stage` and
+  `--list-missing` (Gaps) leave out work whose files are gone from disk, as the Stages section does.
+- The `status` funnel sums bytes, read pairs, assembled bases and times over the same disk-checked
+  accessions it counts ("2 downloaded (3 bytes)" after a deletion). `project_report` still counts
+  from the registry alone and now says so under its funnel.
+- `store_unlink` removes the project's usage rows for the dataset from the catalogue and the journal; the
+  dataset stayed in use for as long as the project existed, so `store_gc` never reclaimed it. A failure
+  to remove them exits with status 4.
+- `sra_report --groups-file` refuses entries that are not SRA accessions and strips whitespace; a path such
+  as `../outside/x` was read from outside `--fastq-folder` and recorded in the registry.
+- `genome_download --dry-run` no longer creates the output folder.
+- `sra_report` lists a dataset with any single anomaly (unusual GC alone was never listed), and the anomaly
+  check and the report's contamination count use one adapter threshold, 5 % (they used 10 % and 5 %).
+- `sra_profile`'s totals (`quality_summary.json`, run log) leave out datasets profiled from a sample only
+  and count them as `sampled_datasets`, as `sra_report` does; a sample size was added to the read total.
+- The metadata `avg_length` is the mean length of one read; for a paired run it was the length of a
+  spot (300 for 2 x 150 bp).
+- NCBI efetch connections time out after 120 s and are retried; a stalled connection hung `download_metadata`.
+- A download failure is classified `disk-full` before `not-found`, and a 403/404 counts only as a status
+  code, so a number such as 1,404,213 in tool output no longer stops a full disk from ending the run.
+- An interrupt during the download retry pass removes the accession's build folder.
+
 ## [0.12.3] - 2026-11-23
 
 Fixes for the high-severity findings of a bug sweep over the command-line arguments, the pipeline

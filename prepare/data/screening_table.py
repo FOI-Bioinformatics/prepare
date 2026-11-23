@@ -15,7 +15,7 @@ size ceiling; ``registry.record_screening_from_table`` delegates here.
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import AbstractSet, Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -132,6 +132,48 @@ def _drop_zero_cells(registry: reg.Registry, table: pd.DataFrame) -> None:
             _drop_screening(registry, accession, genome)
 
 
+def drop_vanished_screening(
+    registry: reg.Registry,
+    genome_id: str,
+    present: AbstractSet[str],
+    at_least: float = 0.0,
+    source: Optional[str] = None,
+) -> List[str]:
+    """Remove the ``genome_id`` screening entry of every accession not in ``present``; return them.
+
+    A new screen of a genome is the whole match set for it, so an accession it no longer holds
+    keeps no entry from an earlier screen. Only entries the new screen covers are removed: those
+    recorded at containment ``at_least`` or above (a search at a higher threshold says nothing about
+    the ones below it) and, when ``source`` is given, recorded by that source. Other genomes'
+    entries and the dataset's other records (download, extraction) are left alone.
+    """
+
+    def covered(entry: Any) -> bool:
+        if not isinstance(entry, dict):
+            return False
+        value = entry.get("containment")
+        in_range = isinstance(value, (int, float)) and value >= at_least
+        return in_range and (source is None or entry.get("source") == source)
+
+    vanished = [
+        accession
+        for accession, record in registry.datasets.items()
+        if accession not in present and covered(((record.get("screening") or {}).get("genomes") or {}).get(genome_id))
+    ]
+    for accession in vanished:
+        _drop_screening(registry, accession, genome_id)
+    if vanished:
+        logger.info("Removed %d screening entr(ies) for %s no longer in the matches", len(vanished), genome_id)
+    return vanished
+
+
+def _drop_vanished_rows(registry: reg.Registry, table: pd.DataFrame) -> None:
+    """For each genome column of ``table``, remove the entries of accessions the table does not hold."""
+    present = {str(accession) for accession in table.index}
+    for genome in (str(column) for column in table.columns if column not in _NOT_GENOMES):
+        drop_vanished_screening(registry, genome, present)
+
+
 def _write_row(
     registry: reg.Registry,
     accession: str,
@@ -188,6 +230,7 @@ def record_screening_table(
             return 0
         table = loaded
     _drop_zero_cells(registry, table)
+    _drop_vanished_rows(registry, table)
     accessions, genomes, rows, cols, rounded = _positive_cells(table)
     if not len(rows):
         return 0

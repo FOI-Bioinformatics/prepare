@@ -19,6 +19,7 @@ from prepare.cli.base import BaseCommand, anchored_folder, read_accessions_file,
 from prepare.cli.commands.sra_profile import add_sampling_arguments
 from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
 from prepare.core.optional import require
+from prepare.core.validation import validate_accession
 from prepare.data import run_log
 from prepare.data.file_io import write_text_atomic
 from prepare.data.registry import load_registry, record_analysis
@@ -43,6 +44,18 @@ def _in_several_groups(groups: Dict[str, List[str]]) -> List[str]:
     return sorted(acc for acc, count in counts.items() if count > 1)
 
 
+def _accession_groups(groups: Dict[str, List[str]], path: str) -> Dict[str, List[str]]:
+    """``groups`` with each entry stripped; raises ``ValidationError`` naming entries that are not accessions.
+
+    Each entry names a folder under --fastq-folder and a registry record, so it must be an accession.
+    """
+    groups = {name: [acc.strip() for acc in accs] for name, accs in groups.items()}
+    invalid = [acc for accs in groups.values() for acc in accs if not validate_accession(acc)]
+    if invalid:
+        raise ValidationError(f"Groups file {path} lists entries that are not SRA accessions: {', '.join(invalid)}")
+    return groups
+
+
 def load_groups(path: str) -> Dict[str, List[str]]:
     """Accession groups from a JSON file mapping each group name to a list of accessions.
 
@@ -60,6 +73,7 @@ def load_groups(path: str) -> Dict[str, List[str]]:
     )
     if not valid or not groups:
         raise ValidationError(f"Groups file {path} must map group names to accession lists, e.g. {_GROUPS_EXAMPLE}")
+    groups = _accession_groups(groups, path)
     shared = _in_several_groups(groups)
     if shared:
         raise ValidationError(f"Groups file {path} lists accessions in more than one group: {', '.join(shared)}")

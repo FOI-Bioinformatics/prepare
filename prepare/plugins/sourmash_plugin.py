@@ -10,7 +10,7 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
-from prepare.cli.base import finite_float
+from prepare.cli.base import finite_float, positive_int
 from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
 from prepare.core.optional import require
 from prepare.utils.logging import setup_logging
@@ -69,7 +69,7 @@ class PrepareParsePlugin(CommandLinePlugin):
         parser.add_argument("--registry", default=None, help="Registry file (default: found upwards from here)")
         parser.add_argument(
             "--registry-max-screened",
-            type=int,
+            type=positive_int,
             default=DEFAULT_REGISTRY_MAX_SCREENED,
             help="Most screening entries to keep in the registry per genome (the match CSVs keep them all)",
         )

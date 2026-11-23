@@ -10,6 +10,7 @@ The registry keeps the latest outcome of each step. Two limits apply:
 
 - Each `select_datasets` run replaces the previous selection. Only the accessions of the latest run count as selected.
 - To keep the registry small on a broad search, `branchwater_search` and `parse_containment` record at most 5000 accessions per genome, the ones with the highest containment. `--registry-max-screened` of those two commands changes the limit. The match CSVs keep every hit.
+- A new screen of a genome replaces the earlier one: an accession no longer in the matches loses its screening entry for that genome (other genomes and its download and extraction records are kept).
 
 ## status
 

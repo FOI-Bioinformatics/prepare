@@ -2103,3 +2103,45 @@ class TestExtractionFollowsTheProject:
         assert parser.parse_args(
             ["--parsed-containment", "t", "--genome-id", "G", "--genome-fasta", "G.fna", "--ignore-selection"]
         ).ignore_selection
+
+
+class TestThresholdFollowsTheSelection:
+    """A sample selected below 0.1 is extracted unless --threshold says otherwise."""
+
+    def _project(self, tmp_path):
+        root, table, genome = _project_tree(tmp_path, {"SRR1": 0.9, "SRR9": 0.07, "SRR8": 0.02})
+        registry = load_registry(root / "registry.json")
+        record_selection(registry, ["SRR1", "SRR9"], {"column": "GCF_1", "threshold": 0.05}, "accessions.txt")
+        save_registry(registry, root / "registry.json")
+        return _args(
+            tmp_path,
+            parsed_containment=str(table),
+            genome_fasta=str(genome),
+            fastq_folder=str(root / "fastq"),
+            threshold=None,
+            dry_run=True,
+        )
+
+    def test_without_threshold_the_selection_threshold_applies(self, tmp_path, caplog):
+        args = self._project(tmp_path)
+        assert _dry_run_listed(ExtractTargetReadsCommand(), args, caplog) == ["SRR1", "SRR9"]
+        assert args.threshold == 0.05
+
+    def test_an_explicit_threshold_wins_and_warns_about_selected_samples_below_it(self, tmp_path, caplog):
+        args = self._project(tmp_path)
+        args.threshold = 0.1
+        assert _dry_run_listed(ExtractTargetReadsCommand(), args, caplog) == ["SRR1"]
+        assert any(r.levelname == "WARNING" and "1 selected" in r.message for r in caplog.records)
+
+    def test_without_a_selection_the_default_applies(self, tmp_path, caplog):
+        root, table, genome = _project_tree(tmp_path, {"SRR1": 0.9, "SRR9": 0.07})
+        args = _args(
+            tmp_path,
+            parsed_containment=str(table),
+            genome_fasta=str(genome),
+            fastq_folder=str(root / "fastq"),
+            threshold=None,
+            dry_run=True,
+        )
+        assert _dry_run_listed(ExtractTargetReadsCommand(), args, caplog) == ["SRR1"]
+        assert args.threshold == 0.1

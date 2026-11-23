@@ -56,6 +56,13 @@ def _is_transient(error: "requests.RequestException") -> bool:
     return isinstance(status, int) and (status == 429 or status >= 500)
 
 
+def _mean_read_length(bases: int, spots: int, layout: str) -> float:
+    """The mean length of one read: a paired spot holds two reads, so its bases are split between them."""
+    if not spots:
+        return 0.0
+    return bases / (spots * (2 if layout == "PAIRED" else 1))
+
+
 class SRAMetadataClient:
     """Client for fetching SRA metadata from NCBI."""
 
@@ -394,7 +401,7 @@ class SRAMetadataClient:
                         layout=layout,
                         spots=spots,
                         bases=bases,
-                        avg_length=bases / spots if spots else 0.0,
+                        avg_length=_mean_read_length(bases, spots, layout),
                         size_mb=size_mb,
                         release_date=published or submission_received,
                         bioproject=bioproject,

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AbstractSet, Any, Dict, List, Optional, Tuple
 
-from prepare.cli.base import BaseCommand, emit_error_json
+from prepare.cli.base import BaseCommand, emit_error_json, non_negative_int
 from prepare.cli.commands.store._shared import _stale_project_row, _required_store
 from prepare.core.constants import GC_RECENT_USE_GRACE_SECONDS, SRA_ACCESSION_PATTERN
 from prepare.core.exceptions import DataAccessError
@@ -109,7 +109,7 @@ class StoreGcCommand(BaseCommand):
         parser.add_argument(
             "--older-than",
             dest="older_than",
-            type=int,
+            type=non_negative_int,
             default=None,
             help="Only consider datasets whose sidecar was downloaded at least this many days ago",
         )

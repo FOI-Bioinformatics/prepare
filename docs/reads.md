@@ -135,7 +135,7 @@ prepare sra_validate --fastq-folder fastq --check-pairs --accession SRR123456
 
 ## sra_profile
 
-`sra_profile` computes statistics and a quality profile for each downloaded dataset. By default it profiles every accession folder under `--fastq-folder`. `--accessions-file` and repeated `--accession` flags restrict the run to the accessions named.
+`sra_profile` computes statistics and a quality profile for each downloaded dataset. By default it profiles every accession folder under `--fastq-folder`, except accessions the registry excludes (`blacklist`) and downloads whose sidecar records them as `partial`, `failed` or `downloading`. `--accessions-file` and repeated `--accession` flags restrict the run to the accessions named.
 
 ```bash
 # Every accession folder under fastq/

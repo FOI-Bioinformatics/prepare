@@ -67,10 +67,11 @@ def _wanted_accessions(args: argparse.Namespace) -> List[str]:
 
 
 def _resolve_wanted(args: argparse.Namespace, registry: Registry) -> List[str]:
-    """Explicit accessions/containment file win; otherwise fall back to the registry's selection."""
+    """Explicit accessions/containment file win; otherwise the registry's selection without excluded accessions."""
     if args.accessions_file or args.parsed_containment:
         return _wanted_accessions(args)
-    return query(registry, "selected")
+    excluded = set(query(registry, "excluded"))
+    return [acc for acc in query(registry, "selected") if acc not in excluded]
 
 
 def _reconcile_present_missing(wanted: List[str], present_fn) -> Tuple[List[str], List[str]]:
@@ -214,6 +215,19 @@ def _assembled(registry: Registry, extraction: Dict[str, Any], on_disk: bool) ->
     if not isinstance(assembly, dict) or (assembly.get("contigs") or 0) <= 0:
         return False
     return not on_disk or assembly_dir_present(registry, assembly)
+
+
+def disk_checked_members(registry: Registry, paths: ProjectPaths) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """``stage_members`` without the work no longer on disk, and that work by stage.
+
+    ``status`` counts from these (``project_report`` counts from the registry alone and says so).
+    The checks test whether folders and files exist; no FASTQ file is opened.
+    """
+    members = stage_members(registry)
+    gone = _gone_from_disk(registry, paths, members)
+    for stage in STAGES:
+        members[stage] = [acc for acc in members[stage] if acc not in gone.get(stage, ())]
+    return members, gone
 
 
 def _gone_from_disk(registry: Registry, paths: ProjectPaths, members: Dict[str, List[str]]) -> Dict[str, List[str]]:
@@ -390,15 +404,12 @@ def build_report(
     if store_root is not None:
         report["store"] = _store_block(store_root, store_available)
     # One pass over the registry lists every stage; the counts are the lengths of those lists.
-    members = stage_members(registry)
-    gone = _gone_from_disk(registry, paths, members)
+    members, gone = disk_checked_members(registry, paths)
     report["stages"] = {}
     for s in STAGES:
-        kept = [acc for acc in members[s] if acc not in gone.get(s, ())]
-        report["stages"][s] = {"count": len(kept), "accessions": kept}
+        report["stages"][s] = {"count": len(members[s]), "accessions": members[s]}
         if gone.get(s):
             report["stages"][s]["missing_on_disk"] = gone[s]
-        members[s] = kept
     report["funnel"] = funnel(registry, members)
     report["downloads"] = download_verdicts(registry)
     report["genomes"] = _genome_report(registry, paths, args.genome, genome_counts(registry, on_disk=True))

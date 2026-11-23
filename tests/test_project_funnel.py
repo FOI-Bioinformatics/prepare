@@ -146,3 +146,41 @@ def test_funnel_on_an_empty_registry_is_all_zero_and_untimed(tmp_path):
         "extracted": {"accessions": 0, "pairs": 0, "seconds": None},
         "assembled": {"accessions": 0, "pairs": 0, "total_bp": 0, "seconds": None},
     }
+
+
+def _raw_registry(tmp_path):
+    from prepare.data.registry import Registry
+
+    registry = Registry(path=tmp_path / "prepare_registry.json")
+    for acc in ("SRR1", "SRR2", "SRR3"):
+        registry.datasets[acc] = {
+            "download": {"state": "downloaded", "bytes_total": 1, "seconds": 2.0},
+            "extractions": {"G": {"mapped_reads": 5, "seconds": 3.0, "assembly": {"contigs": 1, "total_bp": 10}}},
+        }
+    return registry
+
+
+def test_funnel_bytes_follow_the_downloaded_members(tmp_path):
+    from prepare.processing.status_report import stage_members
+
+    registry = _raw_registry(tmp_path)
+    members = stage_members(registry)
+    members["downloaded"] = ["SRR1", "SRR3"]
+
+    downloaded = funnel(registry, members)["downloaded"]
+
+    assert (downloaded["accessions"], downloaded["bytes"], downloaded["seconds"]) == (2, 2, 4.0)
+
+
+def test_funnel_pairs_follow_the_extracted_and_assembled_members(tmp_path):
+    from prepare.processing.status_report import stage_members
+
+    registry = _raw_registry(tmp_path)
+    members = stage_members(registry)
+    members["extracted"] = ["SRR1"]
+    members["assembled"] = ["SRR1", "SRR2"]
+
+    result = funnel(registry, members)
+
+    assert result["extracted"]["pairs"] == 1
+    assert (result["assembled"]["pairs"], result["assembled"]["total_bp"]) == (2, 20)

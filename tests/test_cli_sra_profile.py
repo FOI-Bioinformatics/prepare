@@ -621,3 +621,74 @@ def test_an_accession_flag_that_is_not_an_accession_is_refused_before_any_work(t
     assert not (tmp_path / "sra_statistics.csv").exists()
     registry = tmp_path / "prepare_registry.json"
     assert not registry.exists() or "evil" not in registry.read_text()
+
+
+def test_discovery_skips_blacklisted_and_partial_folders(tmp_path):
+    from prepare.data.registry import load_registry, record_exclusion, save_registry
+
+    for accession in ("SRR1", "SRR2", "SRR3"):
+        _paired_dataset(tmp_path, accession)
+    (tmp_path / "fastq" / "SRR2" / "SRR2.json").write_text(json.dumps({"state": "partial"}))
+    registry = load_registry(tmp_path / "prepare_registry.json")
+    record_exclusion(registry, "SRR1", "blacklisted")
+    save_registry(registry)
+
+    assert SRAProfileCommand().execute(_args(tmp_path)) == 0
+
+    assert list(pd.read_csv(tmp_path / "sra_statistics.csv")["accession"]) == ["SRR3"]
+
+
+def test_named_accessions_are_profiled_even_if_excluded(tmp_path):
+    from prepare.data.registry import load_registry, record_exclusion, save_registry
+
+    _paired_dataset(tmp_path, "SRR1")
+    registry = load_registry(tmp_path / "prepare_registry.json")
+    record_exclusion(registry, "SRR1", "blacklisted")
+    save_registry(registry)
+
+    assert SRAProfileCommand().execute(_args(tmp_path, accession=["SRR1"])) == 0
+
+    assert list(pd.read_csv(tmp_path / "sra_statistics.csv")["accession"]) == ["SRR1"]
+
+
+def test_summary_leaves_out_sampled_profiles():
+    exact = QualityProfile(
+        accession="SRR1",
+        total_reads=1000,
+        total_bases=150000,
+        avg_read_length=150,
+        read_length_distribution={},
+        gc_percent=40.0,
+        gc_histogram={},
+        quality_distribution={},
+        n_content=0.0,
+        contamination_indicators={},
+        complexity_score=0.7,
+        duplication_rate=None,
+        technology_confidence=0.9,
+        quality_grade="good",
+        recommendations=[],
+    )
+    sampled = QualityProfile(
+        accession="SRR2",
+        total_reads=10000,
+        total_bases=1500000,
+        avg_read_length=150,
+        read_length_distribution={},
+        gc_percent=50.0,
+        gc_histogram={},
+        quality_distribution={},
+        n_content=0.0,
+        contamination_indicators={},
+        complexity_score=0.7,
+        duplication_rate=None,
+        technology_confidence=0.9,
+        quality_grade="good",
+        recommendations=[],
+        reads_sampled=10000,
+        sampled=True,
+    )
+
+    summary = SRAProfileCommand._summary_stats([exact, sampled])
+
+    assert (summary["total_reads"], summary["total_bases"], summary["sampled_datasets"]) == (1000, 150000, 1)

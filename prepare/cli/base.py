@@ -14,7 +14,7 @@ import re
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Union
 
 from prepare.core.constants import DEFAULT_LOG_LEVEL, LOG_LEVELS, SRA_ACCESSION_PATTERN
 from prepare.core.exceptions import exit_code_for
@@ -129,6 +129,26 @@ def positive_int(value: str) -> int:
     if parsed < 1:
         raise argparse.ArgumentTypeError(f"must be a positive integer, got {value!r}")
     return parsed
+
+
+def non_negative_int(text: str) -> int:
+    """argparse type for a whole number, 0 or more (a number of days, where 0 means any)."""
+    return _non_negative_count(text)
+
+
+def int_in_range(low: int, high: int) -> Callable[[str], int]:
+    """An argparse type factory: a whole number from ``low`` to ``high`` inclusive."""
+
+    def parse(text: str) -> int:
+        try:
+            value = int(text)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"expected a whole number, got {text!r}") from None
+        if not low <= value <= high:
+            raise argparse.ArgumentTypeError(f"expected a whole number from {low} to {high}, got {value}")
+        return value
+
+    return parse
 
 
 def finite_float(text: str) -> float:

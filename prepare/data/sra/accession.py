@@ -38,8 +38,12 @@ _NETWORK_ERROR_RE = re.compile(
 )
 # "storage exhausted" and "disk-limit exeeded" (sic) are fasterq-dump's own out-of-space messages.
 _DISK_FULL_ERROR_RE = re.compile(r"no space left|enospc|disk[ -]full|storage exhausted|disk-limit", re.IGNORECASE)
+# A 403 or 404 counts only in the forms tools print a status code ("( 404 )" from prefetch, "HTTP 404",
+# "status 403", "404 Not Found"), never as a bare number, which can be a read count or part of a path.
 _NOT_FOUND_ERROR_RE = re.compile(
-    r"not[ -]found|invalid accession|cannot be found|\b403\b|\b404\b|does not exist", re.IGNORECASE
+    r"not[ -]found|invalid accession|cannot be found|does not exist|\(\s*40[34]\s*\)"
+    r"|\b(?:http|status|code)[ :]*40[34]\b|\b403 forbidden\b",
+    re.IGNORECASE,
 )
 # A lock message names the holder's pid, start time and lock path, any of which can contain
 # "403" or "404"; it is classified before the other patterns are tried.
@@ -109,17 +113,18 @@ def classify_download_error(text: str) -> str:
     retrying.
 
     A lock message (``locked: ...``, ``lock lost: ...``, a store lock that could not be taken) is
-    ``unknown`` whatever pid or path it names. ``not-found`` is tested before ``network``
+    ``unknown`` whatever pid or path it names. ``disk-full`` is tested first, since a full disk
+    must stop the run whatever else the message says; ``not-found`` is tested before ``network``
     because a prefetch not-found message mentions resolving a query, and each class name
     classifies back to its own class so an already prefixed message
     (``"disk-full: not attempted"``) keeps its class on a second pass.
     """
     if not text or _LOCK_MESSAGE_RE.search(text):
         return "unknown"
-    if _NOT_FOUND_ERROR_RE.search(text):
-        return "not-found"
     if _DISK_FULL_ERROR_RE.search(text):
         return "disk-full"
+    if _NOT_FOUND_ERROR_RE.search(text):
+        return "not-found"
     if _NETWORK_ERROR_RE.search(text):
         return "network"
     return "unknown"
@@ -564,6 +569,11 @@ def download_accession(
         # download of the same accession.
         _settle_temp_folder(temp_path, keep_temp)
         return False, "interrupted"
+
+    except KeyboardInterrupt:
+        # Raised on the main thread (the retry pass), where no stop token reaches the tool first.
+        _settle_temp_folder(temp_path, keep_temp)
+        raise
 
     except subprocess.CalledProcessError as e:
         logger.error(f"Error downloading {accession}: {e.stderr}")

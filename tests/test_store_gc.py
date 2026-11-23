@@ -1269,3 +1269,81 @@ def test_an_interrupt_before_the_catalogue_delete_puts_the_folders_back(tmp_path
     assert acc_dir.is_dir()
     with Catalog(paths) as cat:
         assert cat.get_dataset("SRR1") is not None
+
+
+class TestStoreUnlinkForgetsUsage:
+    """store_unlink removes the project's usage rows, so store_gc can reclaim the dataset."""
+
+    def _adopted(self, tmp_path, monkeypatch, name="project1"):
+        root = tmp_path / "store"
+        if not root.exists():
+            init_store(root)
+        project = tmp_path / name
+        entry = project / "fastq" / "SRR1"
+        entry.mkdir(parents=True)
+        (entry / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        registry_path = project / "prepare_registry.json"
+        monkeypatch.chdir(project)
+        assert StoreInitCommand().execute(_init_args(root, project, registry=str(registry_path))) == 0
+        assert StoreAdoptCommand().execute(_adopt_args(data_root=str(root), registry=str(registry_path))) == 0
+        return root, project, registry_path
+
+    @staticmethod
+    def _usage(root):
+        with Catalog(store_paths(root)) as cat:
+            return {
+                row["project_id"] for row in cat.conn.execute("SELECT project_id FROM usage WHERE accession = 'SRR1'")
+            }
+
+    @staticmethod
+    def _unlink(project, registry_path, accessions=("SRR1",)):
+        from prepare.cli.commands.store import StoreUnlinkCommand
+
+        args = argparse.Namespace(accessions=list(accessions), fastq_folder="fastq", registry=str(registry_path))
+        return StoreUnlinkCommand().execute(args)
+
+    def test_unlink_removes_the_projects_usage(self, tmp_path, monkeypatch):
+        root, project, registry_path = self._adopted(tmp_path, monkeypatch)
+        assert self._usage(root)
+
+        assert self._unlink(project, registry_path) == 0
+
+        assert self._usage(root) == set()
+
+    def test_reindex_after_unlink_does_not_restore_the_usage(self, tmp_path, monkeypatch):
+        root, project, registry_path = self._adopted(tmp_path, monkeypatch)
+        assert self._unlink(project, registry_path) == 0
+        (root / "catalog.sqlite").unlink()
+
+        assert StoreReindexCommand().execute(argparse.Namespace(data_root=str(root), registry=None)) == 0
+
+        assert self._usage(root) == set()
+
+    def test_unlink_keeps_another_projects_usage(self, tmp_path, monkeypatch):
+        root, project1, registry1 = self._adopted(tmp_path, monkeypatch)
+        project2 = tmp_path / "project2"
+        project2.mkdir()
+        registry2 = project2 / "prepare_registry.json"
+        monkeypatch.chdir(project2)
+        assert StoreInitCommand().execute(_init_args(root, project2, registry=str(registry2))) == 0
+        assert StoreLinkCommand().execute(_link_args(["SRR1"], data_root=str(root), registry=str(registry2))) == 0
+
+        monkeypatch.chdir(project1)
+        assert self._unlink(project1, registry1) == 0
+
+        assert self._usage(root) == {load_registry(registry2).project["id"]}
+
+    def test_unlink_without_a_usage_row_succeeds(self, tmp_path, monkeypatch):
+        root, project, registry_path = self._adopted(tmp_path, monkeypatch)
+        assert self._unlink(project, registry_path, ["SRR2"]) == 0
+
+
+def test_unlink_exits_4_when_the_usage_cannot_be_removed(tmp_path, monkeypatch, caplog):
+    root, project, registry_path = TestStoreUnlinkForgetsUsage()._adopted(tmp_path, monkeypatch)
+    monkeypatch.setattr("prepare.cli.commands.store.link.forget_usage_many", lambda *a, **k: False)
+
+    with caplog.at_level(logging.ERROR):
+        assert TestStoreUnlinkForgetsUsage._unlink(project, registry_path) == 4
+
+    assert not (project / "fastq" / "SRR1").exists()
+    assert "store_unlink SRR1 again" in caplog.text

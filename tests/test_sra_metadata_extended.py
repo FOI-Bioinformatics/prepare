@@ -726,7 +726,7 @@ def test_parse_real_efetch_shape_reports_runs():
     assert run.release_date == "2023-03-23"
     assert run.strategy == "WGS" and run.layout == "PAIRED" and run.organism == "gut metagenome"
     assert run.bioproject == "PRJNA1"
-    assert abs(run.avg_length - 300.0) < 0.01
+    assert abs(run.avg_length - 150.0) < 0.01  # 2 x 150 bp: 300 bases per spot, 150 per read
 
 
 def test_parse_sra_xml_requested_one_run_of_a_shared_package_leaves_out_its_sibling_run():

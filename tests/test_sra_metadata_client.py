@@ -304,3 +304,16 @@ def test_make_request_failure_does_not_leak_the_api_key(caplog):
     assert "SECRETKEY123" not in str(info.value)
     assert "api_key=***" in str(info.value)
     assert "SECRETKEY123" not in caplog.text
+
+
+def test_avg_length_of_a_paired_run_is_per_read():
+    from prepare.data.sra_metadata import _mean_read_length
+
+    assert _mean_read_length(bases=30000, spots=100, layout="PAIRED") == 150.0
+
+
+def test_avg_length_of_a_single_run_is_unchanged():
+    from prepare.data.sra_metadata import _mean_read_length
+
+    assert _mean_read_length(bases=15000, spots=100, layout="SINGLE") == 150.0
+    assert _mean_read_length(bases=0, spots=0, layout="PAIRED") == 0.0

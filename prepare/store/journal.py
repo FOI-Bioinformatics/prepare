@@ -328,19 +328,24 @@ def _rewrite(path: Path, choose: Callable[[List[_Entry]], List[bool]]) -> int:
         return 0
 
 
-def prune_usage(paths: StorePaths, accessions: Iterable[str]) -> int:
+def prune_usage(paths: StorePaths, accessions: Iterable[str], project_id: Optional[str] = None) -> int:
     """Drop every ``usage.jsonl`` line for one of ``accessions``; return the number dropped.
 
     Called by ``store_gc`` under the store-wide write lock once the catalogue rows of the
     datasets it removed are committed, so a later ``replay`` does not bring back usage
-    history (and placeholder rows) for data that is gone. Lines that cannot be parsed are kept.
+    history (and placeholder rows) for data that is gone. With ``project_id`` only that
+    project's lines go (``store_unlink``). Lines that cannot be parsed are kept.
     """
     removed = set(accessions)
     if not removed:
         return 0
+
+    def dropped(record: Dict[str, Any]) -> bool:
+        return record.get("accession") in removed and (project_id is None or record.get("project_id") == project_id)
+
     return _rewrite(
         paths.journal / USAGE_FILE,
-        lambda entries: [record is None or record.get("accession") not in removed for _, record in entries],
+        lambda entries: [record is None or not dropped(record) for _, record in entries],
     )
 
 

@@ -1551,3 +1551,37 @@ def test_unique_accessions_read_match_files_as_parse_containment_does(tmp_path, 
     (matches / "G1.csv").write_text(csv_text)
 
     assert _get_unique_accessions(matches, 0.1) == {"SRR0000001", "SRR0000002"}
+
+
+class TestEntrezTimeout:
+    """A stalled NCBI connection must time out rather than hang the run."""
+
+    def test_efetch_runs_with_a_socket_timeout(self, tmp_path):
+        import socket
+
+        from prepare.data.metadata_fetch import ENTREZ_TIMEOUT_SECONDS
+
+        seen = []
+        handle = MagicMock()
+        handle.read.return_value = _package_xml([("SRR123", {})]).encode()
+
+        def efetch(**kwargs):
+            seen.append(socket.getdefaulttimeout())
+            return handle
+
+        before = socket.getdefaulttimeout()
+        with patch("prepare.data.metadata.Entrez.efetch", side_effect=efetch):
+            with patch("prepare.data.metadata_fetch._pace_requests"):
+                success, _ = _download_single_metadata("SRR123", tmp_path, "test@example.com")
+
+        assert success is True
+        assert seen == [ENTREZ_TIMEOUT_SECONDS]
+        assert socket.getdefaulttimeout() == before
+
+    def test_a_timed_out_fetch_is_retried_as_network(self, tmp_path):
+        with patch("prepare.data.metadata.Entrez.efetch", side_effect=TimeoutError("timed out")):
+            with patch("prepare.data.metadata_fetch._pace_requests"), patch("time.sleep"):
+                success, message = _download_single_metadata("SRR123", tmp_path, "test@example.com")
+
+        assert success is False
+        assert message.startswith("network: ")

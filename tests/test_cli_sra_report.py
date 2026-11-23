@@ -513,3 +513,17 @@ def test_cli_execute_logs_traceback_for_unexpected_error(caplog, monkeypatch, tm
     with caplog.at_level("ERROR"):
         assert cmd.execute(_args(tmp_path)) == 1
     assert any(r.exc_info for r in caplog.records)
+
+
+def test_groups_file_with_a_path_is_refused(tmp_path):
+    """An entry that is not an accession (here a path outside --fastq-folder) is never read or recorded."""
+    path = tmp_path / "groups.json"
+    path.write_text('{"a": ["SRR1", "../outside/x"], "b": ["SRR2"]}')
+    with pytest.raises(ValidationError, match=r"\.\./outside/x"):
+        load_groups(str(path))
+
+
+def test_groups_file_entries_are_stripped(tmp_path):
+    path = tmp_path / "groups.json"
+    path.write_text('{"a": [" SRR1 ", "SRR2\\n"], "b": ["SRR3"]}')
+    assert load_groups(str(path)) == {"a": ["SRR1", "SRR2"], "b": ["SRR3"]}

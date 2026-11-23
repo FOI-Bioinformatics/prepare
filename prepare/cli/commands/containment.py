@@ -6,7 +6,7 @@ import argparse
 import shlex
 
 
-from prepare.cli.base import finite_float, BaseCommand, anchored_folder
+from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
 from prepare.core.exceptions import PrepareError
 from prepare.data.branchwater import parse_containment_data
 from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
@@ -61,7 +61,7 @@ class ParseContainmentCommand(BaseCommand):
         parser.add_argument("--registry", default=None, help="Registry file (default: found upwards from here)")
         parser.add_argument(
             "--registry-max-screened",
-            type=int,
+            type=positive_int,
             default=DEFAULT_REGISTRY_MAX_SCREENED,
             help="Most screening entries to keep in the registry per genome (the match CSVs keep them all)",
         )

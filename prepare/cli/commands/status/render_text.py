@@ -213,26 +213,39 @@ def _print_genomes(genomes: Dict[str, Any], emit: Callable[[str], None]) -> None
         )
 
 
+def _gone(report: Dict[str, Any], stage: str) -> set:
+    """The accessions the report found recorded at ``stage`` but no longer on disk."""
+    return set((report.get("stages", {}).get(stage) or {}).get("missing_on_disk", []))
+
+
 def _print_stage_filter(
-    registry: Registry, stage: Optional[str], genomes: Optional[List[str]], emit: Callable[[str], None]
+    report: Dict[str, Any],
+    registry: Registry,
+    stage: Optional[str],
+    genomes: Optional[List[str]],
+    emit: Callable[[str], None],
 ) -> None:
     if not stage:
         return
-    accs = stage_filter_accessions(registry, stage, genomes)
+    gone = _gone(report, stage)
+    accs = [acc for acc in stage_filter_accessions(registry, stage, genomes) if acc not in gone]
     detail = f" (genome {', '.join(genomes)})" if genomes else ""
     emit(f"\nStage '{stage}'{detail}: " + (", ".join(accs) if accs else "(none)"))
 
 
-def _print_gaps(registry: Registry, emit: Callable[[str], None]) -> None:
+def _print_gaps(report: Dict[str, Any], registry: Registry, emit: Callable[[str], None]) -> None:
     selected = set(query(registry, "selected"))
     excluded = set(query(registry, "excluded"))
-    downloaded_set = set(query(registry, "downloaded"))
+    # As the Stages section counts them: work whose files are gone is not done.
+    downloaded_set = set(query(registry, "downloaded")) - _gone(report, "downloaded")
+    extracted_gone = _gone(report, "extracted")
     not_downloaded = sorted(selected - excluded - downloaded_set)
     emit("\nGaps")
     emit("====")
     emit("  Selected but not downloaded : " + (", ".join(not_downloaded) if not_downloaded else "(none)"))
     for genome_id in sorted(known_genome_ids(registry)):
-        gap = sorted(downloaded_set - set(query(registry, "extracted", genome_id)))
+        extracted = set(query(registry, "extracted", genome_id)) - extracted_gone
+        gap = sorted(downloaded_set - excluded - extracted)
         if gap:
             emit(f"  Downloaded but not extracted for {genome_id} : " + ", ".join(gap))
 
@@ -320,9 +333,9 @@ def print_report(
     _print_funnel(report, emit)
     _print_timing(report.get("timing"), emit)
     _print_genomes(report["genomes"], emit)
-    _print_stage_filter(registry, args.stage, args.genome, emit)
+    _print_stage_filter(report, registry, args.stage, args.genome, emit)
     if args.list_missing:
-        _print_gaps(registry, emit)
+        _print_gaps(report, registry, emit)
     _print_drift(report["drift"], emit)
     if args.next:
         _print_next(report.get("next", []), emit)

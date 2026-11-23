@@ -80,7 +80,11 @@ def _funnel(section: Dict[str, Any]) -> List[Block]:
             f"{label} {format_cell(values[key])}" for key, label in FUNNEL_DETAIL if values.get(key) is not None
         )
         rows.append([stage, values.get("accessions"), detail])
-    return [_table(["stage", "accessions", "detail"], rows)]
+    note = _text(
+        "Counts are as recorded in the registry; files deleted since are still counted. "
+        "`prepare status` re-checks the disk."
+    )
+    return [_table(["stage", "accessions", "detail"], rows), note]
 
 
 def _genomes(section: Dict[str, Any]) -> List[Block]:

@@ -392,6 +392,16 @@ class Catalog:
     # ------------------------------------------------------------------- usage
 
     @_wrap_sqlite_errors
+    def forget_usage(self, accession: str, project_id: str) -> int:
+        """Remove every usage row of ``project_id`` for ``accession``; return how many were removed.
+
+        Used by ``store_unlink``: a project that no longer links a dataset no longer keeps it from
+        ``store_gc``. The caller prunes the matching journal lines (``journal.prune_usage``).
+        """
+        cursor = self.conn.execute("DELETE FROM usage WHERE accession = ? AND project_id = ?", (accession, project_id))
+        return cursor.rowcount
+
+    @_wrap_sqlite_errors
     def record_usage(
         self,
         accession: str,

@@ -3,7 +3,6 @@
 "recorded": 298,
 "order": [
 "SRR1000003",
-"SRR9999999",
 "SRR9999998",
 "SRR1000010",
 "SRR1000020",
@@ -196,20 +195,6 @@
 "containment": 0.95,
 "cani": null,
 "csv": "matches/GCF_000.csv",
-"source": "matches",
-"query_threshold": 0.0
-}
-}
-}
-},
-"SRR9999999": {
-"screening": {
-"date": "EARLIER",
-"genomes": {
-"GCF_001": {
-"containment": 0.4,
-"cani": null,
-"csv": null,
 "source": "matches",
 "query_threshold": 0.0
 }

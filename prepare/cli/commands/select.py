@@ -5,7 +5,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List
 
-from prepare.cli.base import finite_float, BaseCommand
+from prepare.cli.base import finite_float, positive_int, BaseCommand
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD, DEFAULT_TOP_N
 from prepare.core.exceptions import PrepareError, ValidationError
 from prepare.data import registry_blocks as rb
@@ -22,14 +22,6 @@ def _ranking_column(args: argparse.Namespace) -> str:
     if args.genome_ids:
         return "+".join(args.genome_ids)
     return args.genome_id or "max_containment"
-
-
-def _positive_int(value: str) -> int:
-    """argparse type for --top-n: rejects zero and negative values with a clear message."""
-    parsed = int(value)
-    if parsed < 1:
-        raise argparse.ArgumentTypeError(f"--top-n must be a positive integer, got {value!r}")
-    return parsed
 
 
 def _size_bytes(value: str) -> int:
@@ -136,7 +128,7 @@ class SelectDatasetsCommand(BaseCommand):
         )
         parser.add_argument(
             "--top-n",
-            type=_positive_int,
+            type=positive_int,
             default=None,
             help=f"Keep only the top N accessions after filtering (suggested default: {DEFAULT_TOP_N})",
         )

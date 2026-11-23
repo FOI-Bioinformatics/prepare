@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from prepare.cli.base import finite_float, BaseCommand, anchored_folder
+from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
 from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
 from prepare.core.exceptions import PrepareError
 from prepare.core.validation import genome_name
@@ -16,6 +16,7 @@ from prepare.data.branchwater_search import (
     write_branchwater_csv,
 )
 from prepare.data.registry import cap_screening, record_screening, registry_transaction
+from prepare.data.screening_table import drop_vanished_screening
 
 
 class BranchwaterSearchCommand(BaseCommand):
@@ -58,7 +59,7 @@ class BranchwaterSearchCommand(BaseCommand):
         parser.add_argument("--registry", default=None, help="Registry file (default: found upwards from here)")
         parser.add_argument(
             "--registry-max-screened",
-            type=int,
+            type=positive_int,
             default=DEFAULT_REGISTRY_MAX_SCREENED,
             help="Most screening entries to keep in the registry per genome (the CSV keeps them all)",
         )
@@ -113,6 +114,11 @@ class BranchwaterSearchCommand(BaseCommand):
                     record_screening(
                         registry, accession, genome_id, containment, cani, "branchwater", args.threshold, output
                     )
+                # An empty reply is not evidence (the public index has answered nothing for known
+                # positives); otherwise only this search's own entries at or above its threshold go.
+                if matches:
+                    present = {accession for accession, _ in matches}
+                    drop_vanished_screening(registry, genome_id, present, args.threshold, source="branchwater")
                 cap_screening(registry, genome_id, args.registry_max_screened)
             return 0
         except PrepareError as e:

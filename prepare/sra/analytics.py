@@ -22,7 +22,7 @@ from prepare.core.exceptions import DataAccessError
 from prepare.data.sra_metadata import SRADatasetInfo
 from prepare.processing.statistics import compare_group_means, holm_adjusted
 from prepare.sra.dataset_stats import accession_fastq_files, load_dataset_stats
-from prepare.sra.quality import SequenceQualityAnalyzer, _gc_histogram  # noqa: F401 - re-exported
+from prepare.sra.quality import HIGH_ADAPTER_FRACTION, SequenceQualityAnalyzer, _gc_histogram  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +158,7 @@ def _detect_profile_anomalies(profile) -> List[Tuple[str, str, float]]:
     if profile.complexity_score < 0.1:
         flags.append(("low_complexity", "Very low sequence complexity", 0.3))
     adapter = profile.contamination_indicators.get("adapter_contamination", 0)
-    if adapter > 0.1:
+    if adapter > HIGH_ADAPTER_FRACTION:
         flags.append(("high_contamination", f"High adapter contamination: {adapter:.1%}", 0.4))
     if profile.gc_percent < 20 or profile.gc_percent > 80:
         flags.append(("unusual_gc", f"Unusual GC content: {profile.gc_percent:.1f}%", 0.2))
@@ -493,7 +493,7 @@ class SRADatasetAnalyzer:
                     anomaly_types[atype].append(accession)
 
                 severity = sum(weight for _atype, _reason, weight in flags)
-                if severity > 0.2:  # Threshold for anomaly
+                if severity >= 0.2:  # the smallest single anomaly weight: any one anomaly flags
                     anomalous_datasets.append(accession)
                     severity_scores[accession] = min(severity, 1.0)
                     explanations[accession] = "; ".join(reason for _atype, reason, _weight in flags)

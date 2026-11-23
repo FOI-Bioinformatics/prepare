@@ -1875,6 +1875,34 @@ class TestNextStepsAreRunnableAndRelevant:
         extract = [s for s in steps if "extract_target_reads" in s["command"]]
         assert [s["accessions"] for s in extract] == [["SRR2"]]
 
+    def test_extraction_suggestion_carries_the_selection_threshold(self, tmp_path):
+        """A sample selected at 0.05 is suggested, with the --threshold that makes the command take it."""
+        from prepare.data.registry import ProjectPaths, record_download, record_screening
+
+        registry = self._registry(tmp_path, ["G1"])
+        for acc, value in (("SRR1", 0.9), ("SRR9", 0.07)):
+            record_download(registry, acc, "downloaded", tmp_path / "fastq" / acc)
+            record_screening(registry, acc, "G1", value, None, "matches", 0.0, None)
+        record_selection(registry, ["SRR1", "SRR9"], {"column": "G1", "threshold": 0.05}, "accessions.txt")
+        steps = next_steps(registry, ProjectPaths.anchored(tmp_path))
+        extract = [s for s in steps if "extract_target_reads" in s["command"]]
+        assert [s["accessions"] for s in extract] == [["SRR1", "SRR9"]]
+        tokens = shlex.split(extract[0]["command"])
+        assert tokens[tokens.index("--threshold") + 1] == "0.05"
+
+    def test_a_selection_threshold_of_zero_is_suggested_as_zero(self, tmp_path):
+        """Review: a recorded 0.0 became the 0.1 default in the suggestion, not in the command."""
+        from prepare.data.registry import ProjectPaths, record_download, record_screening
+
+        registry = self._registry(tmp_path, ["G1"])
+        record_download(registry, "SRR9", "downloaded", tmp_path / "fastq" / "SRR9")
+        record_screening(registry, "SRR9", "G1", 0.05, None, "matches", 0.0, None)
+        record_selection(registry, ["SRR9"], {"column": "G1", "threshold": 0.0}, "accessions.txt")
+        steps = next_steps(registry, ProjectPaths.anchored(tmp_path))
+        extract = [s for s in steps if "extract_target_reads" in s["command"]]
+        assert [s["accessions"] for s in extract] == [["SRR9"]]
+        assert "--threshold 0.0" in extract[0]["command"]
+
     def test_an_unscreened_project_still_suggests_every_downloaded_accession(self, tmp_path):
         """A status --init project without screening blocks is not silenced."""
         from prepare.data.registry import ProjectPaths, record_download
@@ -1979,3 +2007,55 @@ class TestNextStepsFromASubfolderOrAnotherFastqFolder:
             if command.startswith(("prepare download_sra", "prepare extract_target_reads")):
                 tokens = shlex.split(command)
                 assert tokens[tokens.index("--fastq-folder") + 1] == "reads", command
+
+
+def test_stage_filter_leaves_out_accessions_gone_from_disk(tmp_path, capsys):
+    _seed_deleted_work(tmp_path, capsys)
+
+    assert StatusCommand().execute(_status_args(tmp_path, json=False, stage="downloaded")) == 0
+
+    assert "Stage 'downloaded': SRR2\n" in capsys.readouterr().out
+
+
+def test_stage_filter_with_a_genome_leaves_out_accessions_gone_from_disk(tmp_path, capsys):
+    _seed_deleted_work(tmp_path, capsys)
+
+    assert StatusCommand().execute(_status_args(tmp_path, json=False, stage="extracted", genome=["GCF_1"])) == 0
+
+    assert "Stage 'extracted' (genome GCF_1): SRR1\n" in capsys.readouterr().out
+
+
+def test_excluded_selected_accession_is_not_wanted(tmp_path, capsys):
+    import shutil
+
+    _project_tree(tmp_path)
+    StatusCommand().execute(_status_args(tmp_path, init=True))
+    with registry_transaction(tmp_path / "prepare_registry.json") as registry:
+        record_selection(registry, ["SRR1", "SRR2"], {"column": "GCF_1"}, "accessions.txt")
+        record_exclusion(registry, "SRR2", "host reads")
+    shutil.rmtree(tmp_path / "fastq" / "SRR2")
+    capsys.readouterr()
+
+    assert StatusCommand().execute(_status_args(tmp_path, json=True)) == 0
+    report = json.loads(capsys.readouterr().out)
+
+    assert report["wanted"]["total"] == 1
+    assert "SRR2" not in report["wanted"]["fastq_missing"]
+
+
+def test_gaps_leave_out_excluded_and_deleted_downloads(tmp_path, capsys):
+    from prepare.data.registry import record_download
+
+    _seed_deleted_work(tmp_path, capsys)
+    with registry_transaction(tmp_path / "prepare_registry.json") as registry:
+        record_download(registry, "SRR5", "downloaded", tmp_path / "fastq" / "SRR5")
+        record_exclusion(registry, "SRR5", "host reads")
+    (tmp_path / "fastq" / "SRR5").mkdir(parents=True)
+    (tmp_path / "fastq" / "SRR5" / "SRR5_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+    capsys.readouterr()
+
+    assert StatusCommand().execute(_status_args(tmp_path, json=False, list_missing=True)) == 0
+    gaps = capsys.readouterr().out.split("\nGaps\n", 1)[1]
+
+    assert "SRR5" not in gaps
+    assert "Downloaded but not extracted for GCF_1 : SRR2" in gaps

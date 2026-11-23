@@ -884,3 +884,22 @@ def test_manifest_ignores_appledouble_files(tmp_path, monkeypatch):
     count = GenomePrepareCommand()._create_manifest(genomes, "genome_manifest.csv", str(tmp_path / "r.json"))
     assert count == 1
     assert "._GCF_1" not in (tmp_path / "genome_manifest.csv").read_text()
+
+
+@patch("prepare.cli.commands.genome.require_tools")
+def test_genome_download_dry_run_creates_no_folder(_tools, tmp_path):
+    output = tmp_path / "genomes"
+    args = argparse.Namespace(
+        accessions=["GCF_000006945.2"],
+        accession_file=None,
+        species=None,
+        genus=None,
+        output_dir=str(output),
+        representative_only=True,
+        assembly_level=None,
+        force=False,
+        dry_run=True,
+        registry=str(tmp_path / "prepare_registry.json"),
+    )
+    assert GenomeDownloadCommand().execute(args) == 0
+    assert not output.exists()
