@@ -67,10 +67,11 @@ def _wanted_accessions(args: argparse.Namespace) -> List[str]:
 
 
 def _resolve_wanted(args: argparse.Namespace, registry: Registry) -> List[str]:
-    """Explicit accessions/containment file win; otherwise fall back to the registry's selection."""
+    """Explicit accessions/containment file win; otherwise the registry's selection without excluded accessions."""
     if args.accessions_file or args.parsed_containment:
         return _wanted_accessions(args)
-    return query(registry, "selected")
+    excluded = set(query(registry, "excluded"))
+    return [acc for acc in query(registry, "selected") if acc not in excluded]
 
 
 def _reconcile_present_missing(wanted: List[str], present_fn) -> Tuple[List[str], List[str]]:
