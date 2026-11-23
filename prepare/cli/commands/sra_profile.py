@@ -51,9 +51,9 @@ def add_sampling_arguments(parser: argparse.ArgumentParser) -> None:
         "--sample-size",
         type=positive_int,
         default=DEFAULT_SAMPLE_SIZE,
-        help="Reads sampled per dataset for the per-read figures. GC content is computed from a sample of "
-        "the first mate file; per-read quality, complexity and contamination from a sample of all mates. "
-        "Read totals are exact counts from the dataset's statistics record",
+        help="Reads sampled per dataset for the per-read figures (GC content, quality, complexity, "
+        "contamination), drawn from all mate files. Read totals are exact counts from the dataset's "
+        "statistics record",
     )
     parser.add_argument(
         "--sampler",

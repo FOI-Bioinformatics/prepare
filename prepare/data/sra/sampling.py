@@ -231,23 +231,48 @@ def _joined_sequences(buf: bytes, newline_at: np.ndarray, complete: int) -> byte
     return b"N".join(buf[int(start) : int(end)] for start, end in zip(starts, ends))
 
 
-def _fold_raw_counts(raw: np.ndarray) -> np.ndarray:
-    """Fold a 256-bin byte-value count into Phred bins 0-93, clamping values outside ``!``-``~``."""
-    hist = raw[PHRED_OFFSET : PHRED_OFFSET + QUALITY_BINS].astype(np.int64)
-    hist[0] += int(raw[:PHRED_OFFSET].sum())
-    hist[-1] += int(raw[PHRED_OFFSET + QUALITY_BINS :].sum())
+# Older Illumina pipelines (1.3-1.7) wrote Phred+64 qualities: every character is '@' (64) or above.
+PHRED64_OFFSET = 64
+
+
+def _phred_offset(raw: np.ndarray) -> int:
+    """The quality offset the characters counted in ``raw`` use: 64 when none is below '@' (64) and
+    some is above 'J' (74, the highest Phred+33 score of current Illumina data), else 33."""
+    present = np.nonzero(raw)[0]
+    if present.size and present[0] >= PHRED64_OFFSET and present[-1] > ord("J"):
+        return PHRED64_OFFSET
+    return PHRED_OFFSET
+
+
+def _fold_raw_counts(raw: np.ndarray, offset: int = PHRED_OFFSET) -> np.ndarray:
+    """Fold a 256-bin byte-value count into Phred bins 0-93, clamping values outside the range."""
+    hist = raw[offset : offset + QUALITY_BINS].astype(np.int64)
+    if len(hist) < QUALITY_BINS:
+        hist = np.pad(hist, (0, QUALITY_BINS - len(hist)))
+    hist[0] += int(raw[:offset].sum())
+    hist[-1] += int(raw[offset + QUALITY_BINS :].sum())
     return hist
 
 
-def quality_histogram(quals: Iterable[bytes]) -> np.ndarray:
-    """Count of each Phred+33 quality score (0-93) over all quality strings in ``quals``.
+def base_fraction(sequences: Sequence[str], bases: str) -> float:
+    """Fraction of all sampled bases that are one of ``bases``; 0.0 when there are none.
 
-    Returns an int64 array of length 94; a character below ``!`` counts as 0 and one above
-    ``~`` as 93.
+    Weighted by base, not a mean of per-read fractions, so a short read counts for its length.
+    """
+    total = sum(len(s) for s in sequences)
+    return sum(s.count(b) for s in sequences for b in bases) / total if total else 0.0
+
+
+def quality_histogram(quals: Iterable[bytes]) -> np.ndarray:
+    """Count of each Phred quality score (0-93) over all quality strings in ``quals``.
+
+    The encoding is Phred+33 unless every character is '@' or above with some above 'J', which is
+    read as Phred+64 (``_phred_offset``). Returns an int64 array of length 94; a character below
+    the offset counts as 0 and one beyond score 93 as 93.
     """
     data = b"".join(quals)
     raw = np.bincount(np.frombuffer(data, dtype=np.uint8), minlength=256)
-    return _fold_raw_counts(raw)
+    return _fold_raw_counts(raw, _phred_offset(raw))
 
 
 def histogram_from_scores(scores: Iterable[int]) -> np.ndarray:

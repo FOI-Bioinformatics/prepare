@@ -493,3 +493,19 @@ def test_quality_analyzer_gc_counts_lowercase_bases():
 
     analyzer = SequenceQualityAnalyzer()
     assert analyzer._calculate_gc_content("ggcc") == analyzer._calculate_gc_content("GGCC") == 1.0
+
+
+def test_gc_and_n_content_are_base_weighted(tmp_path):
+    """Review: a mean of per-read fractions weighs a 10 bp read like a 1000 bp one."""
+    import pytest
+
+    from prepare.store.stats import compute_dataset_stats
+
+    path = tmp_path / "SRR1.fastq"
+    reads = ["G" * 1000] + ["A" * 9 + "N"] * 10
+    path.write_text("".join(f"@r{i}\n{seq}\n+\n{'I' * len(seq)}\n" for i, seq in enumerate(reads)))
+
+    record = compute_dataset_stats([path], use_seqkit=False)
+
+    assert record["gc_content"] == pytest.approx(1000 / 1100)
+    assert record["n_content"] == pytest.approx(10 / 1100)

@@ -714,22 +714,22 @@ class SRADatasetAnalyzer:
                 note = "Each group needs at least 2 datasets for a statistical comparison"
                 tests[col] = _untested("skipped (a group has fewer than 2 values)", np.nan, note)
             elif len(group_data) >= 2:
-                # Check if data is nearly identical (would cause precision loss)
                 all_values = np.concatenate(group_data)
                 variance = np.var(all_values)
 
                 if variance < 1e-10:  # Extremely low variance, skip statistical tests
                     note = "Values too similar for meaningful statistical comparison"
                     tests[col] = _untested("skipped (identical values)", 1.0, note)
+                elif max(np.var(values) for values in group_data) < 1e-10:  # constant groups: t is infinite
+                    tests[col] = _untested("skipped (no within-group variance)", None, "No variance within groups")
                 else:
-                    # Perform t-test if 2 groups, ANOVA if more
-                    try:
-                        tests[col]["test"], statistic, p_value = compare_group_means(group_data)
-                        tests[col]["statistic"] = float(statistic)
-                        tests[col]["p_value"] = float(p_value)
-                        tests[col]["significant"] = bool(p_value < 0.05)
-                    except RuntimeWarning:
-                        tests[col] = _untested("failed (precision loss)", np.nan)
+                    tests[col]["test"], statistic, p_value = compare_group_means(group_data)
+                    if not np.isfinite(p_value):
+                        tests[col] = _untested("skipped (no test result)", None)
+                        continue
+                    tests[col]["statistic"] = float(statistic)
+                    tests[col]["p_value"] = float(p_value)
+                    tests[col]["significant"] = bool(p_value < 0.05)
 
         # One correction over the tests that ran: four tests at 0.05 each would otherwise
         # report a chance difference far more often than one in twenty.

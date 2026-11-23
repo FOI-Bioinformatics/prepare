@@ -4,6 +4,18 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+### Fixed
+
+- Statistics library: `calculate_enrichment` reports the fold of proportions, which is what its Fisher
+  test compares; two samples with no genome above the threshold are at distance 0 (Jaccard, Dice,
+  cosine); Shannon diversity uses no pseudo-count, and Pielou evenness gives 0 without a warning for a
+  sample with fewer than two species.
+- GC and N content in the dataset statistics record and in quality profiles are fractions of all
+  sampled bases, not means of per-read fractions; cached records are recomputed. Phred+64 qualities
+  (Illumina 1.3-1.7) are detected and decoded. A group comparison whose groups have no within-group
+  variance is reported as skipped rather than as p=0. The `sra_profile` summary labels its averages as
+  means of datasets, and the `--sample-size` help text matches the sampling.
+
 ## [0.13.0] - 2026-11-23
 
 Fixes for the medium-severity findings of the 2026-11-23 bug sweep. Three of them change behaviour:

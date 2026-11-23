@@ -204,3 +204,20 @@ def test_a_much_overstated_total_can_return_no_records(tmp_path):
     path = tmp_path / "reads.fastq"
     path.write_text("".join(f"@r{i}\nACGT\n+\nIIII\n" for i in range(7)))
     assert sampling.sample_records([path], 3, total_records=1000, seed=0) == []
+
+
+def test_phred64_is_detected():
+    """Old Illumina 1.3-1.5 qualities (Phred+64, '@' and above) are not read as 31 points higher."""
+    from prepare.data.sra.sampling import distribution_from_histogram, quality_histogram
+
+    hist = quality_histogram([b"hhhh", b"@@hh"])  # 'h' is Q40 and '@' Q0 in Phred+64
+    assert distribution_from_histogram(hist)["median"] == 40.0
+    assert int(hist[0]) == 2
+
+
+def test_phred33_is_unchanged():
+    from prepare.data.sra.sampling import distribution_from_histogram, quality_histogram
+
+    hist = quality_histogram([b"IIII", b"####"])  # Q40 and Q2 in Phred+33
+    assert distribution_from_histogram(hist)["median"] == pytest.approx(21.0)
+    assert int(hist[40]) == 4

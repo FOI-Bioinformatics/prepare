@@ -22,7 +22,12 @@ from Bio.SeqIO.QualityIO import FastqGeneralIterator
 
 from prepare.core.exceptions import DataAccessError
 from prepare.data.sra import sample_records
-from prepare.data.sra.sampling import distribution_from_histogram, histogram_from_scores, quality_histogram
+from prepare.data.sra.sampling import (
+    base_fraction,
+    distribution_from_histogram,
+    histogram_from_scores,
+    quality_histogram,
+)
 
 # Fraction of reads with adapter sequence above which a dataset is reported as contaminated, by the
 # anomaly check (analytics) and by the report's "Contamination issues" count (reporting) alike.
@@ -123,7 +128,11 @@ class SequenceQualityAnalyzer:
         n_contents: List[float],
         sequences: List[str],
     ) -> Dict[str, Any]:
-        """The quality metrics of one sample; GC figures in percent."""
+        """The quality metrics of one sample; GC figures in percent.
+
+        The GC and N means are fractions of all sampled bases (a short read counts for its length);
+        the GC median, spread and histogram describe the reads.
+        """
         gc_percents = [gc * 100 for gc in gc_contents]
         quality = distribution_from_histogram(quality_hist)
         return {
@@ -137,7 +146,7 @@ class SequenceQualityAnalyzer:
                 "distribution": self._get_length_distribution(read_lengths),
             },
             "gc_content_stats": {
-                "mean": statistics.mean(gc_percents),
+                "mean": 100 * base_fraction(sequences, "GCgc"),
                 "median": statistics.median(gc_percents),
                 "std": statistics.stdev(gc_percents) if len(gc_percents) > 1 else 0,
                 # A histogram, not the raw per-read list: the list used to make every
@@ -152,7 +161,7 @@ class SequenceQualityAnalyzer:
                 "distribution": {key: quality[key] for key in _QUALITY_CLASSES} if quality_hist.sum() else {},
             },
             "n_content_stats": {
-                "mean": statistics.mean(n_contents),
+                "mean": base_fraction(sequences, "Nn"),
                 "max": max(n_contents),
                 "high_n_reads": sum(1 for n in n_contents if n > 0.05),
             },
