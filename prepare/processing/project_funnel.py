@@ -26,9 +26,15 @@ def _total_seconds(values: List[float]) -> Optional[float]:
     return round(sum(values), 3) if values else None
 
 
-def _tally_download(download: Dict[str, Any], tally: Dict[str, Any]) -> None:
-    """Add one dataset's raw download block to ``tally`` (bytes, failed count and the two time lists)."""
+def _tally_download(download: Dict[str, Any], tally: Dict[str, Any], counted: bool = True) -> None:
+    """Add one dataset's raw download block to ``tally`` (bytes, failed count and the two time lists).
+
+    A finished download is added only when ``counted`` (it is among the downloaded members); a
+    failed one always is.
+    """
     state = download.get("state")
+    if state == "downloaded" and not counted:
+        return
     if state == "downloaded":
         tally["bytes"] += int(download.get("bytes_total") or 0)
     elif state == "failed":
@@ -37,6 +43,29 @@ def _tally_download(download: Dict[str, Any], tally: Dict[str, Any]) -> None:
         seconds = _seconds(download.get("seconds"))
         if seconds is not None:
             tally["seconds" if state == "downloaded" else "failed_seconds"].append(seconds)
+
+
+def _tally_extractions(record: Dict[str, Any], work: Dict[str, Any], extracted: bool, assembled: bool) -> None:
+    """Add one dataset's extractions with mapped reads (when ``extracted``) and assemblies with
+    contigs (when ``assembled``) to ``work``: pair counts, assembled bases and the time lists."""
+    for extraction in (record.get("extractions") or {}).values():
+        if not isinstance(extraction, dict):
+            continue
+        if extracted and (extraction.get("mapped_reads") or 0) > 0:
+            work["extracted"] += 1
+            _append_seconds(work["extracted_seconds"], extraction.get("seconds"))
+        assembly = extraction.get("assembly")
+        if assembled and isinstance(assembly, dict) and (assembly.get("contigs") or 0) > 0:
+            work["assembled"] += 1
+            work["total_bp"] += int(assembly.get("total_bp") or 0)
+            _append_seconds(work["assembled_seconds"], assembly.get("seconds"))
+
+
+def _append_seconds(times: List[float], value: Any) -> None:
+    """Append ``value`` to ``times`` when it is a usable number of seconds."""
+    seconds = _seconds(value)
+    if seconds is not None:
+        times.append(seconds)
 
 
 def funnel(registry: Registry, members: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
@@ -70,31 +99,23 @@ def funnel(registry: Registry, members: Optional[Dict[str, List[str]]] = None) -
         members = stage_members(registry)
 
     download_tally: Dict[str, Any] = {"bytes": 0, "failed": 0, "seconds": [], "failed_seconds": []}
-    extracted_pairs = 0
-    extraction_seconds: List[float] = []
-    assembled_pairs = 0
-    assembled_total_bp = 0
-    assembly_seconds: List[float] = []
+    work: Dict[str, Any] = {
+        "extracted": 0,
+        "extracted_seconds": [],
+        "assembled": 0,
+        "total_bp": 0,
+        "assembled_seconds": [],
+    }
 
-    for record in registry.datasets.values():
+    # The figures are summed over the same accessions the counts take from ``members``, so
+    # work that status found gone from disk adds to neither.
+    downloaded, extracted, assembled = (set(members[stage]) for stage in ("downloaded", "extracted", "assembled"))
+    for acc, record in registry.datasets.items():
         download = record.get("download")
         if isinstance(download, dict):
-            _tally_download(download, download_tally)
-        for extraction in (record.get("extractions") or {}).values():
-            if not isinstance(extraction, dict):
-                continue
-            if (extraction.get("mapped_reads") or 0) > 0:
-                extracted_pairs += 1
-                seconds = _seconds(extraction.get("seconds"))
-                if seconds is not None:
-                    extraction_seconds.append(seconds)
-            assembly = extraction.get("assembly")
-            if isinstance(assembly, dict) and (assembly.get("contigs") or 0) > 0:
-                assembled_pairs += 1
-                assembled_total_bp += int(assembly.get("total_bp") or 0)
-                seconds = _seconds(assembly.get("seconds"))
-                if seconds is not None:
-                    assembly_seconds.append(seconds)
+            _tally_download(download, download_tally, counted=acc in downloaded)
+        if acc in extracted or acc in assembled:
+            _tally_extractions(record, work, acc in extracted, acc in assembled)
 
     return {
         "screened": {"accessions": len(members["screened"])},
@@ -109,13 +130,13 @@ def funnel(registry: Registry, members: Optional[Dict[str, List[str]]] = None) -
         "analysed": {"accessions": len(members["analysed"])},
         "extracted": {
             "accessions": len(members["extracted"]),
-            "pairs": extracted_pairs,
-            "seconds": _total_seconds(extraction_seconds),
+            "pairs": work["extracted"],
+            "seconds": _total_seconds(work["extracted_seconds"]),
         },
         "assembled": {
             "accessions": len(members["assembled"]),
-            "pairs": assembled_pairs,
-            "total_bp": assembled_total_bp,
-            "seconds": _total_seconds(assembly_seconds),
+            "pairs": work["assembled"],
+            "total_bp": work["total_bp"],
+            "seconds": _total_seconds(work["assembled_seconds"]),
         },
     }

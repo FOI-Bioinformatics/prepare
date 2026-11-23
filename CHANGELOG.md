@@ -15,6 +15,9 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   whose sidecar records them as unfinished; they entered the totals and the registry analyses.
 - `status` no longer lists an excluded accession of the selection as wanted or missing, and `--stage` and
   `--list-missing` (Gaps) leave out work whose files are gone from disk, as the Stages section does.
+- The `status` funnel sums bytes, read pairs, assembled bases and times over the same disk-checked
+  accessions it counts ("2 downloaded (3 bytes)" after a deletion). `project_report` still counts
+  from the registry alone and now says so under its funnel.
 
 ### Fixed
 

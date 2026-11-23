@@ -337,3 +337,10 @@ def test_html_stat_cards_include_the_analysed_stage(registry, no_checks):
     from prepare.visualization.project_report import render_html
 
     assert '<p class="k">analysed</p>' in render_html(_report(registry))
+
+
+def test_markdown_funnel_says_its_counts_come_from_the_registry(registry, no_checks):
+    """project_report does not re-check the disk (it lists no FASTQ folder), so the page says so."""
+    text = render_markdown(_report(registry))
+    assert "as recorded in the registry" in text
+    assert "prepare status" in text

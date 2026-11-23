@@ -217,6 +217,19 @@ def _assembled(registry: Registry, extraction: Dict[str, Any], on_disk: bool) ->
     return not on_disk or assembly_dir_present(registry, assembly)
 
 
+def disk_checked_members(registry: Registry, paths: ProjectPaths) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """``stage_members`` without the work no longer on disk, and that work by stage.
+
+    ``status`` and ``project_report`` both count from these, so they agree. The checks test
+    whether folders and files exist; no FASTQ file is opened.
+    """
+    members = stage_members(registry)
+    gone = _gone_from_disk(registry, paths, members)
+    for stage in STAGES:
+        members[stage] = [acc for acc in members[stage] if acc not in gone.get(stage, ())]
+    return members, gone
+
+
 def _gone_from_disk(registry: Registry, paths: ProjectPaths, members: Dict[str, List[str]]) -> Dict[str, List[str]]:
     """The downloaded, extracted and assembled accessions whose work is no longer on disk.
 
@@ -391,15 +404,12 @@ def build_report(
     if store_root is not None:
         report["store"] = _store_block(store_root, store_available)
     # One pass over the registry lists every stage; the counts are the lengths of those lists.
-    members = stage_members(registry)
-    gone = _gone_from_disk(registry, paths, members)
+    members, gone = disk_checked_members(registry, paths)
     report["stages"] = {}
     for s in STAGES:
-        kept = [acc for acc in members[s] if acc not in gone.get(s, ())]
-        report["stages"][s] = {"count": len(kept), "accessions": kept}
+        report["stages"][s] = {"count": len(members[s]), "accessions": members[s]}
         if gone.get(s):
             report["stages"][s]["missing_on_disk"] = gone[s]
-        members[s] = kept
     report["funnel"] = funnel(registry, members)
     report["downloads"] = download_verdicts(registry)
     report["genomes"] = _genome_report(registry, paths, args.genome, genome_counts(registry, on_disk=True))
