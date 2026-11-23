@@ -8,6 +8,7 @@ import contextlib
 import copy
 import http.client
 import logging
+import socket
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -27,6 +28,9 @@ logger = logging.getLogger("prepare.data.metadata")
 
 # Maximum number of retries for failed downloads
 MAX_RETRIES = 3
+# Seconds a connection to NCBI may stall before the fetch fails as a network error and is retried.
+# Bio.Entrez opens its connections without a timeout of its own.
+ENTREZ_TIMEOUT_SECONDS = 120
 
 # Maximum accessions per single Entrez.efetch call; NCBI's own guidance caps URL-based
 # id lists well below this, so this is a defensive ceiling rather than a tuned optimum.
@@ -56,18 +60,22 @@ def _entrez_credentials(email: str, api_key: Optional[str]) -> Iterator[None]:
     other's email or key. This holds _ENTREZ_LOCK for the duration, so only one thread has the
     attributes set to its own values while it calls efetch, and restores whatever was set
     before on exit (via ``finally``, so an exception from the call does not leave the wrong
-    credentials in place for the next caller).
+    credentials in place for the next caller). The socket default timeout is held at
+    ``ENTREZ_TIMEOUT_SECONDS`` the same way, so a stalled connection raises ``TimeoutError``.
     """
     with _ENTREZ_LOCK:
         previous_email = Entrez.email
         previous_api_key = Entrez.api_key
+        previous_timeout = socket.getdefaulttimeout()
         Entrez.email = email  # type: ignore[assignment]
         Entrez.api_key = api_key  # type: ignore[assignment]
+        socket.setdefaulttimeout(ENTREZ_TIMEOUT_SECONDS)
         try:
             yield
         finally:
             Entrez.email = previous_email
             Entrez.api_key = previous_api_key
+            socket.setdefaulttimeout(previous_timeout)
 
 
 def _write_metadata_file(metadata_path: Path, accession: str, content: str) -> Path:
