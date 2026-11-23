@@ -225,3 +225,44 @@ def test_branchwater_search_drops_vanished_matches(_load, mock_search, _write, t
     assert BranchwaterSearchCommand().execute(args) == 0
 
     assert query(load_registry(args.registry), "screened", genome) == ["SRR1"]
+
+
+def _search_twice(tmp_path, first, second, threshold=0.1, seed=None):
+    from prepare.data.registry import load_registry, query, registry_transaction
+
+    args = _args(tmp_path, signature=str(tmp_path / "G.sig"), output=str(tmp_path / "branchwater" / "G.csv"))
+    with (
+        patch("prepare.cli.commands.branchwater_search.write_branchwater_csv"),
+        patch("prepare.cli.commands.branchwater_search.load_signature", return_value={"signatures": []}),
+        patch("prepare.cli.commands.branchwater_search.search_index") as mock_search,
+    ):
+        args.threshold = 0.0
+        mock_search.return_value = first
+        assert BranchwaterSearchCommand().execute(args) == 0
+        genome = next(iter(load_registry(args.registry).genomes))
+        if seed is not None:
+            with registry_transaction(args.registry) as registry:
+                seed(registry, genome)
+        args.threshold = threshold
+        mock_search.return_value = second
+        assert BranchwaterSearchCommand().execute(args) == 0
+    return sorted(query(load_registry(args.registry), "screened", genome))
+
+
+def test_an_empty_branchwater_reply_keeps_the_entries(tmp_path):
+    """Review: the public index has answered nothing for known positives; that must not erase a genome."""
+    assert _search_twice(tmp_path, [("SRR1", 0.9), ("SRR2", 0.5)], []) == ["SRR1", "SRR2"]
+
+
+def test_a_higher_threshold_search_keeps_entries_below_it(tmp_path):
+    """Review: a search at 0.1 says nothing about accessions below 0.1."""
+    assert _search_twice(tmp_path, [("SRR1", 0.9), ("SRR2", 0.05)], [("SRR1", 0.9)]) == ["SRR1", "SRR2"]
+
+
+def test_a_branchwater_search_leaves_entries_from_match_tables_alone(tmp_path):
+    from prepare.data.registry import record_screening
+
+    def seed(registry, genome):
+        record_screening(registry, "SRR3", genome, 0.4, None, "matches", 0.0, None)
+
+    assert _search_twice(tmp_path, [("SRR1", 0.9)], [("SRR1", 0.9)], seed=seed) == ["SRR1", "SRR3"]

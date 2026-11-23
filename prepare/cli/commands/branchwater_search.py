@@ -114,7 +114,11 @@ class BranchwaterSearchCommand(BaseCommand):
                     record_screening(
                         registry, accession, genome_id, containment, cani, "branchwater", args.threshold, output
                     )
-                drop_vanished_screening(registry, genome_id, {accession for accession, _ in matches})
+                # An empty reply is not evidence (the public index has answered nothing for known
+                # positives); otherwise only this search's own entries at or above its threshold go.
+                if matches:
+                    present = {accession for accession, _ in matches}
+                    drop_vanished_screening(registry, genome_id, present, args.threshold, source="branchwater")
                 cap_screening(registry, genome_id, args.registry_max_screened)
             return 0
         except PrepareError as e:

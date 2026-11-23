@@ -132,17 +132,33 @@ def _drop_zero_cells(registry: reg.Registry, table: pd.DataFrame) -> None:
             _drop_screening(registry, accession, genome)
 
 
-def drop_vanished_screening(registry: reg.Registry, genome_id: str, present: AbstractSet[str]) -> List[str]:
+def drop_vanished_screening(
+    registry: reg.Registry,
+    genome_id: str,
+    present: AbstractSet[str],
+    at_least: float = 0.0,
+    source: Optional[str] = None,
+) -> List[str]:
     """Remove the ``genome_id`` screening entry of every accession not in ``present``; return them.
 
     A new screen of a genome is the whole match set for it, so an accession it no longer holds
-    keeps no entry from an earlier screen. Other genomes' entries and the dataset's other records
-    (download, extraction) are left alone.
+    keeps no entry from an earlier screen. Only entries the new screen covers are removed: those
+    recorded at containment ``at_least`` or above (a search at a higher threshold says nothing about
+    the ones below it) and, when ``source`` is given, recorded by that source. Other genomes'
+    entries and the dataset's other records (download, extraction) are left alone.
     """
+
+    def covered(entry: Any) -> bool:
+        if not isinstance(entry, dict):
+            return False
+        value = entry.get("containment")
+        in_range = isinstance(value, (int, float)) and value >= at_least
+        return in_range and (source is None or entry.get("source") == source)
+
     vanished = [
         accession
         for accession, record in registry.datasets.items()
-        if accession not in present and genome_id in ((record.get("screening") or {}).get("genomes") or {})
+        if accession not in present and covered(((record.get("screening") or {}).get("genomes") or {}).get(genome_id))
     ]
     for accession in vanished:
         _drop_screening(registry, accession, genome_id)
