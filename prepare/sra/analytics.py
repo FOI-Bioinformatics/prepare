@@ -22,7 +22,7 @@ from prepare.core.exceptions import DataAccessError
 from prepare.data.sra_metadata import SRADatasetInfo
 from prepare.processing.statistics import compare_group_means, holm_adjusted
 from prepare.sra.dataset_stats import accession_fastq_files, load_dataset_stats
-from prepare.sra.quality import SequenceQualityAnalyzer, _gc_histogram  # noqa: F401 - re-exported
+from prepare.sra.quality import HIGH_ADAPTER_FRACTION, SequenceQualityAnalyzer, _gc_histogram  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -150,13 +150,6 @@ _ANOMALY_ACTIONS = {
     "poor_quality": ["Apply quality filtering", "Consider excluding from analysis"],
     "low_complexity": ["Check for PCR artifacts", "Verify sample preparation"],
 }
-
-
-# Fraction of reads with adapter sequence above which a dataset is reported as contaminated, by the
-# anomaly check and by the report's "Contamination issues" count alike.
-HIGH_ADAPTER_FRACTION = 0.05
-# Summed anomaly weight at which a dataset is listed as anomalous; every single anomaly reaches it.
-ANOMALY_SEVERITY_THRESHOLD = 0.2
 
 
 def _detect_profile_anomalies(profile) -> List[Tuple[str, str, float]]:
@@ -500,7 +493,7 @@ class SRADatasetAnalyzer:
                     anomaly_types[atype].append(accession)
 
                 severity = sum(weight for _atype, _reason, weight in flags)
-                if severity >= ANOMALY_SEVERITY_THRESHOLD:
+                if severity >= 0.2:  # the smallest single anomaly weight: any one anomaly flags
                     anomalous_datasets.append(accession)
                     severity_scores[accession] = min(severity, 1.0)
                     explanations[accession] = "; ".join(reason for _atype, reason, _weight in flags)

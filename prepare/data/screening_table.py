@@ -151,6 +151,13 @@ def drop_vanished_screening(registry: reg.Registry, genome_id: str, present: Abs
     return vanished
 
 
+def _drop_vanished_rows(registry: reg.Registry, table: pd.DataFrame) -> None:
+    """For each genome column of ``table``, remove the entries of accessions the table does not hold."""
+    present = {str(accession) for accession in table.index}
+    for genome in (str(column) for column in table.columns if column not in _NOT_GENOMES):
+        drop_vanished_screening(registry, genome, present)
+
+
 def _write_row(
     registry: reg.Registry,
     accession: str,
@@ -207,9 +214,7 @@ def record_screening_table(
             return 0
         table = loaded
     _drop_zero_cells(registry, table)
-    present = {str(accession) for accession in table.index}
-    for genome in (str(column) for column in table.columns if column not in _NOT_GENOMES):
-        drop_vanished_screening(registry, genome, present)
+    _drop_vanished_rows(registry, table)
     accessions, genomes, rows, cols, rounded = _positive_cells(table)
     if not len(rows):
         return 0

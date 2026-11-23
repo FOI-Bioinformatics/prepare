@@ -24,6 +24,9 @@ from prepare.core.exceptions import DataAccessError
 from prepare.data.sra import sample_records
 from prepare.data.sra.sampling import distribution_from_histogram, histogram_from_scores, quality_histogram
 
+# Fraction of reads with adapter sequence above which a dataset is reported as contaminated, by the
+# anomaly check (analytics) and by the report's "Contamination issues" count (reporting) alike.
+HIGH_ADAPTER_FRACTION = 0.05
 logger = logging.getLogger(__name__)
 
 # What reading a FASTQ file raises for a file that is unreadable, truncated or malformed (a

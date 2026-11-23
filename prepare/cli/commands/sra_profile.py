@@ -155,9 +155,14 @@ class SRAProfileCommand(BaseCommand):
         ]
         if not found:
             raise ValidationError(f"No accession folders in {folder}; give --accession or --accessions-file")
-        # Excluded accessions and downloads whose sidecar says they did not finish are left out, as
-        # download_sra and extract_target_reads leave them out; a folder without FASTQ files is still
-        # reported as a failure, and a named accession is profiled as given.
+        return self._usable_folders(args, folder, found)
+
+    def _usable_folders(self, args: argparse.Namespace, folder: Path, found: List[str]) -> List[str]:
+        """``found`` without excluded accessions and downloads whose sidecar says they did not finish.
+
+        download_sra and extract_target_reads leave those out too; a folder without FASTQ files is
+        still reported as a failure, and a named accession (not found here) is profiled as given.
+        """
         excluded = set(query(load_registry(args.registry), "excluded"))
         incomplete = [
             acc
