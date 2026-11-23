@@ -304,3 +304,19 @@ def test_log_level_with_quiet_or_verbose_is_a_usage_error(flag, placement):
     with pytest.raises(SystemExit) as raised:
         main(argv)
     assert raised.value.code == 2
+
+
+def test_an_api_key_in_any_log_record_is_redacted(tmp_path, capsys):
+    """Review: urllib3's retry warning carries the request URL, and with it the NCBI API key."""
+    log_file = tmp_path / "run.log"
+    setup_logging(level=logging.INFO, log_file=str(log_file))
+
+    logging.getLogger("urllib3.connectionpool").warning(
+        "Retrying after connection broken by %s: %s", "ProtocolError", "/esearch.fcgi?db=sra&api_key=SECRETKEY123"
+    )
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    assert "SECRETKEY123" not in log_file.read_text()
+    assert "api_key=***" in log_file.read_text()
+    assert "SECRETKEY123" not in capsys.readouterr().err
