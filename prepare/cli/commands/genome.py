@@ -202,7 +202,6 @@ class GenomeDownloadCommand(BaseCommand):
             # A typo is a usage error, reported before anything else (the tool check included).
             validate_genome_accessions(accessions)
             output_dir = Path(args.output_dir)
-            output_dir.mkdir(parents=True, exist_ok=True)
 
             present, missing = partition_present_genomes(accessions, output_dir)
             to_download = accessions if args.force else missing

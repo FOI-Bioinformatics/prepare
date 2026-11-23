@@ -25,6 +25,9 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 - `store_unlink` removes the project's usage rows for the dataset from the catalogue and the journal; the
   dataset stayed in use for as long as the project existed, so `store_gc` never reclaimed it. A failure
   to remove them exits with status 4.
+- `sra_report --groups-file` refuses entries that are not SRA accessions and strips whitespace; a path such
+  as `../outside/x` was read from outside `--fastq-folder` and recorded in the registry.
+- `genome_download --dry-run` no longer creates the output folder.
 
 ### Fixed
 
