@@ -19,9 +19,9 @@ import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import AbstractSet, Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
+from typing import AbstractSet, Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Tuple
 
-from prepare.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError, LockTimeoutError
 from prepare.data.registry import Registry, load_registry, project_root
 from prepare.data.registry_blocks import project_block, set_project_block
 from prepare.store.catalog import Catalog, catalog_write
@@ -134,6 +134,29 @@ def record_usage_many(
     except Exception as e:
         logger.warning("Could not record usage batch (%d row(s)): %s", len(rows), e)
         return False
+
+
+# How many accession names the message of usage_not_recorded lists before "(and N more)".
+_USAGE_NAMES_SHOWN = 10
+
+
+def usage_not_recorded(verb: str, accessions: Sequence[str], rerun: Optional[str] = None) -> LockTimeoutError:
+    """The error for accessions linked or saved without a usage row in the store catalogue.
+
+    Without that row (and, for a project never recorded, without its project row) ``store_gc``
+    cannot see the project's link and may remove the dataset once its grace period has passed,
+    so the command reports exit 4 and names the ``store_link`` call that records the use.
+    ``verb`` opens the message ("Linked", "Copied", "Downloaded"); ``rerun`` is the command to run
+    again, ``store_link <accessions>`` when not given.
+    """
+    names = " ".join(accessions[:_USAGE_NAMES_SHOWN])
+    more = len(accessions) - _USAGE_NAMES_SHOWN
+    if more > 0:
+        names += f" (and {more} more)"
+    return LockTimeoutError(
+        f"{verb} {len(accessions)} accession(s) but could not record their use in the store catalogue; "
+        f"run {rerun or 'store_link ' + names} again before store_gc"
+    )
 
 
 def stale_projects(catalog: Catalog) -> List[Dict[str, Any]]:

@@ -333,3 +333,16 @@ class TestMovedOrCustomFolderProjects:
         with Catalog(paths, create=True) as cat:
             cat.migrate()
             assert linked_by(paths, cat, "SRR2") == []
+
+
+def test_usage_not_recorded_names_the_command_to_rerun_and_caps_the_list():
+    from prepare.core.exceptions import LockTimeoutError
+    from prepare.store.usage import usage_not_recorded
+
+    error = usage_not_recorded("Linked", [f"SRR{i}" for i in range(12)])
+
+    assert isinstance(error, LockTimeoutError)
+    message = str(error)
+    assert message.startswith("Linked 12 accession(s) but could not record their use in the store catalogue")
+    assert "store_link SRR0 SRR1 SRR2 SRR3 SRR4 SRR5 SRR6 SRR7 SRR8 SRR9 (and 2 more)" in message
+    assert message.endswith("again before store_gc")

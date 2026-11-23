@@ -2620,7 +2620,7 @@ class TestDownloadSraCommand:
     @patch("prepare.cli.commands.sra.require_tools")
     @patch("prepare.cli.commands.sra.download_sra")
     def test_catalog_failure_leaves_download_outcome_unchanged(self, mock_download, _which, tmp_path):
-        """A broken catalogue write never changes the download's exit code or registry record."""
+        """A broken catalogue write leaves the download's registry record as it is; the exit code is 4."""
         from prepare.store.layout import init_store
 
         store_root = tmp_path / "store"
@@ -2661,7 +2661,7 @@ class TestDownloadSraCommand:
         with patch("prepare.store.usage.catalog_write", side_effect=RuntimeError("catalogue is locked")):
             result = DownloadSraCommand().execute(args)
 
-        assert result == 0
+        assert result == 4
         written = json.loads(registry_file.read_text())
         download = written["datasets"]["SRR1"]["download"]
         assert download["state"] == "downloaded"
@@ -3866,3 +3866,54 @@ class TestFoldersAnchoredOnTheProject:
         args = self._parse(["sra_profile", "--output-dir", str(proj / "profiles")])
         assert SRAProfileCommand().execute(args) == 0
         assert "does not exist" not in caplog.text
+
+
+class TestDownloadSraUsageNotRecorded:
+    """download_sra exits 4 when a store dataset it linked or saved cannot be recorded as used."""
+
+    def _args(self, tmp_path):
+        from prepare.store.layout import init_store
+
+        init_store(tmp_path / "store")
+        args = TestDownloadSraRegistryWrites._args(tmp_path)
+        args.data_root = str(tmp_path / "store")
+        return args
+
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
+    def test_already_linked_dataset_without_usage_exits_4(self, mock_download, _which, tmp_path, caplog):
+        mock_download.return_value = {
+            "total": 1,
+            "successful": 0,
+            "failed": 0,
+            "failed_accessions": [],
+            "already_downloaded_accessions": ["SRR1"],
+        }
+        with (
+            patch("prepare.cli.commands.sra.is_store_link", return_value=True),
+            patch.object(DownloadSraCommand, "_sidecar_completeness", staticmethod(lambda _s, _a: None)),
+            patch("prepare.cli.commands.sra.record_usage_many", return_value=False),
+            caplog.at_level(logging.ERROR),
+        ):
+            rc = DownloadSraCommand().execute(self._args(tmp_path))
+
+        assert rc == 4
+        assert "store_link SRR1 again before store_gc" in caplog.text
+
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
+    def test_dataset_saved_into_the_store_without_usage_exits_4(self, mock_download, _which, tmp_path, caplog):
+        def fake_download_sra(**kwargs):
+            kwargs["on_result"]("SRR2", True, "Downloaded 1 files, unverified; stored")
+            return {"total": 1, "successful": 1, "failed": 0, "failed_accessions": []}
+
+        mock_download.side_effect = fake_download_sra
+        with (
+            patch("prepare.cli.commands.sra_record.record_usage_many", return_value=False),
+            patch.object(DownloadSraCommand, "_sidecar_completeness", staticmethod(lambda _s, _a: None)),
+            caplog.at_level(logging.ERROR),
+        ):
+            rc = DownloadSraCommand().execute(self._args(tmp_path))
+
+        assert rc == 4
+        assert "store_link SRR2 again before store_gc" in caplog.text

@@ -5,12 +5,12 @@
 import argparse
 import logging
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Optional
 
 from prepare.cli.base import finite_float, BaseCommand, anchored_folder
 from prepare.cli.commands.sra_verdicts import store_sidecar_verdict, store_spot_count, store_verdict
 from prepare.cli.commands.store._shared import _gitignore_guard, _required_store
-from prepare.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError, LockTimeoutError
 from prepare.core.settings import setting_for
 from prepare.data import registry_blocks as rb
 from prepare.data.registry import load_registry, project_root, record_download, registry_transaction, update_linked
@@ -18,7 +18,7 @@ from prepare.store.adopt import AdoptReport, adopt
 from prepare.store.layout import StorePaths, store_paths
 from prepare.store.link import is_store_link
 from prepare.store.locks import touch_dataset_use
-from prepare.store.usage import ensure_project_identity, record_usage_many
+from prepare.store.usage import ensure_project_identity, record_usage_many, usage_not_recorded
 
 logger = logging.getLogger(__name__)
 
@@ -158,9 +158,11 @@ class StoreAdoptCommand(BaseCommand):
             self._raise_if_stopped(term)
             return 0
 
-        self._record_outcome(args, paths, report)
+        unrecorded = self._record_outcome(args, paths, report)
         self._print_report(report)
         self._raise_if_stopped(term)
+        if unrecorded is not None:
+            return self.fail(unrecorded, self.name)
         return 0
 
     def _record_partial(self, args: argparse.Namespace, paths: StorePaths, report: AdoptReport) -> None:
@@ -170,8 +172,13 @@ class StoreAdoptCommand(BaseCommand):
         except Exception as e:  # noqa: B902 - the run is already failing with another error
             self.logger.error("Could not record the accessions adopted before the error: %s", e)
 
-    def _record_outcome(self, args: argparse.Namespace, paths: StorePaths, report: AdoptReport) -> None:
-        """Record the linked and copied accessions of ``report`` in the registry and catalogue."""
+    def _record_outcome(
+        self, args: argparse.Namespace, paths: StorePaths, report: AdoptReport
+    ) -> Optional[LockTimeoutError]:
+        """Record the linked and copied accessions of ``report`` in the registry and catalogue.
+
+        Returns the error to report when the catalogue did not record their use, else None.
+        """
         # Only an accession the project now links to needs its download record pointed at the
         # store: one freshly adopted or deduplicated under --move (both replace the project's
         # folder with a link). Under --copy, report.adopted is always empty and a dedup leaves
@@ -184,12 +191,13 @@ class StoreAdoptCommand(BaseCommand):
             | (set(report.deduplicated) if args.move else set())
             | set(self._unrecorded_links(args, paths, report.skipped))
         )
-        if newly_linked:
-            self._record_linked(args, paths, newly_linked)
+        if newly_linked and not self._record_linked(args, paths, newly_linked):
+            return usage_not_recorded("Linked", newly_linked)
 
         copied = sorted(set(report.copied) | (set(report.deduplicated) if not args.move else set()))
-        if copied:
-            self._record_copied(args, paths, copied)
+        if copied and not self._record_copied(args, paths, copied):
+            return usage_not_recorded("Copied", copied, rerun="store_adopt --copy")
+        return None
 
     @staticmethod
     def _unrecorded_links(args: argparse.Namespace, paths: StorePaths, skipped: List[str]) -> List[str]:
@@ -217,7 +225,7 @@ class StoreAdoptCommand(BaseCommand):
             raise KeyboardInterrupt("store_adopt stopped")
 
     @staticmethod
-    def _record_linked(args: argparse.Namespace, paths: StorePaths, newly_linked: List[str]) -> None:
+    def _record_linked(args: argparse.Namespace, paths: StorePaths, newly_linked: List[str]) -> bool:
         """Point the registry's download records at the store and record the linked usage.
 
         The verdict recorded is ``sra_verdicts.store_verdict``'s, as ``store_link`` and
@@ -251,11 +259,14 @@ class StoreAdoptCommand(BaseCommand):
         # Recorded outside the transaction: the catalogue lock is a separate wait, and
         # holding the project's registry lock while queueing for it can time the registry
         # write out.
-        record_usage_many(paths, usage_registry, [(acc, "", "linked", "store_adopt") for acc in newly_linked])
+        recorded = record_usage_many(
+            paths, usage_registry, [(acc, "", "linked", "store_adopt") for acc in newly_linked]
+        )
         _gitignore_guard(project_root(usage_registry), logger)  # the project root, not the cwd
+        return recorded
 
     @staticmethod
-    def _record_copied(args: argparse.Namespace, paths: StorePaths, copied: List[str]) -> None:
+    def _record_copied(args: argparse.Namespace, paths: StorePaths, copied: List[str]) -> bool:
         """Record usage for accessions left as the project's own, unlinked copy under --copy.
 
         Neither a fresh --copy adoption (``report.copied``) nor a --copy dedup
@@ -270,9 +281,12 @@ class StoreAdoptCommand(BaseCommand):
         with registry_transaction(args.registry) as reg:
             ensure_project_identity(reg)
             usage_registry = reg
-        record_usage_many(paths, usage_registry, [(acc, "", "copied", "store_adopt --copy") for acc in copied])
+        recorded = record_usage_many(
+            paths, usage_registry, [(acc, "", "copied", "store_adopt --copy") for acc in copied]
+        )
         for acc in copied:
             touch_dataset_use(paths, acc)
+        return recorded
 
     def _print_report(self, report: Any) -> None:
         self.emit(

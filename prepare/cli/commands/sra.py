@@ -6,7 +6,7 @@ import argparse
 import functools
 import time
 from datetime import datetime, timezone
-from typing import Callable, Dict, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
 from prepare.cli.commands.sra_record import STORE_SAVED_SUFFIX  # noqa: F401 - re-exported
@@ -33,7 +33,7 @@ from prepare.data.sra.run_report import RunOutcomes, Timings, write_run_document
 from prepare.store.layout import StorePaths, store_paths
 from prepare.store.link import LINK_MODES, is_store_link
 from prepare.store.resolve import resolve_store_root
-from prepare.store.usage import record_usage_many
+from prepare.store.usage import record_usage_many, usage_not_recorded
 from prepare.utils import resources
 from prepare.utils.termination import graceful_termination
 from prepare.utils.tools import require_tools
@@ -398,7 +398,8 @@ class DownloadSraCommand(BaseCommand):
                 batch.apply(mutation, label=acc)
         if usage_rows:
             usage_registry = batch.registry if batch.registry is not None else load_registry(args.registry)
-            record_usage_many(store, usage_registry, usage_rows)
+            if not record_usage_many(store, usage_registry, usage_rows):
+                self._unrecorded_usage().extend(row[0] for row in usage_rows)
 
     @staticmethod
     def _record_present(
@@ -463,8 +464,19 @@ class DownloadSraCommand(BaseCommand):
         ``_record_present`` and ``_sidecar_completeness`` stay the points to replace in tests.
         """
         return result_recorder(
-            fastq_dir, store, batch, timings, expected_spots, self._record_present, self._sidecar_completeness
+            fastq_dir,
+            store,
+            batch,
+            timings,
+            expected_spots,
+            self._record_present,
+            self._sidecar_completeness,
+            unrecorded=self._unrecorded_usage(),
         )
+
+    def _unrecorded_usage(self) -> List[str]:
+        """Accessions this run linked or saved into the store whose use the catalogue did not record."""
+        return self.__dict__.setdefault("_usage_unrecorded", [])
 
     @staticmethod
     def _sidecar_completeness(store: Optional[StorePaths], accession: str) -> Optional[dict]:
@@ -655,6 +667,19 @@ class DownloadSraCommand(BaseCommand):
             self._write_run_summary(args, outcomes, started, code, aborted)
         return code
 
+    def _outcome_code(self, args: argparse.Namespace, download_stats: Dict[str, Any]) -> int:
+        """The exit code of a finished run: 1 when it was aborted, the failure code when a download failed."""
+        if not args.dry_run and download_stats.get("aborted"):
+            self.logger.error(
+                "Download run aborted (%s); accessions attempted before the abort were still recorded above",
+                download_stats["aborted"],
+            )
+            return 1
+        if not args.dry_run and download_stats["failed"] > 0:
+            self._report_failed_downloads(args, download_stats)
+            return self._failure_exit_code(download_stats)
+        return 0
+
     def _run(self, args: argparse.Namespace, outcomes: RunOutcomes) -> int:
         try:
             if not args.dry_run:
@@ -676,18 +701,12 @@ class DownloadSraCommand(BaseCommand):
                 self._record_run_outcomes(args, download_stats, fastq_dir, store, inputs[1])
                 self._warn_if_transient_bytes_large(args, fastq_dir, store)
 
-            if not args.dry_run and download_stats.get("aborted"):
-                self.logger.error(
-                    "Download run aborted (%s); accessions attempted before the abort were " "still recorded above",
-                    download_stats["aborted"],
-                )
-                return 1
-
-            if not args.dry_run and download_stats["failed"] > 0:
-                self._report_failed_downloads(args, download_stats)
-                return self._failure_exit_code(download_stats)
-
-            return 0
+            code = self._outcome_code(args, download_stats)
+            unrecorded = self._unrecorded_usage()
+            if unrecorded:
+                usage_code = self.fail(usage_not_recorded("Linked or saved", unrecorded), "Error downloading SRA data")
+                return code or usage_code
+            return code
 
         except PrepareError as e:
             return self.fail(e, "Error downloading SRA data")

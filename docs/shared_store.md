@@ -78,6 +78,8 @@ A store copy that is `partial` or `failed` is never linked into a project withou
 
 A copy recorded `unverified` whose sidecar read count is short against a spot count known since is treated as `partial` in the same way. `store_link` applies the same rule: it refuses these copies without `--accept-partial`, including an `unverified` copy whose read count is short against the project's spot count, and then records the sidecar as `partial`.
 
+`store_link`, `store_adopt` and `download_sra` record each dataset they link or save as used by the project in the catalogue. When that write fails (for example the catalogue lock wait runs out), the link and the project's registry record are kept, but the command exits with status 4 and names the `store_link` call (or `store_adopt --copy`) to run again. Until it is run, `store_gc` may treat the dataset as unused.
+
 `status --reconcile` handles links into a store that is not mounted. When the `sra/` folder that the link points into does not exist, reconcile reports the link as store unavailable, logs one warning and leaves the link and the registry record unchanged. A dataset removed from a mounted store is still marked missing. A store-linked dataset that an earlier reconcile marked missing is recorded as linked again once its project entry is a symlink into the store.
 
 ## Verifying datasets

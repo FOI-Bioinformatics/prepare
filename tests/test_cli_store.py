@@ -745,7 +745,8 @@ class TestStoreAdoptCommand:
         assert row["stage"] == "linked"
 
     def test_catalog_failure_leaves_adopt_outcome_unchanged(self, tmp_path, monkeypatch):
-        """A broken catalogue write never changes store_adopt's registry outcome or exit code."""
+        """A broken catalogue write leaves store_adopt's registry outcome as it is; the exit code is 4,
+        since a link whose use is not recorded can be removed by store_gc."""
         root = tmp_path / "store"
         init_store(root)
         project_dir = tmp_path / "project"
@@ -759,7 +760,7 @@ class TestStoreAdoptCommand:
         with patch("prepare.store.usage.catalog_write", side_effect=RuntimeError("locked")):
             rc = StoreAdoptCommand().execute(_adopt_args(data_root=str(root), registry=str(registry_path)))
 
-        assert rc == 0
+        assert rc == 4
         registry = load_registry(registry_path)
         assert registry.datasets["SRR1"]["download"]["state"] == "downloaded"
         assert registry.datasets["SRR1"]["download"]["source"] == "store"
@@ -1840,7 +1841,8 @@ class TestStoreLinkCommand:
         assert row["stage"] == "linked"
 
     def test_catalog_failure_leaves_link_outcome_unchanged(self, tmp_path, monkeypatch):
-        """A broken catalogue write never changes store_link's registry outcome or exit code."""
+        """A broken catalogue write leaves store_link's registry outcome as it is; the exit code is 4,
+        since a link whose use is not recorded can be removed by store_gc."""
         root = tmp_path / "store"
         paths = init_store(root)
         acc_dir = sra_dir(paths, "SRR1")
@@ -1867,7 +1869,7 @@ class TestStoreLinkCommand:
                 )
             )
 
-        assert rc == 0
+        assert rc == 4
         registry = load_registry(registry_path)
         assert registry.datasets["SRR1"]["download"]["state"] == "downloaded"
         assert registry.datasets["SRR1"]["download"]["source"] == "store"
@@ -2811,3 +2813,55 @@ class TestStoreUnlinkOnlyRemovesStoreLinks:
 
         assert rc == 1
         assert (project_dir / "fastq" / "SRR1").is_symlink()
+
+
+class TestUsageNotRecorded:
+    """A link whose use cannot be recorded in the catalogue is exit 4, so store_gc never sees it as unused."""
+
+    def _store_with_dataset(self, tmp_path):
+        root = tmp_path / "store"
+        paths = init_store(root)
+        _write_fastq_gz(sra_dir(paths, "SRR1") / "SRR1.fastq.gz")
+        sidecar = _sidecar("SRR1")
+        write_sidecar(sidecar_path(paths, "SRR1"), sidecar)
+        with catalog_write(paths) as cat:
+            cat.upsert_dataset(sidecar)
+        return root
+
+    def test_store_link_exits_4_when_usage_cannot_be_recorded(self, tmp_path, monkeypatch, caplog):
+        root = self._store_with_dataset(tmp_path)
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+        monkeypatch.setattr("prepare.cli.commands.store.link.record_usage_many", lambda *a, **k: False)
+
+        args = _link_args(
+            ["SRR1"],
+            data_root=str(root),
+            registry=str(project_dir / "prepare_registry.json"),
+            fastq_folder=str(project_dir / "fastq"),
+        )
+        with caplog.at_level(logging.ERROR):
+            rc = StoreLinkCommand().execute(args)
+
+        assert rc == 4
+        assert (project_dir / "fastq" / "SRR1").is_symlink()
+        assert "store_link SRR1 again before store_gc" in caplog.text
+
+    @pytest.mark.parametrize("move", [True, False])
+    def test_store_adopt_exits_4_when_usage_cannot_be_recorded(self, tmp_path, monkeypatch, caplog, move):
+        root = tmp_path / "store"
+        init_store(root)
+        project_dir = tmp_path / "project"
+        (project_dir / "fastq" / "SRR1").mkdir(parents=True)
+        (project_dir / "fastq" / "SRR1" / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        monkeypatch.chdir(project_dir)
+        monkeypatch.setattr("prepare.cli.commands.store.adopt.record_usage_many", lambda *a, **k: False)
+
+        args = _adopt_args(data_root=str(root), registry=str(project_dir / "prepare_registry.json"), move=move)
+        with caplog.at_level(logging.ERROR):
+            rc = StoreAdoptCommand().execute(args)
+
+        assert rc == 4
+        rerun = "store_link SRR1" if move else "store_adopt --copy"
+        assert f"{rerun} again before store_gc" in caplog.text
