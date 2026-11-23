@@ -28,6 +28,8 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 - `sra_report --groups-file` refuses entries that are not SRA accessions and strips whitespace; a path such
   as `../outside/x` was read from outside `--fastq-folder` and recorded in the registry.
 - `genome_download --dry-run` no longer creates the output folder.
+- `sra_report` lists a dataset with any single anomaly (unusual GC alone was never listed), and the anomaly
+  check and the report's contamination count use one adapter threshold, 5 % (they used 10 % and 5 %).
 
 ### Fixed
 

@@ -152,13 +152,20 @@ _ANOMALY_ACTIONS = {
 }
 
 
+# Fraction of reads with adapter sequence above which a dataset is reported as contaminated, by the
+# anomaly check and by the report's "Contamination issues" count alike.
+HIGH_ADAPTER_FRACTION = 0.05
+# Summed anomaly weight at which a dataset is listed as anomalous; every single anomaly reaches it.
+ANOMALY_SEVERITY_THRESHOLD = 0.2
+
+
 def _detect_profile_anomalies(profile) -> List[Tuple[str, str, float]]:
     """Return (anomaly_type, human-readable reason, severity weight) for each anomaly tripped."""
     flags: List[Tuple[str, str, float]] = []
     if profile.complexity_score < 0.1:
         flags.append(("low_complexity", "Very low sequence complexity", 0.3))
     adapter = profile.contamination_indicators.get("adapter_contamination", 0)
-    if adapter > 0.1:
+    if adapter > HIGH_ADAPTER_FRACTION:
         flags.append(("high_contamination", f"High adapter contamination: {adapter:.1%}", 0.4))
     if profile.gc_percent < 20 or profile.gc_percent > 80:
         flags.append(("unusual_gc", f"Unusual GC content: {profile.gc_percent:.1f}%", 0.2))
@@ -493,7 +500,7 @@ class SRADatasetAnalyzer:
                     anomaly_types[atype].append(accession)
 
                 severity = sum(weight for _atype, _reason, weight in flags)
-                if severity > 0.2:  # Threshold for anomaly
+                if severity >= ANOMALY_SEVERITY_THRESHOLD:
                     anomalous_datasets.append(accession)
                     severity_scores[accession] = min(severity, 1.0)
                     explanations[accession] = "; ".join(reason for _atype, reason, _weight in flags)

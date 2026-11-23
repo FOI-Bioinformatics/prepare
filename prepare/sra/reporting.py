@@ -20,6 +20,7 @@ import pandas as pd
 import numpy as np
 
 from prepare.sra.analytics import (
+    HIGH_ADAPTER_FRACTION,
     NUMERIC_COLUMNS,
     AnomalyReport,
     QualityProfile,
@@ -338,7 +339,7 @@ class SRAReportGenerator:
         # Contamination statistics
         adapter_contamination = [p.contamination_indicators.get("adapter_contamination", 0) for p in profiles.values()]
         avg_contamination = np.mean(adapter_contamination)
-        high_contamination = sum(1 for c in adapter_contamination if c > 0.05)
+        high_contamination = sum(1 for c in adapter_contamination if c > HIGH_ADAPTER_FRACTION)
 
         return {
             "total_datasets": len(profiles),
