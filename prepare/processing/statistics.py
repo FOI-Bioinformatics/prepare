@@ -46,6 +46,8 @@ def calculate_enrichment(
             return pd.DataFrame()
 
         results = []
+        total_observed = sum(observed_counts.values())
+        total_expected = sum(expected_counts.values())
 
         # Calculate statistics for each key
         for key in common_keys:
@@ -56,18 +58,16 @@ def calculate_enrichment(
             if observed < min_count and expected < min_count:
                 continue
 
-            # Calculate fold enrichment
+            # Fold enrichment of the proportions, the quantity the Fisher test below compares
             if expected > 0:
-                fold_enrichment = observed / expected
+                share = observed / total_observed if total_observed > 0 else 0.0
+                fold_enrichment = share / (expected / total_expected)
             else:
                 fold_enrichment = float("inf") if observed > 0 else 1.0
 
-            # Calculate p-value with Fisher's exact test
-            # Create contingency table
+            # p-value with Fisher's exact test on the contingency table
             # [[observed, total_observed - observed],
             #  [expected, total_expected - expected]]
-            total_observed = sum(observed_counts.values())
-            total_expected = sum(expected_counts.values())
 
             contingency_table = np.array(
                 [
@@ -162,7 +162,7 @@ def _calculate_jaccard_distance(vec1, vec2):
 
     if union > 0:
         return 1.0 - (intersection / union)
-    return 1.0
+    return 0.0  # two empty samples are identical, as in diversity._calculate_jaccard_distance
 
 
 def _calculate_dice_distance(vec1, vec2):
@@ -182,7 +182,7 @@ def _calculate_dice_distance(vec1, vec2):
 
     if (sum1 + sum2) > 0:
         return 1.0 - (2.0 * intersection / (sum1 + sum2))
-    return 1.0
+    return 0.0  # two empty samples are identical
 
 
 def _calculate_cosine_distance(vec1, vec2):
@@ -202,7 +202,7 @@ def _calculate_cosine_distance(vec1, vec2):
 
     if norm1 > 0 and norm2 > 0:
         return 1.0 - (dot_product / (norm1 * norm2))
-    return 1.0
+    return 0.0 if norm1 == norm2 == 0 else 1.0  # two empty samples are identical
 
 
 def calculate_distance_matrix(

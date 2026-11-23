@@ -193,7 +193,7 @@ class TestDistanceFunctions:
 
         distance = _calculate_jaccard_distance(vec1, vec2)
 
-        assert distance == 1.0
+        assert distance == 0.0  # two empty samples are identical
 
     def test_calculate_dice_distance(self):
         """Test Dice distance calculation."""
@@ -214,7 +214,7 @@ class TestDistanceFunctions:
 
         distance = _calculate_dice_distance(vec1, vec2)
 
-        assert distance == 1.0
+        assert distance == 0.0  # two empty samples are identical
 
     def test_calculate_cosine_distance(self):
         """Test Cosine distance calculation."""
@@ -475,7 +475,7 @@ class TestEdgeCasesAndErrorHandling:
         result = calculate_enrichment(observed, expected)
 
         assert len(result) == 1
-        assert result.iloc[0]["fold_enrichment"] == 2.0
+        assert result.iloc[0]["fold_enrichment"] == 1.0  # one key: equal proportions
 
     @requires_analysis
     @patch("scipy.stats.fisher_exact")
@@ -703,7 +703,7 @@ class TestNumericPrecision:
         result = calculate_enrichment(observed, expected, min_count=0)
 
         assert len(result) == 1
-        assert result.iloc[0]["fold_enrichment"] == 1e5
+        assert result.iloc[0]["fold_enrichment"] == pytest.approx(1.0)  # one key: equal proportions
 
     def test_distance_functions_floating_point_precision(self):
         """Test distance functions with floating point precision issues."""
@@ -767,3 +767,28 @@ class TestCompareGroupMeans:
         monkeypatch.setitem(sys.modules, "scipy", None)
         with pytest.raises(ConfigurationError, match=r"prepare\[analysis\]"):
             compare_group_means([np.array([1.0, 2.0]), np.array([3.0, 4.0])])
+
+
+def test_enrichment_fold_is_a_ratio_of_proportions():
+    """Review: the fold used raw counts while the Fisher test used proportions."""
+    pytest.importorskip("scipy")
+    from prepare.processing.statistics import calculate_enrichment
+
+    df = calculate_enrichment({"A": 5, "B": 5}, {"A": 50, "B": 950}, min_count=1)
+    folds = dict(zip(df["key"], df["fold_enrichment"]))
+    assert folds["A"] == pytest.approx(10.0)
+    assert folds["B"] == pytest.approx(10 / 19)
+    assert list(df["key"]) == ["A", "B"]
+
+
+@pytest.mark.parametrize("method", ["jaccard", "dice", "cosine"])
+def test_two_empty_samples_are_at_distance_zero(method):
+    from prepare.processing import statistics as st
+
+    zeros = np.zeros(3)
+    distance = {
+        "jaccard": st._calculate_jaccard_distance,
+        "dice": st._calculate_dice_distance,
+        "cosine": st._calculate_cosine_distance,
+    }[method](zeros, zeros)
+    assert distance == 0.0
