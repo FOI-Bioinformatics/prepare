@@ -134,7 +134,7 @@ class StoreGcCommand(BaseCommand):
             help=(
                 "Confirm that every project using this store has run store_init or store_link since "
                 "store_reindex rebuilt the catalogue without any project records; clears that "
-                "catalogue flag so store_gc can run"
+                "catalogue flag so store_gc can run (with --dry-run the flag is kept)"
             ),
         )
         parser.add_argument("--json", action="store_true", help="Emit the report as JSON")
@@ -391,7 +391,11 @@ class StoreGcCommand(BaseCommand):
                 buckets = self._dataset_candidates(
                     catalog, paths, stale, args.older_than, args.keep_partial, getattr(args, "include_stale", False)
                 )
-            if rebuilt is not None:
+            if rebuilt is not None and args.dry_run:
+                self.logger.warning(
+                    "--dry-run: the flag set when the catalogue was rebuilt without projects on %s is kept", rebuilt
+                )
+            elif rebuilt is not None:
                 # Only now that at least one project is recorded and the report has been built.
                 with catalog_write(paths) as catalog:
                     catalog.delete_meta(REBUILT_WITHOUT_PROJECTS)

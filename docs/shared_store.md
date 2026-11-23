@@ -98,7 +98,7 @@ A copy recorded `unverified` whose sidecar read count is short against a spot co
 - A store folder named like an SRA accession but without a sidecar does not stop the reindex. A sidecar is written from the file names and sizes alone, with state `failed` and an error naming `store_verify --rescan --fix-state <ACCESSION>`, and the dataset is catalogued.
 - Such a dataset is not linked without `--accept-partial` until `store_verify --rescan --fix-state` has read its files and promoted it. A plain `--md5` check reports mismatches, because the rebuilt sidecar records no md5. When no project uses the dataset, `store_gc` offers it for removal.
 - A folder whose lock is held, or whose name is not an SRA accession, is skipped with a warning. An unreadable sidecar still stops the reindex.
-- If the replay restores no project while the rebuilt catalogue still holds datasets, `store_reindex` sets a `rebuilt_without_projects` flag, because every dataset would otherwise look unused. `store_gc` then refuses to run until each project that uses the store has run `store_init` or `store_link` again and `store_gc` is given `--accept-rebuilt`. A later `store_reindex` that restores at least one project on its own also clears the flag.
+- If the replay restores no project while the rebuilt catalogue still holds datasets, `store_reindex` sets a `rebuilt_without_projects` flag, because every dataset would otherwise look unused. `store_gc` then refuses to run until each project that uses the store has run `store_init` or `store_link` again and `store_gc` is given `--accept-rebuilt` (with `--dry-run` the flag is kept). A later `store_reindex` that restores at least one project on its own also clears the flag.
 
 ## Removing unused datasets
 
