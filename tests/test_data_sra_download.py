@@ -1662,6 +1662,11 @@ class TestClassifyDownloadError:
             ("store error: Store dataset SRR1 is locked by pid 404 on host h since t: l", "unknown"),
             # Error codes count only as whole numbers.
             ("Download failed after 14041 bytes", "unknown"),
+            # A 403/404 counts only as a status code, and disk-full outranks not-found.
+            ("Download failed: spots read : 1,404,213\nerr: storage exhausted while writing file", "disk-full"),
+            ("Download failed: wrote 404 files to /data/run403/", "unknown"),
+            ("HTTP 404 from the SRA server", "not-found"),
+            ("server returned status 403", "not-found"),
         ],
     )
     def test_classify_download_error_table(self, text, expected_class):
