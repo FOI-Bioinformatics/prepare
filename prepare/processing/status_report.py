@@ -220,8 +220,8 @@ def _assembled(registry: Registry, extraction: Dict[str, Any], on_disk: bool) ->
 def disk_checked_members(registry: Registry, paths: ProjectPaths) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
     """``stage_members`` without the work no longer on disk, and that work by stage.
 
-    ``status`` and ``project_report`` both count from these, so they agree. The checks test
-    whether folders and files exist; no FASTQ file is opened.
+    ``status`` counts from these (``project_report`` counts from the registry alone and says so).
+    The checks test whether folders and files exist; no FASTQ file is opened.
     """
     members = stage_members(registry)
     gone = _gone_from_disk(registry, paths, members)

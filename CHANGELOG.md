@@ -12,14 +12,16 @@ the default extraction threshold, re-screening and the accepted flag values (see
 ### Changed
 
 - `extract_target_reads` without `--threshold` uses the lowest threshold recorded by the selections made
-  for the genome (0.1 when there is none), so a sample selected below 0.1 is extracted. An explicit
+  for the genome (0.1 when there is none; a threshold on `max_containment` or `--require any` can lower
+  0.1 but not raise it), so a sample selected below 0.1 is extracted. An explicit
   `--threshold` that leaves out selected samples logs a warning. `status --next` suggests the same threshold.
 - Numeric flags reject values that mean nothing, as usage errors (exit 2): `store_gc --older-than` below 0,
   `extract_target_reads --threads`, `--assembly-threads` and `--min-contig-len` below 1, `single_sample
   --top-n` below 1, `--registry-max-screened` below 1, and `download_metadata --batch-size` outside 1-500
   (it failed with a raw `ValueError` and exit 1).
 - `parse_containment` and `branchwater_search` remove the screening entry of an accession that is no longer
-  in a genome's matches; `results_table`, `status` and `status --next` kept reporting it.
+  in a genome's matches; `results_table`, `status` and `status --next` kept reporting it. `branchwater_search`
+  removes only its own entries at or above its `--threshold`, and nothing after an empty reply.
 
 ### Fixed
 

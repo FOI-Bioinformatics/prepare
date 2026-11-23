@@ -1890,6 +1890,19 @@ class TestNextStepsAreRunnableAndRelevant:
         tokens = shlex.split(extract[0]["command"])
         assert tokens[tokens.index("--threshold") + 1] == "0.05"
 
+    def test_a_selection_threshold_of_zero_is_suggested_as_zero(self, tmp_path):
+        """Review: a recorded 0.0 became the 0.1 default in the suggestion, not in the command."""
+        from prepare.data.registry import ProjectPaths, record_download, record_screening
+
+        registry = self._registry(tmp_path, ["G1"])
+        record_download(registry, "SRR9", "downloaded", tmp_path / "fastq" / "SRR9")
+        record_screening(registry, "SRR9", "G1", 0.05, None, "matches", 0.0, None)
+        record_selection(registry, ["SRR9"], {"column": "G1", "threshold": 0.0}, "accessions.txt")
+        steps = next_steps(registry, ProjectPaths.anchored(tmp_path))
+        extract = [s for s in steps if "extract_target_reads" in s["command"]]
+        assert [s["accessions"] for s in extract] == [["SRR9"]]
+        assert "--threshold 0.0" in extract[0]["command"]
+
     def test_an_unscreened_project_still_suggests_every_downloaded_accession(self, tmp_path):
         """A status --init project without screening blocks is not silenced."""
         from prepare.data.registry import ProjectPaths, record_download

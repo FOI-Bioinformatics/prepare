@@ -8,6 +8,7 @@ the selected accessions were selected for the genome at hand, so the rule lives 
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional, Set
 
+from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD
 from prepare.data import registry_blocks as rb
 
 if TYPE_CHECKING:
@@ -65,8 +66,22 @@ def selection_threshold(registry: "Registry", genome_id: str) -> Optional[float]
     thresholds = []
     for acc in query(registry, "selected"):
         block = rb.selection_block(registry, acc)
-        criteria = dict(block.criteria) if block is not None and block.criteria else {}
-        value = criteria.get("threshold")
-        if isinstance(value, (int, float)) and not isinstance(value, bool) and _covers(criteria, genome_id):
-            thresholds.append(float(value))
+        value = _threshold_for(dict(block.criteria) if block is not None and block.criteria else {}, genome_id)
+        if value is not None:
+            thresholds.append(value)
     return min(thresholds) if thresholds else None
+
+
+def _threshold_for(criteria: Dict[str, Any], genome_id: str) -> Optional[float]:
+    """The threshold one selection's ``criteria`` set for ``genome_id``, or None when they set none.
+
+    A threshold on max_containment or on any of --genome-ids bounds another genome's value, not
+    this one's, so it may lower the default but never raise it.
+    """
+    value = criteria.get("threshold")
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not _covers(criteria, genome_id):
+        return None
+    bounds_this = criteria.get("column") == genome_id or (
+        genome_id in (criteria.get("genome_ids") or []) and criteria.get("require") == "all"
+    )
+    return float(value) if bounds_this else min(float(value), DEFAULT_CONTAINMENT_THRESHOLD)

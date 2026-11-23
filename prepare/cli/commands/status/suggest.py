@@ -239,7 +239,7 @@ def _would_extract(registry: Registry, accession: str, genome_id: str, selection
 
     An accession with no screening block at all is kept, so a project built by ``status --init``
     from downloaded reads alone is not silenced. A screened one must name the genome at or above
-    the default threshold, and be in the recorded selection when that selection covers the genome.
+    ``threshold``, and be in the recorded selection when that selection covers the genome.
     """
     if selection and accession not in selection:
         return False
@@ -262,7 +262,8 @@ def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict
     for genome_id in sorted(known_genome_ids(registry)):
         genome_fasta = _genome_fasta(registry, paths, genome_id)
         # The threshold extract_target_reads resolves without --threshold, named when not the default.
-        threshold = selection_threshold(registry, genome_id) or DEFAULT_CONTAINMENT_THRESHOLD
+        from_selection = selection_threshold(registry, genome_id)
+        threshold = DEFAULT_CONTAINMENT_THRESHOLD if from_selection is None else from_selection
         named = f" --threshold {threshold}" if threshold != DEFAULT_CONTAINMENT_THRESHOLD else ""
         base = (
             f"prepare extract_target_reads --parsed-containment {shlex.quote(table)} "
