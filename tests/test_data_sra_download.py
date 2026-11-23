@@ -3164,3 +3164,28 @@ class TestMateCountCheck:
 
         assert success is False
         assert "truncated (mate files differ: 100 and 40 reads)" in message
+
+
+class TestRetryPassInterrupt:
+    """Ctrl-C on the main thread (the retry pass) must not leave the build folder behind."""
+
+    def _interrupting_tool(self, tmp_path):
+        def interrupted(executable, args, **kwargs):
+            for folder in tmp_path.rglob("*_temp"):
+                (folder / "SRR1_1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+            raise KeyboardInterrupt
+
+        return interrupted
+
+    @pytest.mark.parametrize("keep_temp", [False, True])
+    def test_keyboard_interrupt_settles_the_build_folder_and_propagates(self, tmp_path, keep_temp):
+        tool = self._interrupting_tool(tmp_path)
+        with patch("prepare.data.sra.accession.SecureSubprocess.run_secure", side_effect=tool):
+            with patch("prepare.data.sra.accession.shutil.which", return_value=None):
+                with pytest.raises(KeyboardInterrupt):
+                    accession_mod.download_accession(
+                        "SRR1", tmp_path / "fastq", staging_folder=tmp_path / "stage", keep_temp=keep_temp
+                    )
+
+        left = [p for p in tmp_path.rglob("*_temp") if p.is_dir()]
+        assert bool(left) is keep_temp

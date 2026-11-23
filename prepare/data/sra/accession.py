@@ -570,6 +570,11 @@ def download_accession(
         _settle_temp_folder(temp_path, keep_temp)
         return False, "interrupted"
 
+    except KeyboardInterrupt:
+        # Raised on the main thread (the retry pass), where no stop token reaches the tool first.
+        _settle_temp_folder(temp_path, keep_temp)
+        raise
+
     except subprocess.CalledProcessError as e:
         logger.error(f"Error downloading {accession}: {e.stderr}")
         _settle_temp_folder(temp_path, keep_temp)
