@@ -1555,3 +1555,33 @@ def test_record_selection_selects_kept_accessions_with_the_new_criteria(tmp_path
 
     assert sorted(query(registry, "selected")) == ["SRR1", "SRR2", "SRR3"]
     assert rb.selection_block(registry, "SRR2").criteria["column"] == "G"
+
+
+class TestRescreeningDropsVanishedAccessions:
+    """A re-screen removes the entries of accessions the new table no longer holds, for its genomes."""
+
+    def _record(self, r, tmp_path, text):
+        table = tmp_path / "parsed_containment.txt"
+        table.write_text(text)
+        reg.record_screening_from_table(r, table, tmp_path / "matches")
+
+    def test_rescreening_drops_accessions_missing_from_the_new_table(self, tmp_path):
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
+        self._record(r, tmp_path, "\tG\nSRR1\t0.9\nSRR2\t0.8\n")
+        self._record(r, tmp_path, "\tG\nSRR1\t0.9\n")
+        assert reg.query(r, "screened", "G") == ["SRR1"]
+
+    def test_rescreening_leaves_genomes_absent_from_the_table_alone(self, tmp_path):
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
+        self._record(r, tmp_path, "\tG\tH\nSRR1\t0.9\t0.5\nSRR2\t0.8\t0.7\n")
+        self._record(r, tmp_path, "\tG\nSRR1\t0.9\n")
+        assert reg.query(r, "screened", "H") == ["SRR1", "SRR2"]
+        assert reg.query(r, "screened", "G") == ["SRR1"]
+
+    def test_rescreening_keeps_the_download_record(self, tmp_path):
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
+        self._record(r, tmp_path, "\tG\nSRR1\t0.9\nSRR2\t0.8\n")
+        reg.record_download(r, "SRR2", "downloaded", tmp_path / "fastq")
+        self._record(r, tmp_path, "\tG\nSRR1\t0.9\n")
+        assert "screening" not in r.datasets["SRR2"]
+        assert r.datasets["SRR2"]["download"]["state"] == "downloaded"

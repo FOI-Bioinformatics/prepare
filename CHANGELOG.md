@@ -9,6 +9,8 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 - `extract_target_reads` without `--threshold` uses the lowest threshold recorded by the selections made
   for the genome (0.1 when there is none), so a sample selected below 0.1 is extracted. An explicit
   `--threshold` that leaves out selected samples logs a warning. `status --next` suggests the same threshold.
+- `parse_containment` and `branchwater_search` remove the screening entry of an accession that is no longer
+  in a genome's matches; `results_table`, `status` and `status --next` kept reporting it.
 
 ### Fixed
 

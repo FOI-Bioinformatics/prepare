@@ -16,6 +16,7 @@ from prepare.data.branchwater_search import (
     write_branchwater_csv,
 )
 from prepare.data.registry import cap_screening, record_screening, registry_transaction
+from prepare.data.screening_table import drop_vanished_screening
 
 
 class BranchwaterSearchCommand(BaseCommand):
@@ -113,6 +114,7 @@ class BranchwaterSearchCommand(BaseCommand):
                     record_screening(
                         registry, accession, genome_id, containment, cani, "branchwater", args.threshold, output
                     )
+                drop_vanished_screening(registry, genome_id, {accession for accession, _ in matches})
                 cap_screening(registry, genome_id, args.registry_max_screened)
             return 0
         except PrepareError as e:

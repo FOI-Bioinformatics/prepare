@@ -209,3 +209,19 @@ class TestBranchwaterSearchCommand:
         parser = create_parser()
         action = next(a for a in parser._subparsers._group_actions if getattr(a, "choices", None))
         assert "branchwater_search" in action.choices
+
+
+@patch("prepare.cli.commands.branchwater_search.write_branchwater_csv")
+@patch("prepare.cli.commands.branchwater_search.search_index")
+@patch("prepare.cli.commands.branchwater_search.load_signature", return_value={"signatures": []})
+def test_branchwater_search_drops_vanished_matches(_load, mock_search, _write, tmp_path):
+    from prepare.data.registry import load_registry, query
+
+    args = _args(tmp_path, signature=str(tmp_path / "G.sig"), output=str(tmp_path / "branchwater" / "G.csv"))
+    mock_search.return_value = [("SRR1", 0.9), ("SRR2", 0.8)]
+    assert BranchwaterSearchCommand().execute(args) == 0
+    genome = next(iter(load_registry(args.registry).genomes))
+    mock_search.return_value = [("SRR1", 0.9)]
+    assert BranchwaterSearchCommand().execute(args) == 0
+
+    assert query(load_registry(args.registry), "screened", genome) == ["SRR1"]
