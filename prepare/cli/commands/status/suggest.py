@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD, DEFAULT_PARSED_CONTAINMENT_FILE, GENOME_FASTA_GLOBS
 from prepare.data import registry_blocks as rb
-from prepare.data.project_selection import selection_for_genome
+from prepare.data.project_selection import selection_for_genome, selection_threshold
 from prepare.data.registry import (
     ProjectPaths,
     Registry,
@@ -234,8 +234,8 @@ def _genome_fasta(registry: Registry, paths: ProjectPaths, genome_id: str) -> Pa
     return paths.genomes / f"{genome_id}.fna"
 
 
-def _would_extract(registry: Registry, accession: str, genome_id: str, selection: set) -> bool:
-    """Whether the suggested ``extract_target_reads`` command (default threshold) would take the accession.
+def _would_extract(registry: Registry, accession: str, genome_id: str, selection: set, threshold: float) -> bool:
+    """Whether the suggested ``extract_target_reads`` command (at ``threshold``) would take the accession.
 
     An accession with no screening block at all is kept, so a project built by ``status --init``
     from downloaded reads alone is not silenced. A screened one must name the genome at or above
@@ -250,7 +250,7 @@ def _would_extract(registry: Registry, accession: str, genome_id: str, selection
     if not isinstance(entry, dict):
         return False
     containment = _as_float(entry.get("containment"))
-    return containment is not None and containment >= DEFAULT_CONTAINMENT_THRESHOLD
+    return containment is not None and containment >= threshold
 
 
 def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict[str, Any]]:
@@ -261,15 +261,20 @@ def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict
     fastq = _fastq_flag(registry, paths)
     for genome_id in sorted(known_genome_ids(registry)):
         genome_fasta = _genome_fasta(registry, paths, genome_id)
+        # The threshold extract_target_reads resolves without --threshold, named when not the default.
+        threshold = selection_threshold(registry, genome_id) or DEFAULT_CONTAINMENT_THRESHOLD
+        named = f" --threshold {threshold}" if threshold != DEFAULT_CONTAINMENT_THRESHOLD else ""
         base = (
             f"prepare extract_target_reads --parsed-containment {shlex.quote(table)} "
-            f"--genome-id {shlex.quote(genome_id)} --genome-fasta {shlex.quote(str(genome_fasta))}{fastq}"
+            f"--genome-id {shlex.quote(genome_id)} --genome-fasta {shlex.quote(str(genome_fasta))}{fastq}{named}"
         )
         # Any record, including a zero-mapped one, means the sample has been tried.
         recorded = {acc for acc in registry.datasets if rb.extraction_block(registry, acc, genome_id) is not None}
         selection = selection_for_genome(registry, genome_id)
         to_extract = [
-            acc for acc in downloaded if acc not in recorded and _would_extract(registry, acc, genome_id, selection)
+            acc
+            for acc in downloaded
+            if acc not in recorded and _would_extract(registry, acc, genome_id, selection, threshold)
         ]
         if to_extract:
             steps.append({"command": base, "accessions": to_extract})

@@ -4,6 +4,19 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+### Changed
+
+- `extract_target_reads` without `--threshold` uses the lowest threshold recorded by the selections made
+  for the genome (0.1 when there is none), so a sample selected below 0.1 is extracted. An explicit
+  `--threshold` that leaves out selected samples logs a warning. `status --next` suggests the same threshold.
+
+### Fixed
+
+- NCBI efetch connections time out after 120 s and are retried; a stalled connection hung `download_metadata`.
+- A download failure is classified `disk-full` before `not-found`, and a 403/404 counts only as a status
+  code, so a number such as 1,404,213 in tool output no longer stops a full disk from ending the run.
+- An interrupt during the download retry pass removes the accession's build folder.
+
 ## [0.12.3] - 2026-11-23
 
 Fixes for the high-severity findings of a bug sweep over the command-line arguments, the pipeline

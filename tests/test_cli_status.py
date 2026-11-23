@@ -1875,6 +1875,21 @@ class TestNextStepsAreRunnableAndRelevant:
         extract = [s for s in steps if "extract_target_reads" in s["command"]]
         assert [s["accessions"] for s in extract] == [["SRR2"]]
 
+    def test_extraction_suggestion_carries_the_selection_threshold(self, tmp_path):
+        """A sample selected at 0.05 is suggested, with the --threshold that makes the command take it."""
+        from prepare.data.registry import ProjectPaths, record_download, record_screening
+
+        registry = self._registry(tmp_path, ["G1"])
+        for acc, value in (("SRR1", 0.9), ("SRR9", 0.07)):
+            record_download(registry, acc, "downloaded", tmp_path / "fastq" / acc)
+            record_screening(registry, acc, "G1", value, None, "matches", 0.0, None)
+        record_selection(registry, ["SRR1", "SRR9"], {"column": "G1", "threshold": 0.05}, "accessions.txt")
+        steps = next_steps(registry, ProjectPaths.anchored(tmp_path))
+        extract = [s for s in steps if "extract_target_reads" in s["command"]]
+        assert [s["accessions"] for s in extract] == [["SRR1", "SRR9"]]
+        tokens = shlex.split(extract[0]["command"])
+        assert tokens[tokens.index("--threshold") + 1] == "0.05"
+
     def test_an_unscreened_project_still_suggests_every_downloaded_accession(self, tmp_path):
         """A status --init project without screening blocks is not silenced."""
         from prepare.data.registry import ProjectPaths, record_download

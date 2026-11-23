@@ -14,6 +14,7 @@ from prepare.core import settings
 from prepare.core.settings import SETTINGS, setting_for
 from prepare.data import registry_blocks as rb
 from prepare.data import run_log
+from prepare.data.project_selection import selection_for_genome, selection_threshold
 from prepare.data.read_extraction import (
     MINIMAP2_PRESETS,
     ExtractionResult,
@@ -116,8 +117,11 @@ class ExtractTargetReadsCommand(BaseCommand):
         parser.add_argument(
             "--threshold",
             type=finite_float,
-            default=DEFAULT_CONTAINMENT_THRESHOLD,
-            help="Minimum containment for a sample to be included",
+            default=None,
+            help=(
+                "Minimum containment for a sample to be included (default: the lowest threshold of the recorded "
+                f"selection for this genome, else {DEFAULT_CONTAINMENT_THRESHOLD})"
+            ),
         )
         parser.add_argument(
             "--ignore-selection",
@@ -581,6 +585,30 @@ class ExtractTargetReadsCommand(BaseCommand):
             ignore_selection=getattr(args, "ignore_selection", False),
         )
 
+    def _resolve_threshold(self, args: argparse.Namespace, registry) -> None:
+        """Set ``args.threshold``: as given, else the recorded selection's, else the default.
+
+        An explicit threshold that leaves out selected samples is kept, with a warning naming how many.
+        """
+        ignore = getattr(args, "ignore_selection", False)
+        if args.threshold is None:
+            recorded = None if ignore else selection_threshold(registry, args.genome_id)
+            args.threshold = recorded if recorded is not None else DEFAULT_CONTAINMENT_THRESHOLD
+            self.logger.info("Containment threshold for %s: %s", args.genome_id, args.threshold)
+            return
+        selection = set() if ignore else selection_for_genome(registry, args.genome_id)
+        if selection:
+            in_table = set(selected_samples(args.parsed_containment, args.genome_id, 0.0))
+            kept = set(selected_samples(args.parsed_containment, args.genome_id, args.threshold))
+            below = (selection & in_table) - kept
+            if below:
+                self.logger.warning(
+                    "--threshold %s leaves out %d selected sample(s) for %s; omit it to use the selection's threshold",
+                    args.threshold,
+                    len(below),
+                    args.genome_id,
+                )
+
     def _report_no_reads(self, args: argparse.Namespace, results: Dict[str, ExtractionResult]) -> None:
         """Say which of the three reasons left the run without a single mapped read."""
         registry = load_registry(args.registry)
@@ -623,6 +651,7 @@ class ExtractTargetReadsCommand(BaseCommand):
             args.output_folder = str(anchored_folder(args.output_folder, getattr(args, "registry", None)))
             self._warn_dangling_links(args)
             registry = load_registry(args.registry)
+            self._resolve_threshold(args, registry)
             store = self._resolve_store(args, registry)
             already_done = {
                 acc: rec

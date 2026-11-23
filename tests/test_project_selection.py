@@ -33,3 +33,24 @@ def test_max_containment_and_genome_ids_cover_a_genome(tmp_path):
 
 def test_no_selection_is_an_empty_set(tmp_path):
     assert selection_for_genome(Registry(path=tmp_path / "prepare_registry.json"), "G1") == set()
+
+
+def test_selection_threshold_is_the_lowest_covering_threshold(tmp_path):
+    from prepare.data.project_selection import selection_threshold
+
+    registry = Registry(path=tmp_path / "prepare_registry.json")
+    _select(registry, "SRR1", {"column": "G", "threshold": 0.05})
+    _select(registry, "SRR2", {"column": "G", "threshold": 0.2})
+    _select(registry, "SRR3", {"column": "H", "threshold": 0.01})
+
+    assert selection_threshold(registry, "G") == 0.05
+
+
+def test_threshold_without_a_recorded_selection_threshold_is_the_default(tmp_path):
+    from prepare.data.project_selection import selection_threshold
+
+    registry = Registry(path=tmp_path / "prepare_registry.json")
+    _select(registry, "SRR1", {"column": "G"})
+
+    assert selection_threshold(registry, "G") is None
+    assert selection_threshold(Registry(path=tmp_path / "other.json"), "G") is None

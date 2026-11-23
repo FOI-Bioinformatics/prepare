@@ -6,7 +6,7 @@ the selected accessions were selected for the genome at hand, so the rule lives 
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Set
+from typing import TYPE_CHECKING, Any, Dict, Optional, Set
 
 from prepare.data import registry_blocks as rb
 
@@ -51,3 +51,22 @@ def selection_for_genome(registry: "Registry", genome_id: str) -> Set[str]:
             genome_id,
         )
     return covered
+
+
+def selection_threshold(registry: "Registry", genome_id: str) -> Optional[float]:
+    """The lowest containment threshold recorded by the selections that cover ``genome_id``, or None.
+
+    ``extract_target_reads`` uses it when no ``--threshold`` is given, so a sample selected below
+    the default threshold is still extracted. None when nothing is selected for the genome or no
+    covering selection recorded a threshold.
+    """
+    from prepare.data.registry import query  # registry_scan imports read_extraction, which imports this module
+
+    thresholds = []
+    for acc in query(registry, "selected"):
+        block = rb.selection_block(registry, acc)
+        criteria = dict(block.criteria) if block is not None and block.criteria else {}
+        value = criteria.get("threshold")
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and _covers(criteria, genome_id):
+            thresholds.append(float(value))
+    return min(thresholds) if thresholds else None
