@@ -15,7 +15,14 @@ from prepare.core.exceptions import DataAccessError
 from prepare.data import run_log
 from prepare.data.file_io import visible_files
 from prepare.data.registry import project_root
-from prepare.data.sra import count_fastq_reads, fastq_files, orphan_fastq, primary_fastq, verify_download
+from prepare.data.sra import (
+    count_fastq_reads,
+    fastq_files,
+    mate2_fastq,
+    orphan_fastq,
+    primary_fastq,
+    verify_download,
+)
 from prepare.store.catalog import catalog_write
 from prepare.store.layout import StorePaths, sidecar_path, sra_dir, store_paths
 from prepare.store.locks import LockHeld, dataset_lock
@@ -210,6 +217,7 @@ class StoreVerifyCommand(BaseCommand):
 
         spots_verdict = None
         spots_ratio = None
+        spots_method = "spots"
         ncbi_found = None
         if check_spots:
             expected_spots = sidecar.ncbi.get("spots")
@@ -221,6 +229,7 @@ class StoreVerifyCommand(BaseCommand):
                 verify = verify_download(accession, store_dir, expected_spots)
                 spots_verdict = verify["verdict"]
                 spots_ratio = verify["ratio"]
+                spots_method = _completeness_method(verify)
             except (EOFError, OSError) as e:
                 self.logger.warning("%s: could not verify read counts: %s", accession, e)
                 bytes_ok = False
@@ -246,6 +255,7 @@ class StoreVerifyCommand(BaseCommand):
             "sidecar": sidecar,
             "spots_verdict": spots_verdict,
             "spots_ratio": spots_ratio,
+            "spots_method": spots_method,
             "mismatch_detail": detail,
             "rescanned": rescanned,
             "ncbi_found": ncbi_found,
@@ -313,6 +323,7 @@ class StoreVerifyCommand(BaseCommand):
             return self._read_through_error(store_dir, sidecar) or f"read count verification failed: {e}"
         result["spots_verdict"] = verify["verdict"]
         result["spots_ratio"] = verify["ratio"]
+        result["spots_method"] = _completeness_method(verify)
         if verify["verdict"] == "truncated":
             result["verdict"] = "truncated"
         return None
@@ -322,7 +333,8 @@ class StoreVerifyCommand(BaseCommand):
         store_dir = sra_dir(paths, result["accession"])
         skip: set = set()
         if result.get("spots_verdict") is not None:
-            skip = {p.name for p in (primary_fastq(store_dir), orphan_fastq(store_dir)) if p is not None}
+            read = (primary_fastq(store_dir), orphan_fastq(store_dir), mate2_fastq(store_dir))
+            skip = {p.name for p in read if p is not None}
         return self._read_through_error(store_dir, sidecar, skip)
 
     def _fix_state(self, result: Dict[str, Any], paths: StorePaths) -> None:
@@ -368,7 +380,8 @@ class StoreVerifyCommand(BaseCommand):
             }
             return
         read_error = None
-        if result.get("spots_verdict") is None and sidecar.ncbi.get("spots"):
+        if result.get("spots_verdict") is None:
+            # Also without a spot count: the mate files must still agree before a promotion.
             read_error = self._compare_known_spots(result, paths, sidecar)
         read_error = read_error or self._unread_file_error(result, paths, sidecar)
         if read_error is not None:
@@ -380,7 +393,8 @@ class StoreVerifyCommand(BaseCommand):
         state_for_verdict = {"complete": "complete", "truncated": "partial"}
         if spots_verdict in state_for_verdict:
             new_state = state_for_verdict[spots_verdict]
-            completeness = {"method": "spots", "ratio": result.get("spots_ratio"), "verdict": spots_verdict}
+            method = result.get("spots_method", "spots")
+            completeness = {"method": method, "ratio": result.get("spots_ratio"), "verdict": spots_verdict}
         else:
             new_state = "complete"
             completeness = {"method": "unverified", "ratio": None, "verdict": "unverified"}
@@ -578,3 +592,10 @@ def _repair_placeholder_row(paths: StorePaths, sidecar: Any) -> None:
         row = catalog.get_dataset(sidecar.accession)
         if row is None or row["state"] == "unknown":
             catalog.upsert_dataset(sidecar)
+
+
+def _completeness_method(verify: Dict[str, Any]) -> str:
+    """How a ``verify_download`` result was judged: ``"spots"``, or ``"mates"`` when only the mate files differed."""
+    if verify.get("expected_spots"):
+        return "spots"
+    return "mates" if not verify.get("mates_match", True) else "unverified"

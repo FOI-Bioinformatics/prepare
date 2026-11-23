@@ -83,7 +83,7 @@ class TestSelectSamples:
         assert selected_samples(table, "G1", 0.1, registry=registry) == ["SRR1", "SRR3"]
         with caplog.at_level(logging.INFO):
             assert selected_samples(table, "G2", 0.1, registry=registry) == ["SRR2", "SRR3"]
-        assert "selection was made for G1" in caplog.text
+        assert "selected for a genome other than G2" in caplog.text
 
         record_selection(registry, ["SRR3"], {"column": "max_containment"}, "accessions.txt")
         assert selected_samples(table, "G2", 0.1, registry=registry) == ["SRR3"]

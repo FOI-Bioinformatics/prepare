@@ -1543,3 +1543,15 @@ def test_bootstrap_selects_the_accessions_file_not_the_whole_table(tmp_path):
     registry = reg.bootstrap_from_disk(paths, accessions_file=accessions, parsed_containment=table)
 
     assert reg.query(registry, "selected") == ["SRR1"]
+
+
+def test_record_selection_selects_kept_accessions_with_the_new_criteria(tmp_path):
+    from prepare.data import registry_blocks as rb
+    from prepare.data.registry import Registry, query, record_download, record_selection
+
+    registry = Registry(path=tmp_path / "prepare_registry.json")
+    record_download(registry, "SRR2", "downloaded", tmp_path / "fastq")
+    record_selection(registry, ["SRR1", "SRR3"], {"column": "G", "threshold": 0.6}, tmp_path / "a.txt", keep=["SRR2"])
+
+    assert sorted(query(registry, "selected")) == ["SRR1", "SRR2", "SRR3"]
+    assert rb.selection_block(registry, "SRR2").criteria["column"] == "G"

@@ -140,7 +140,7 @@ class TestUnverifiedPlainDownloadIsRechecked:
 
         report = reconcile(registry, paths)
 
-        assert sorted(counted) == ["SRR1.fastq", "SRR1_1.fastq"]
+        assert sorted(counted) == ["SRR1.fastq", "SRR1_1.fastq", "SRR1_2.fastq"]
         assert rb.download_verdict(registry, "SRR1").to_dict() == verdict_for_count(4, 4)
         assert isinstance(report, StoreReconcileReport)
         assert report.verdicts_rechecked == ["SRR1"]

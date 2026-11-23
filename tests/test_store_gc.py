@@ -763,6 +763,18 @@ class TestStoreGcAfterARebuildWithoutProjects:
         # Nothing was removed: without --yes this is still a dry run.
         assert sra_dir(paths, "SRR1").is_dir()
 
+    def test_dry_run_with_accept_rebuilt_keeps_the_flag(self, tmp_path, capsys):
+        """--dry-run changes nothing, including the flag a rebuild without projects set."""
+        paths = self._store_with_unjournaled_dataset(tmp_path)
+        StoreReindexCommand().execute(argparse.Namespace(data_root=str(paths.root), registry=None))
+        self._register_project(paths, tmp_path)
+
+        rc = StoreGcCommand().execute(_gc_args(data_root=str(paths.root), accept_rebuilt=True, dry_run=True))
+
+        assert rc == 0
+        assert self._flag(paths)
+        assert sra_dir(paths, "SRR1").is_dir()
+
     def test_accept_rebuilt_is_refused_until_a_project_registers(self, tmp_path, caplog):
         """--accept-rebuilt with no project recorded must not clear the flag: otherwise the first
         project to register would let a plain gc treat every other project's data as unused."""

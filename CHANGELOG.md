@@ -4,6 +4,35 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-11-23
+
+Fixes for the high-severity findings of a bug sweep over the command-line arguments, the pipeline
+hand-offs, the download layer, the shared store, the project registry and the analysis code.
+
+### Fixed
+
+- Extraction and `status --next` judge each selected accession by the criteria of the selection
+  that chose it. With selections made for different genomes, the selection that applied to a genome
+  depended on the order of a set and could change from run to run.
+- `select_datasets --skip-downloaded` selects a downloaded accession that meets the criteria, even if
+  it was never selected before; extraction, which narrows to the selection, left it out. Exclusions
+  now apply after the metadata and run filters and before `--top-n`, so `--top-n` counts only new
+  accessions. An excluded download is not selected.
+- A download whose mate-2 file holds a different number of reads than its mate-1 file counts only the
+  spots with both mates (`truncated (mate files differ: A and B reads)`), so it is truncated in the
+  download result, the registry, the store sidecar (`partial`) and after `store_verify --fix-state`, also
+  when NCBI's spot count is unknown. Before, only mate 1 was counted and the download passed as complete.
+- `store_link`, `store_adopt` and `download_sra` exit with status 4 when they cannot record a linked or
+  saved dataset as used in the store catalogue, and name the `store_link` call (or `store_adopt
+  --copy`) to run again. Before, they exited 0, and a later `store_gc --yes` could remove the dataset.
+- `store_gc --dry-run --accept-rebuilt` keeps the `rebuilt_without_projects` flag.
+- `download_sra` stops with exit status 1 when a `--blacklist` file cannot be read or is not UTF-8
+  text, before any download; it was skipped with a warning, so the excluded accessions were
+  downloaded. A UTF-8 byte order mark is accepted.
+- The NCBI API key no longer appears in log lines or error messages when an NCBI request fails
+  (`prepare.utils.http.redact_secrets`, used by the SRA metadata and taxonomy clients and applied to
+  every log record, including urllib3's retry warnings).
+
 ## [0.12.2] - 2026-11-08
 
 Fixes from further audits of the pipeline and the optional tool version checks (PRs #44-#48),

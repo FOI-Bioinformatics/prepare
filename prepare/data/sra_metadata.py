@@ -19,7 +19,7 @@ import requests
 from prepare.core.exceptions import DataAccessError, NetworkError
 from prepare.data.file_io import write_csv
 from prepare.data.ncbi_pacing import RequestPacer
-from prepare.utils.http import retrying_session
+from prepare.utils.http import redact_secrets, retrying_session
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +103,13 @@ class SRAMetadataClient:
             response.raise_for_status()
             return response.text
         except requests.RequestException as e:
-            logger.error(f"NCBI API request failed: {e}")
+            # The error's text holds the request URL, and with it the API key: only the redacted
+            # text is logged or raised, and the original is not chained (its traceback is logged).
+            reason = redact_secrets(str(e))
+            logger.error(f"NCBI API request failed: {reason}")
             if _is_transient(e):
-                raise NetworkError(f"Failed to query NCBI: {e}") from e
-            raise DataAccessError(f"Failed to query NCBI: {e}") from e
+                raise NetworkError(f"Failed to query NCBI: {reason}") from None
+            raise DataAccessError(f"Failed to query NCBI: {reason}") from None
 
     def get_sra_metadata(self, accessions: List[str]) -> Dict[str, SRADatasetInfo]:
         """

@@ -26,7 +26,7 @@ from prepare.store.layout import StorePaths, sidecar_path, store_paths
 from prepare.store.link import LINK_MODES, is_store_link, link_dataset, unlink_dataset
 from prepare.store.locks import dataset_lock
 from prepare.store.sidecar import read_sidecar
-from prepare.store.usage import ensure_project_identity, record_usage_many
+from prepare.store.usage import ensure_project_identity, record_usage_many, usage_not_recorded
 from prepare.utils.lockfile import LockHeld
 
 
@@ -175,9 +175,12 @@ class StoreLinkCommand(BaseCommand):
                     update_linked(reg, accession, add=True)
                 usage_registry = reg
             # Outside the transaction: see the note in store_adopt.
-            record_usage_many(paths, usage_registry, [(acc, "", "linked", "store_link") for acc in linked])
+            recorded = record_usage_many(paths, usage_registry, [(acc, "", "linked", "store_link") for acc in linked])
 
         self.emit(f"Linked {len(linked)} of {len(args.accessions)} accession(s)")
+        if linked and not recorded:
+            code = self.fail(usage_not_recorded("Linked", linked), self.name)
+            return 1 if failed else code
         return 1 if failed else 0
 
 

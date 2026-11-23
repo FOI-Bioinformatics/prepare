@@ -92,15 +92,34 @@ class TestReadBlacklistFiles:
         result = _read_blacklist_files(None)
         assert result == set()
 
-    def test_read_blacklist_files_nonexistent_file(self, tmp_path):
-        """Test handling nonexistent blacklist file."""
-        nonexistent = tmp_path / "nonexistent.txt"
+    def test_missing_blacklist_file_raises(self, tmp_path):
+        """A blacklist that cannot be read stops the run; skipping it would download what it excludes."""
+        with pytest.raises(DataAccessError, match="blacklist"):
+            _read_blacklist_files([tmp_path / "nonexistent.txt"])
 
-        with patch("prepare.data.sra.download.logger") as mock_logger:
-            result = _read_blacklist_files([nonexistent])
+    def test_utf16_blacklist_file_raises(self, tmp_path):
+        blacklist = tmp_path / "blacklist.txt"
+        blacklist.write_text("SRR1\nSRR2\n", encoding="utf-16")
 
-        assert result == set()
-        mock_logger.warning.assert_called_once()
+        with pytest.raises(DataAccessError, match="blacklist"):
+            _read_blacklist_files([blacklist])
+
+    def test_blacklist_with_bom_is_read(self, tmp_path):
+        blacklist = tmp_path / "blacklist.txt"
+        blacklist.write_text("\ufeffSRR1\nSRR2\n", encoding="utf-8")
+
+        assert _read_blacklist_files([blacklist]) == {"SRR1", "SRR2"}
+
+    def test_download_sra_with_a_missing_blacklist_downloads_nothing(self, tmp_path):
+        accessions_file = tmp_path / "accessions.txt"
+        accessions_file.write_text("SRR123\n")
+
+        with patch("prepare.data.sra.download._check_existing_downloads") as mock_check:
+            with pytest.raises(DataAccessError, match="blacklist"):
+                download_sra(tmp_path / "downloads", accessions_file, blacklist=[tmp_path / "missing.txt"])
+
+        mock_check.assert_not_called()
+        assert not (tmp_path / "downloads").exists()
 
     def test_read_blacklist_files_empty_file(self, tmp_path):
         """Test handling empty blacklist file."""
@@ -711,7 +730,7 @@ class TestVerifyDownloadPrecomputedCounts:
 
         monkeypatch.setattr(builtins, "open", no_open)
         monkeypatch.setattr(gzip, "open", no_open)
-        result = verify_download("SRR1", acc_dir, expected_spots=1007, reads_r1=1000, reads_orphan=7)
+        result = verify_download("SRR1", acc_dir, expected_spots=1007, reads_r1=1000, reads_orphan=7, reads_r2=1000)
         monkeypatch.undo()
 
         assert result["reads_r1"] == 1007
@@ -983,8 +1002,8 @@ class TestHandleDownloadOutput:
         plain = [name for name in counted if not name.endswith(".gz")]
         assert sorted(plain) == ["SRR123.fastq", "SRR123_1.fastq", "SRR123_2.fastq"], counted
 
-    def test_no_compress_counts_only_the_primary_and_orphan_files(self, tmp_path):
-        """Without compression the mate-2 file is not read: only the verdict's files are counted."""
+    def test_no_compress_counts_each_file_the_verdict_needs_once(self, tmp_path):
+        """Without compression the verdict counts mate 1 and mate 2 (compared with each other), each once."""
         temp_path = tmp_path / "temp"
         output_path = tmp_path / "output" / "SRR123"
         temp_path.mkdir()
@@ -1001,7 +1020,7 @@ class TestHandleDownloadOutput:
             success, message = _handle_download_output(temp_path, output_path, expected_spots=4, compress=False)
 
         assert success is True and message == "Downloaded 2 files, complete (4 of 4 spots)"
-        assert counted == ["SRR123_1.fastq"]
+        assert counted == ["SRR123_1.fastq", "SRR123_2.fastq"]
 
     def test_a_stale_file_in_the_output_folder_does_not_break_the_count(self, tmp_path):
         """A primary file left in the folder by an earlier attempt is counted, not a KeyError."""
@@ -3077,3 +3096,66 @@ def test_a_failed_accessions_file_that_cannot_be_written_does_not_fail_the_run(t
     retry_mod._handle_download_failure(tmp_path, [], ["SRR1"])
 
     assert sum("failed_accessions.txt" in r.getMessage() for r in caplog.records if r.levelname == "WARNING") == 2
+
+
+def _fastq_records(path, n):
+    path.write_text("@r\nACGT\n+\nIIII\n" * n)
+
+
+class TestMateCountCheck:
+    """A mate-2 file with fewer or more reads than mate 1 is a truncated download."""
+
+    def _pair(self, tmp_path, mate1, mate2, orphan=0):
+        acc_dir = tmp_path / "SRR1"
+        acc_dir.mkdir()
+        _fastq_records(acc_dir / "SRR1_1.fastq", mate1)
+        _fastq_records(acc_dir / "SRR1_2.fastq", mate2)
+        if orphan:
+            _fastq_records(acc_dir / "SRR1.fastq", orphan)
+        return acc_dir
+
+    def test_verify_download_short_mate_two_is_truncated(self, tmp_path):
+        result = verify_download("SRR1", self._pair(tmp_path, 100, 40), 100)
+
+        assert result["verdict"] == "truncated"
+        assert (result["reads_r2"], result["mates_match"]) == (40, False)
+
+    def test_verify_download_short_mate_two_is_truncated_without_expected_spots(self, tmp_path):
+        assert verify_download("SRR1", self._pair(tmp_path, 100, 40), None)["verdict"] == "truncated"
+
+    def test_verify_download_orphan_file_does_not_count_against_mate_two(self, tmp_path):
+        result = verify_download("SRR1", self._pair(tmp_path, 90, 90, orphan=10), 100)
+
+        assert (result["verdict"], result["mates_match"]) == ("complete", True)
+
+    def test_verify_download_single_end_is_unchanged(self, tmp_path):
+        acc_dir = tmp_path / "SRR1"
+        acc_dir.mkdir()
+        _fastq_records(acc_dir / "SRR1.fastq", 100)
+
+        result = verify_download("SRR1", acc_dir, 100)
+
+        assert (result["verdict"], result["reads_r2"], result["mates_match"]) == ("complete", None, True)
+
+    def test_verify_download_uses_a_given_mate_two_count(self, tmp_path):
+        result = verify_download("SRR1", self._pair(tmp_path, 100, 100), 100, reads_r1=100, reads_r2=40)
+
+        assert result["verdict"] == "truncated"
+
+    def test_mate_mismatch_message_round_trips(self):
+        parsed = parse_verdict_message("Downloaded 2 files, truncated (mate files differ: 100 and 40 reads)")
+
+        assert parsed["verdict"] == "truncated"
+        # reads_r1 is the number of spots with both mates.
+        assert (parsed["reads_r1"], parsed["reads_r2"]) == (40, 40)
+
+    def test_handle_download_output_with_short_mate_two_fails_without_accept_partial(self, tmp_path):
+        temp_path = tmp_path / "temp"
+        temp_path.mkdir()
+        _fastq_records(temp_path / "SRR123_1.fastq", 100)
+        _fastq_records(temp_path / "SRR123_2.fastq", 40)
+
+        success, message = _handle_download_output(temp_path, tmp_path / "output" / "SRR123", expected_spots=100)
+
+        assert success is False
+        assert "truncated (mate files differ: 100 and 40 reads)" in message

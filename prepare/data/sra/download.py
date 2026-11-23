@@ -49,6 +49,10 @@ def _read_blacklist_files(blacklist_files):
 
     Returns:
         Set of blacklisted accessions
+
+    Raises:
+        DataAccessError: If a file cannot be read or is not UTF-8 text (a UTF-8 byte order
+            mark is accepted). Skipping it would download the accessions it excludes.
     """
     blacklisted_accessions: set = set()
 
@@ -58,7 +62,7 @@ def _read_blacklist_files(blacklist_files):
     for blacklist_file in blacklist_files:
         try:
             file_accessions = set()
-            with open(blacklist_file, "r") as f:
+            with open(blacklist_file, "r", encoding="utf-8-sig") as f:
                 for line in f:
                     accession = line.split("#", 1)[0].strip()
                     if accession:
@@ -66,7 +70,7 @@ def _read_blacklist_files(blacklist_files):
                         blacklisted_accessions.add(accession)
             logger.info(f"Read {len(file_accessions)} blacklisted accessions from {blacklist_file}")
         except (OSError, UnicodeDecodeError) as e:
-            logger.warning(f"Error reading blacklist file {blacklist_file}: {e}")
+            raise DataAccessError(f"Cannot read blacklist file {blacklist_file}: {e}") from e
 
     return blacklisted_accessions
 
@@ -329,13 +333,15 @@ def download_sra(
         # Read and validate the accessions before anything touches the disk
         all_accessions = read_accessions_file(accessions_file)
 
+        # Read blacklisted accessions (from files, plus any passed in directly, e.g. registry exclusions),
+        # also before anything touches the disk: an unreadable file stops the run.
+        blacklisted_accessions = _read_blacklist_files(blacklist)
+
         # Handle the output folder based on dry run status
         fastq_path = _resolve_fastq_path(fastq_folder, dry_run)
 
         logger.info(f"Found {len(all_accessions)} accessions in file")
 
-        # Read blacklisted accessions (from files, plus any passed in directly, e.g. registry exclusions)
-        blacklisted_accessions = _read_blacklist_files(blacklist)
         if blacklist_accessions:
             blacklisted_accessions |= set(blacklist_accessions)
         if blacklisted_accessions:

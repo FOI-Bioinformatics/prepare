@@ -17,7 +17,7 @@ import re
 from prepare.core.exceptions import ProcessingError
 from prepare.data.file_io import open_atomic, write_csv
 from prepare.data.ncbi_pacing import RequestPacer
-from prepare.utils.http import retrying_session
+from prepare.utils.http import redact_secrets, retrying_session
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +109,10 @@ class NCBITaxonomyClient:
             response.raise_for_status()
             return response.text
         except requests.RequestException as e:
-            logger.error(f"NCBI API request failed: {e}")
-            raise ProcessingError(f"Failed to query NCBI: {e}")
+            # The error's text holds the request URL, and with it the API key (see redact_secrets).
+            reason = redact_secrets(str(e))
+            logger.error(f"NCBI API request failed: {reason}")
+            raise ProcessingError(f"Failed to query NCBI: {reason}") from None
 
     def search_taxonomy(self, query: str) -> List[Dict[str, str]]:
         """

@@ -11,6 +11,7 @@ last response is returned instead, so the caller's own ``response.raise_for_stat
 plain HTTP error it would have reported without retries at all.
 """
 
+import re
 from typing import Sequence
 
 import requests
@@ -23,6 +24,18 @@ RETRY_TOTAL = 3
 RETRY_BACKOFF_FACTOR = 0.5
 RETRY_STATUS_FORCELIST = (429, 500, 502, 503, 504)
 RETRY_ALLOWED_METHODS = ("GET",)
+
+# The value of an ``api_key`` query parameter: up to the next ``&``, whitespace, quote or the end.
+_API_KEY_RE = re.compile(r"(api_key=)[^&\s'\"]+")
+
+
+def redact_secrets(text: str) -> str:
+    """``text`` with the value of every ``api_key=`` query parameter replaced by ``***``.
+
+    A ``requests`` error message carries the full request URL, so an NCBI API key sent as a query
+    parameter would otherwise reach the log file and the message shown to the user.
+    """
+    return _API_KEY_RE.sub(r"\1***", text)
 
 
 def retrying_session(

@@ -531,3 +531,98 @@ def test_skip_downloaded_unselects_a_downloaded_accession_the_new_criteria_rejec
     assert SelectDatasetsCommand().execute(args) == 0
 
     assert query(load_registry(registry_path), "selected") == ["SRR2"]
+
+
+def test_skip_downloaded_keeps_a_never_selected_download_selected(tmp_path, monkeypatch):
+    """A download that meets the criteria but was never selected becomes selected, or extraction,
+    which narrows to the selection, drops it."""
+    from prepare.data import registry_blocks as rb
+    from prepare.data.registry import query
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "parsed_containment.txt").write_text("\tG\nSRR1\t0.9\nSRR2\t0.8\nSRR3\t0.7\n")
+    registry_path = tmp_path / "prepare_registry.json"
+    registry = load_registry(registry_path)
+    record_download(registry, "SRR2", "downloaded", tmp_path / "fastq")
+    save_registry(registry)
+
+    args = _args(tmp_path, registry=str(registry_path), genome_id="G", threshold=0.6, skip_downloaded=True)
+    assert SelectDatasetsCommand().execute(args) == 0
+
+    registry = load_registry(registry_path)
+    assert (tmp_path / "accessions.txt").read_text() == "SRR1\nSRR3\n"
+    assert sorted(query(registry, "selected")) == ["SRR1", "SRR2", "SRR3"]
+    assert rb.selection_block(registry, "SRR2").criteria["column"] == "G"
+
+
+def test_skip_downloaded_kept_accessions_do_not_count_against_top_n(tmp_path, monkeypatch):
+    from prepare.data.registry import query
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "parsed_containment.txt").write_text("\tG\nSRR1\t0.9\nSRR2\t0.8\nSRR3\t0.7\nSRR4\t0.65\n")
+    registry_path = tmp_path / "prepare_registry.json"
+    registry = load_registry(registry_path)
+    record_download(registry, "SRR1", "downloaded", tmp_path / "fastq")
+    save_registry(registry)
+
+    args = _args(tmp_path, registry=str(registry_path), genome_id="G", threshold=0.6, top_n=2, skip_downloaded=True)
+    assert SelectDatasetsCommand().execute(args) == 0
+
+    assert (tmp_path / "accessions.txt").read_text() == "SRR2\nSRR3\n"
+    assert sorted(query(load_registry(registry_path), "selected")) == ["SRR1", "SRR2", "SRR3"]
+
+
+def test_skip_downloaded_does_not_keep_a_download_below_the_threshold(tmp_path, monkeypatch):
+    from prepare.data.registry import query
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "parsed_containment.txt").write_text("\tG\nSRR1\t0.9\nSRR5\t0.2\n")
+    registry_path = tmp_path / "prepare_registry.json"
+    registry = load_registry(registry_path)
+    record_download(registry, "SRR5", "downloaded", tmp_path / "fastq")
+    save_registry(registry)
+
+    args = _args(tmp_path, registry=str(registry_path), genome_id="G", threshold=0.6, skip_downloaded=True)
+    assert SelectDatasetsCommand().execute(args) == 0
+
+    assert query(load_registry(registry_path), "selected") == ["SRR1"]
+
+
+def test_skip_downloaded_with_genome_ids_and_nothing_new_does_not_cover_other_genomes(tmp_path, monkeypatch):
+    """Review: an empty ranking fell back to column max_containment, which covers every genome."""
+    from prepare.data.project_selection import selection_for_genome
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "parsed_containment.txt").write_text(
+        "\tA\tB\tC\nSRR1\t0.9\t0.9\t0.0\nSRR2\t0.8\t0.8\t0.0\nSRR9\t0.0\t0.0\t0.9\n"
+    )
+    registry_path = tmp_path / "prepare_registry.json"
+    registry = load_registry(registry_path)
+    for acc in ("SRR1", "SRR2"):
+        record_download(registry, acc, "downloaded", tmp_path / "fastq")
+    save_registry(registry)
+
+    args = _args(tmp_path, registry=str(registry_path), genome_ids=["A", "B"], threshold=0.5, skip_downloaded=True)
+    assert SelectDatasetsCommand().execute(args) == 0
+
+    registry = load_registry(registry_path)
+    assert selection_for_genome(registry, "A") == {"SRR1", "SRR2"}
+    assert selection_for_genome(registry, "C") == set()
+
+
+def test_skip_downloaded_does_not_select_an_excluded_download(tmp_path, monkeypatch):
+    """Review: an accession both excluded and downloaded was kept, and so selected."""
+    from prepare.data.registry import query
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "parsed_containment.txt").write_text("\tG\nSRR1\t0.9\nSRR2\t0.8\n")
+    registry_path = tmp_path / "prepare_registry.json"
+    registry = load_registry(registry_path)
+    record_download(registry, "SRR2", "downloaded", tmp_path / "fastq")
+    record_exclusion(registry, "SRR2", "host reads")
+    save_registry(registry)
+
+    args = _args(tmp_path, registry=str(registry_path), genome_id="G", threshold=0.5, skip_downloaded=True)
+    assert SelectDatasetsCommand().execute(args) == 0
+
+    assert query(load_registry(registry_path), "selected") == ["SRR1"]

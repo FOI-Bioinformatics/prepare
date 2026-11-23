@@ -17,7 +17,7 @@ import zlib
 from dataclasses import asdict, dataclass, field, fields as dataclass_fields
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from prepare.core.exceptions import DataAccessError
 from prepare.data.file_io import write_text_atomic
@@ -28,6 +28,7 @@ from prepare.data.sra import (
     fastq_digest,
     fastq_files,
     fastq_stem,
+    mate2_fastq,
     orphan_fastq,
     primary_fastq,
     verify_download,
@@ -112,6 +113,27 @@ def detect_layout(files: List[Path]) -> str:
     return "PAIRED" if has_mate1 and has_mate2 else "SINGLE"
 
 
+def _judge(
+    accession: str, acc_path: Path, reads_by_path: Dict[Path, Optional[int]], expected: Optional[int]
+) -> Tuple[Dict[str, Any], int]:
+    """The completeness block and per-mate read count of a dataset whose files all read cleanly.
+
+    The method is ``"spots"`` when NCBI's spot count was compared, ``"mates"`` when there is none
+    and the mate files differ in read count (the verdict is then ``truncated``), else ``"unverified"``.
+    """
+    primary, orphan, mate2 = primary_fastq(acc_path), orphan_fastq(acc_path), mate2_fastq(acc_path)
+    verdict = verify_download(
+        accession,
+        acc_path,
+        expected,
+        reads_r1=reads_by_path.get(primary, 0) if primary is not None else 0,
+        reads_orphan=reads_by_path.get(orphan) if orphan is not None else None,
+        reads_r2=reads_by_path.get(mate2) if mate2 is not None else None,
+    )
+    method = "spots" if expected else ("mates" if not verdict["mates_match"] else "unverified")
+    return {"method": method, "ratio": verdict["ratio"], "verdict": verdict["verdict"]}, verdict["reads_r1"]
+
+
 def build_sidecar(
     accession: str,
     acc_dir: Union[str, Path],
@@ -167,20 +189,8 @@ def build_sidecar(
         reads_per_mate = None
         state = "failed"
     else:
-        primary = primary_fastq(acc_path)
-        orphan = orphan_fastq(acc_path)
-        expected = ncbi.get("spots") if verify else None
-        verdict = verify_download(
-            accession,
-            acc_path,
-            expected,
-            reads_r1=reads_by_path.get(primary, 0) if primary is not None else 0,
-            reads_orphan=reads_by_path.get(orphan) if orphan is not None else None,
-        )
-        reads_per_mate = verdict["reads_r1"]
-        method = "spots" if expected else "unverified"
-        completeness = {"method": method, "ratio": verdict["ratio"], "verdict": verdict["verdict"]}
-        state = "partial" if verdict["verdict"] == "truncated" else "complete"
+        completeness, reads_per_mate = _judge(accession, acc_path, reads_by_path, ncbi.get("spots") if verify else None)
+        state = "partial" if completeness["verdict"] == "truncated" else "complete"
 
     return Sidecar(
         accession=accession,

@@ -83,6 +83,7 @@ def result_recorder(
     expected_spots: Optional[Dict[str, int]] = None,
     record_found: Callable[..., None] = record_present,
     sidecar_of: Callable[[Optional[StorePaths], str], Optional[dict]] = sidecar_completeness,
+    unrecorded: Optional[List[str]] = None,
 ) -> Callable[[str, bool, str], None]:
     """The callback the download loop uses to record each accession's outcome.
 
@@ -104,6 +105,9 @@ def result_recorder(
     the store, which no download produced, has any earlier time removed. The verdict recorded
     is ``recorded_verdict`` of the message's (or, for a store dataset whose message carries
     none, the sidecar's) and the one on file, with ``expected_spots`` as the spot count.
+
+    Accessions whose usage rows the catalogue did not take are appended to ``unrecorded``, so
+    the command can report them (see ``usage_not_recorded``).
     """
     timings = timings if timings is not None else {}
     spot_counts = expected_spots or {}
@@ -111,7 +115,8 @@ def result_recorder(
 
     def _record_usage(reg: Registry) -> None:
         if usage_rows:
-            record_usage_many(store, reg, list(usage_rows))
+            if not record_usage_many(store, reg, list(usage_rows)) and unrecorded is not None:
+                unrecorded.extend(row[0] for row in usage_rows)
             usage_rows.clear()
 
     batch.add_flush_hook(_record_usage)

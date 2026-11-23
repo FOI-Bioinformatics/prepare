@@ -745,7 +745,8 @@ class TestStoreAdoptCommand:
         assert row["stage"] == "linked"
 
     def test_catalog_failure_leaves_adopt_outcome_unchanged(self, tmp_path, monkeypatch):
-        """A broken catalogue write never changes store_adopt's registry outcome or exit code."""
+        """A broken catalogue write leaves store_adopt's registry outcome as it is; the exit code is 4,
+        since a link whose use is not recorded can be removed by store_gc."""
         root = tmp_path / "store"
         init_store(root)
         project_dir = tmp_path / "project"
@@ -759,7 +760,7 @@ class TestStoreAdoptCommand:
         with patch("prepare.store.usage.catalog_write", side_effect=RuntimeError("locked")):
             rc = StoreAdoptCommand().execute(_adopt_args(data_root=str(root), registry=str(registry_path)))
 
-        assert rc == 0
+        assert rc == 4
         registry = load_registry(registry_path)
         assert registry.datasets["SRR1"]["download"]["state"] == "downloaded"
         assert registry.datasets["SRR1"]["download"]["source"] == "store"
@@ -1365,6 +1366,24 @@ class TestStoreVerifyCommand:
         assert fixed.state == "complete" and fixed.error is None
         assert fixed.completeness == {"method": "spots", "ratio": 1.0, "verdict": "complete"}
 
+    def test_fix_state_without_a_spot_count_keeps_unequal_mates_partial(self, tmp_path, monkeypatch, capsys):
+        """Review: with no spot count anywhere, --fix-state promoted a dataset whose mates differ."""
+        paths = init_store(tmp_path / "store")
+        monkeypatch.chdir(tmp_path)
+        acc_dir = paths.sra / "SRR1"
+        _write_fastq_gz(acc_dir / "SRR1_1.fastq.gz", "@r\nACGT\n+\nIIII\n" * 5)
+        _write_fastq_gz(acc_dir / "SRR1_2.fastq.gz", "@r\nACGT\n+\nIIII\n" * 2)
+        sc = _sidecar_matching_disk(acc_dir, "SRR1", state="partial", reads=5)
+        sc.ncbi = {}
+        write_sidecar(sidecar_path(paths, "SRR1"), sc)
+
+        StoreVerifyCommand().execute(_verify_args(data_root=str(paths.root), fix_state=True))
+
+        fixed = read_sidecar(sidecar_path(paths, "SRR1"))
+        assert fixed.state == "partial"
+        assert fixed.completeness["verdict"] == "truncated"
+        assert fixed.completeness["method"] == "mates"
+
     def test_fix_state_with_spots_still_reads_the_mate_2_file(self, tmp_path, monkeypatch, capsys):
         """--spots counts mate 1 only, so --fix-state must read mate 2 before promoting."""
         paths = init_store(tmp_path / "store")
@@ -1840,7 +1859,8 @@ class TestStoreLinkCommand:
         assert row["stage"] == "linked"
 
     def test_catalog_failure_leaves_link_outcome_unchanged(self, tmp_path, monkeypatch):
-        """A broken catalogue write never changes store_link's registry outcome or exit code."""
+        """A broken catalogue write leaves store_link's registry outcome as it is; the exit code is 4,
+        since a link whose use is not recorded can be removed by store_gc."""
         root = tmp_path / "store"
         paths = init_store(root)
         acc_dir = sra_dir(paths, "SRR1")
@@ -1867,7 +1887,7 @@ class TestStoreLinkCommand:
                 )
             )
 
-        assert rc == 0
+        assert rc == 4
         registry = load_registry(registry_path)
         assert registry.datasets["SRR1"]["download"]["state"] == "downloaded"
         assert registry.datasets["SRR1"]["download"]["source"] == "store"
@@ -2811,3 +2831,71 @@ class TestStoreUnlinkOnlyRemovesStoreLinks:
 
         assert rc == 1
         assert (project_dir / "fastq" / "SRR1").is_symlink()
+
+
+class TestUsageNotRecorded:
+    """A link whose use cannot be recorded in the catalogue is exit 4, so store_gc never sees it as unused."""
+
+    def _store_with_dataset(self, tmp_path):
+        root = tmp_path / "store"
+        paths = init_store(root)
+        _write_fastq_gz(sra_dir(paths, "SRR1") / "SRR1.fastq.gz")
+        sidecar = _sidecar("SRR1")
+        write_sidecar(sidecar_path(paths, "SRR1"), sidecar)
+        with catalog_write(paths) as cat:
+            cat.upsert_dataset(sidecar)
+        return root
+
+    def test_store_link_exits_4_when_usage_cannot_be_recorded(self, tmp_path, monkeypatch, caplog):
+        root = self._store_with_dataset(tmp_path)
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        monkeypatch.chdir(project_dir)
+        monkeypatch.setattr("prepare.cli.commands.store.link.record_usage_many", lambda *a, **k: False)
+
+        args = _link_args(
+            ["SRR1"],
+            data_root=str(root),
+            registry=str(project_dir / "prepare_registry.json"),
+            fastq_folder=str(project_dir / "fastq"),
+        )
+        with caplog.at_level(logging.ERROR):
+            rc = StoreLinkCommand().execute(args)
+
+        assert rc == 4
+        assert (project_dir / "fastq" / "SRR1").is_symlink()
+        assert "store_link SRR1 again before store_gc" in caplog.text
+
+    @pytest.mark.parametrize("move", [True, False])
+    def test_store_adopt_exits_4_when_usage_cannot_be_recorded(self, tmp_path, monkeypatch, caplog, move):
+        root = tmp_path / "store"
+        init_store(root)
+        project_dir = tmp_path / "project"
+        (project_dir / "fastq" / "SRR1").mkdir(parents=True)
+        (project_dir / "fastq" / "SRR1" / "SRR1.fastq").write_text("@r\nACGT\n+\nIIII\n")
+        monkeypatch.chdir(project_dir)
+        monkeypatch.setattr("prepare.cli.commands.store.adopt.record_usage_many", lambda *a, **k: False)
+
+        args = _adopt_args(data_root=str(root), registry=str(project_dir / "prepare_registry.json"), move=move)
+        with caplog.at_level(logging.ERROR):
+            rc = StoreAdoptCommand().execute(args)
+
+        assert rc == 4
+        rerun = "store_link SRR1" if move else "store_adopt --copy"
+        assert f"{rerun} again before store_gc" in caplog.text
+
+
+def test_adopt_records_copied_usage_even_when_the_linked_usage_fails(tmp_path, monkeypatch):
+    """Review: a failed linked-usage write returned before the copied accessions were recorded."""
+    from types import SimpleNamespace
+
+    calls = []
+    monkeypatch.setattr(StoreAdoptCommand, "_record_linked", staticmethod(lambda *a: calls.append("linked") or False))
+    monkeypatch.setattr(StoreAdoptCommand, "_record_copied", staticmethod(lambda *a: calls.append("copied") or False))
+    monkeypatch.setattr(StoreAdoptCommand, "_unrecorded_links", staticmethod(lambda *a: []))
+    report = SimpleNamespace(adopted=["SRR1"], deduplicated=[], skipped=[], copied=["SRR2"])
+
+    error = StoreAdoptCommand()._record_outcome(argparse.Namespace(move=True), None, report)
+
+    assert calls == ["linked", "copied"]
+    assert "store_link SRR1" in str(error) and "store_adopt --copy" in str(error)

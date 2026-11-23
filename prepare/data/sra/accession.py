@@ -247,10 +247,7 @@ def _handle_download_output(
     counts, verdict = _plain_verdict(moved, output_path, expected_spots, compress)
     message = _verdict_message(len(found), verdict)
     if verdict["verdict"] == "truncated":
-        logger.warning(
-            f"Truncated download for {output_path.name}: {verdict['reads_r1']} of "
-            f"{verdict['expected_spots']} spots (ratio {verdict['ratio']})"
-        )
+        logger.warning(f"Truncated download for {output_path.name}: {message.split(', ', 1)[-1]}")
         if not accept_partial:
             # Appended after the verdict text, which parse_verdict_message still reads.
             return False, f"{message}; rerun with --accept-partial to keep it"
@@ -279,25 +276,29 @@ def _plain_verdict(
 
     With ``compress`` every moved file is counted here, once, since the compression read-back
     compares each against its count. Without it the counts stay empty and ``verify_download``
-    counts only the primary and orphan files it needs, so nothing else is read. Counting an
+    counts the primary, orphan and mate-2 files it needs, so nothing else is read. Counting an
     uncompressed file is cheaper than the gzip pass, and the verdict message format is the same
     either way.
     """
     counts = {file: fastq_mod.count_fastq_reads(file) for file in (moved if compress else [])}
     primary = fastq_mod.primary_fastq(output_path)
     orphan = fastq_mod.orphan_fastq(output_path)
+    mate2 = fastq_mod.mate2_fastq(output_path)
     verdict = fastq_mod.verify_download(
         output_path.name,
         output_path,
         expected_spots=expected_spots,
         reads_r1=counts.get(primary) if primary is not None else 0,
         reads_orphan=counts.get(orphan) if orphan is not None else None,
+        reads_r2=counts.get(mate2) if mate2 is not None else None,
     )
     return counts, verdict
 
 
 def _verdict_message(n_files: int, verdict: Dict[str, Any]) -> str:
     """The result message carrying the completeness verdict, in the format ``parse_verdict_message`` reads."""
+    if not verdict.get("mates_match", True) and verdict["verdict"] == "truncated":
+        return f"Downloaded {n_files} files, {fastq_mod.mates_message(verdict['reads_mate1'], verdict['reads_r2'])}"
     if verdict["verdict"] == "unverified":
         return f"Downloaded {n_files} files, unverified"
     spots_note = f"({verdict['reads_r1']} of {verdict['expected_spots']} spots)"

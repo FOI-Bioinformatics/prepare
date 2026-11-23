@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from prepare.utils.http import redact_secrets
+
 CONSOLE_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
 CONSOLE_FORMAT_WITH_HOST = "%(asctime)s - %(hostname)s[%(process)d] - %(levelname)s - %(name)s - %(message)s"
 FILE_FORMAT = "%(asctime)s %(hostname)s[%(process)d] %(levelname)s %(name)s: %(message)s"
@@ -24,11 +26,19 @@ _HOSTNAME = socket.gethostname()
 
 
 class HostFilter(logging.Filter):
-    """Set ``record.hostname`` so a format string can name the host that wrote the line."""
+    """Set ``record.hostname`` so a format string can name the host that wrote the line.
+
+    It also replaces an NCBI API key in the message with ``***`` (``redact_secrets``): a library's
+    own log line, such as urllib3's retry warning, can carry the full request URL.
+    """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Add the host name to ``record``; never drops a record."""
+        """Add the host name to ``record`` and redact its message; never drops a record."""
         record.hostname = _HOSTNAME
+        message = record.getMessage()
+        redacted = redact_secrets(message)
+        if redacted != message:
+            record.msg, record.args = redacted, None
         return True
 
 

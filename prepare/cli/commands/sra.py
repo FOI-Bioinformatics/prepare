@@ -6,7 +6,7 @@ import argparse
 import functools
 import time
 from datetime import datetime, timezone
-from typing import Callable, Dict, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
 from prepare.cli.commands.sra_record import STORE_SAVED_SUFFIX  # noqa: F401 - re-exported
@@ -33,7 +33,7 @@ from prepare.data.sra.run_report import RunOutcomes, Timings, write_run_document
 from prepare.store.layout import StorePaths, store_paths
 from prepare.store.link import LINK_MODES, is_store_link
 from prepare.store.resolve import resolve_store_root
-from prepare.store.usage import record_usage_many
+from prepare.store.usage import record_usage_many, usage_not_recorded
 from prepare.utils import resources
 from prepare.utils.termination import graceful_termination
 from prepare.utils.tools import require_tools
@@ -398,7 +398,8 @@ class DownloadSraCommand(BaseCommand):
                 batch.apply(mutation, label=acc)
         if usage_rows:
             usage_registry = batch.registry if batch.registry is not None else load_registry(args.registry)
-            record_usage_many(store, usage_registry, usage_rows)
+            if not record_usage_many(store, usage_registry, usage_rows):
+                self._unrecorded_usage().extend(row[0] for row in usage_rows)
 
     @staticmethod
     def _record_present(
@@ -457,14 +458,15 @@ class DownloadSraCommand(BaseCommand):
         timings: Optional[Timings] = None,
         expected_spots: Optional[Dict[str, int]] = None,
     ) -> Callable[[str, bool, str], None]:
-        """The callback the download loop uses to record each accession's outcome.
-
-        See ``sra_record.result_recorder``. The helpers are passed from this class, so
-        ``_record_present`` and ``_sidecar_completeness`` stay the points to replace in tests.
-        """
-        return result_recorder(
+        """The outcome callback of ``sra_record.result_recorder``, with this class's helpers (replaced in tests)."""
+        recorder = functools.partial(result_recorder, unrecorded=self._unrecorded_usage())
+        return recorder(
             fastq_dir, store, batch, timings, expected_spots, self._record_present, self._sidecar_completeness
         )
+
+    def _unrecorded_usage(self) -> List[str]:
+        """Accessions this run linked or saved into the store whose use the catalogue did not record."""
+        return self.__dict__.setdefault("_usage_unrecorded", [])
 
     @staticmethod
     def _sidecar_completeness(store: Optional[StorePaths], accession: str) -> Optional[dict]:
@@ -647,6 +649,9 @@ class DownloadSraCommand(BaseCommand):
         outcomes, started, aborted = RunOutcomes(), datetime.now(timezone.utc), None
         try:
             code = self._run(args, outcomes)
+            if unrecorded := self._unrecorded_usage():  # reported whatever else failed; exit 4 only if nothing did
+                usage_code = self.fail(usage_not_recorded("Linked or saved", unrecorded), "download_sra")
+                code = code or usage_code
         except KeyboardInterrupt:
             # download_sra has already cancelled pending downloads and stopped running tools.
             self.logger.error("Download interrupted by the user")
