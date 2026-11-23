@@ -312,8 +312,9 @@ def select_accessions_ranked(
         metadata_value: Required value for that column (case-insensitive match).
         top_n: Keep only the top N accessions, applied after exclusions and the metadata
             filter so the N returned are all usable.
-        exclude: Accessions to drop before ranking and truncation.
-        dropped: When given, receives each accession of the table that ``exclude`` dropped.
+        exclude: Accessions to drop after the threshold and filters, before truncation.
+        dropped: When given, receives each accession that meets every criterion but that
+            ``exclude`` dropped.
         genome_ids: Multiple genome columns to rank on together; mutually exclusive with
             ``genome_id``. With ``require="any"`` accessions rank on the row-wise max over
             these columns; with ``require="all"`` every column must be at or above the
@@ -357,9 +358,6 @@ def select_accessions_ranked(
     ranked = [(str(acc).strip(), column, float(val)) for acc, val in selected.items()]
     logger.info("%d accession(s) meet %s >= %.3f", len(ranked), column, threshold)
 
-    if exclude:
-        ranked = _drop_excluded(ranked, exclude, dropped)
-
     metadata: Optional[pd.DataFrame] = None
     if needs_metadata and metadata_file is not None:
         metadata = _load_metadata(metadata_file)
@@ -368,6 +366,11 @@ def select_accessions_ranked(
             ranked = _filter_by_metadata(ranked, metadata, table_name, metadata_column, metadata_value)
         if run_filters.active():
             ranked = _filter_by_run(ranked, metadata, run_filters, table_name)
+
+    # After the metadata and run filters, so ``dropped`` holds only accessions that meet every other
+    # criterion, and before --top-n, so the cap counts only the accessions not excluded.
+    if exclude:
+        ranked = _drop_excluded(ranked, exclude, dropped)
 
     if top_n is not None:
         ranked = ranked[:top_n]
