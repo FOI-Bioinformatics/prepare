@@ -85,7 +85,16 @@ def test_verify_download_output_unchanged(tmp_path, records, expected, verdict, 
     acc_dir.mkdir()
     (acc_dir / f"{ACC}.fastq").write_text("".join(f"@r{i}\nACGT\n+\nIIII\n" for i in range(records)))
     result = verify_download(ACC, acc_dir, expected)
-    assert list(result) == ["reads_r1", "expected_spots", "ratio", "verdict", "bytes_total"]
+    assert list(result) == [
+        "reads_r1",
+        "reads_mate1",
+        "reads_r2",
+        "mates_match",
+        "expected_spots",
+        "ratio",
+        "verdict",
+        "bytes_total",
+    ]
     assert result["reads_r1"] == records
     assert result["expected_spots"] == expected
     assert result["ratio"] == ratio

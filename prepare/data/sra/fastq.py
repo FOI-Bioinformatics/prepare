@@ -36,6 +36,7 @@ COMPLETE_RATIO_THRESHOLD = 0.99
 # FASTQ file-name suffixes marking a mate of a pair: fasterq-dump's --split-3 output uses
 # _1/_2, while files from other sources often use _R1/_R2.
 MATE1_SUFFIXES = ("_1", "_R1")
+MATE2_SUFFIXES = ("_2", "_R2")
 MATE_SUFFIXES = ("_1", "_2", "_R1", "_R2")
 
 
@@ -84,6 +85,11 @@ def primary_fastq(acc_dir: Union[str, Path]) -> Optional[Path]:
         return mate_one
     bare = next((p for p in files if not fastq_stem(p).endswith(MATE_SUFFIXES)), None)
     return bare if bare is not None else files[0]
+
+
+def mate2_fastq(acc_dir: Union[str, Path]) -> Optional[Path]:
+    """The mate-2 file (``_2``/``_R2``) in ``acc_dir``, or None when there is none."""
+    return next((p for p in fastq_files(acc_dir) if fastq_stem(p).endswith(MATE2_SUFFIXES)), None)
 
 
 def orphan_fastq(acc_dir: Union[str, Path]) -> Optional[Path]:
@@ -335,6 +341,7 @@ def verify_download(
     expected_spots: Optional[int],
     reads_r1: Optional[int] = None,
     reads_orphan: Optional[int] = None,
+    reads_r2: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Compare what actually downloaded for ``accession`` against NCBI's recorded spot count.
 
@@ -345,17 +352,32 @@ def verify_download(
     ``COMPLETE_RATIO_THRESHOLD``, ``"truncated"`` below that, and ``"unverified"`` when
     ``expected_spots`` is unknown (e.g. NCBI metadata was never fetched for this accession).
 
-    A caller that has already counted the records of the primary file (``reads_r1``) or of the
-    orphan file (``reads_orphan``) passes them in, and that file is then not read again.
+    For paired data the mate-2 file must hold as many records as the mate-1 file (the orphan
+    file aside); when it does not, the verdict is ``"truncated"`` whatever ``expected_spots`` is,
+    and ``mates_match`` is False. This reads the mate-2 file once unless ``reads_r2`` is given.
+    A mate-1 file with no mate-2 file beside it is not judged on mates, since some runs yield
+    only ``_1``.
+
+    A caller that has already counted the records of the primary file (``reads_r1``), the
+    orphan file (``reads_orphan``) or the mate-2 file (``reads_r2``) passes them in, and that
+    file is then not read again.
     """
     files = fastq_files(acc_dir)
     primary = primary_fastq(acc_dir)
     orphan = orphan_fastq(acc_dir)
     if reads_r1 is None:
-        reads_r1 = count_fastq_reads(primary) if primary is not None else 0
+        reads_r1 = _count_named(primary) if primary is not None else 0
+    mate1_reads = reads_r1
     if orphan is not None:
-        reads_r1 += reads_orphan if reads_orphan is not None else count_fastq_reads(orphan)
+        reads_r1 += reads_orphan if reads_orphan is not None else _count_named(orphan)
     bytes_total = sum(p.stat().st_size for p in files)
+
+    mate2 = mate2_fastq(acc_dir) if orphan is not None or _is_mate1(primary) else None
+    if mate2 is None:
+        reads_r2 = None
+    elif reads_r2 is None:
+        reads_r2 = _count_named(mate2)
+    mates_match = reads_r2 is None or reads_r2 == mate1_reads
 
     # Imported here: the spots module imports COMPLETE_RATIO_THRESHOLD from this one.
     from prepare.data.sra.spots import verdict_for_count
@@ -363,14 +385,36 @@ def verify_download(
     verdict = verdict_for_count(reads_r1, expected_spots)
     return {
         "reads_r1": reads_r1,
+        "reads_mate1": mate1_reads,
+        "reads_r2": reads_r2,
+        "mates_match": mates_match,
         "expected_spots": expected_spots,
         "ratio": verdict["ratio"],
-        "verdict": verdict["verdict"],
+        "verdict": verdict["verdict"] if mates_match else "truncated",
         "bytes_total": bytes_total,
     }
 
 
+def _count_named(path: Path) -> int:
+    """``count_fastq_reads(path)``, with the file name added to the message of an unreadable file."""
+    try:
+        return count_fastq_reads(path)
+    except (EOFError, OSError) as e:
+        raise type(e)(f"{path.name}: {e}") from e
+
+
+def _is_mate1(path: Optional[Path]) -> bool:
+    """Whether ``path`` is a mate-1 file (``_1``/``_R1``)."""
+    return path is not None and fastq_stem(path).endswith(MATE1_SUFFIXES)
+
+
 _VERDICT_MESSAGE_RE = re.compile(r", (complete|truncated) \((\d+) of (\d+) spots\)")
+_MATES_MESSAGE_RE = re.compile(r", truncated \(mate files differ: (\d+) and (\d+) reads\)")
+
+
+def mates_message(reads_r1: int, reads_r2: int) -> str:
+    """The verdict text for a download whose mate files differ, in the form ``parse_verdict_message`` reads."""
+    return f"truncated (mate files differ: {reads_r1} and {reads_r2} reads)"
 
 
 def parse_verdict_message(message: str) -> Optional[Dict[str, Any]]:
@@ -385,6 +429,16 @@ def parse_verdict_message(message: str) -> Optional[Dict[str, Any]]:
     writes, so a failure message that merely contains one of these words is not read as a
     verdict.
     """
+    mates = _MATES_MESSAGE_RE.search(message)
+    if mates:
+        reads_r1, reads_r2 = int(mates.group(1)), int(mates.group(2))
+        return {
+            "verdict": "truncated",
+            "reads_r1": reads_r1,
+            "reads_r2": reads_r2,
+            "expected_spots": None,
+            "ratio": None,
+        }
     match = _VERDICT_MESSAGE_RE.search(message)
     if match:
         verdict, reads_r1, expected_spots = match.group(1), int(match.group(2)), int(match.group(3))

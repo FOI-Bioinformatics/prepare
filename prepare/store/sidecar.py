@@ -28,6 +28,7 @@ from prepare.data.sra import (
     fastq_digest,
     fastq_files,
     fastq_stem,
+    mate2_fastq,
     orphan_fastq,
     primary_fastq,
     verify_download,
@@ -169,6 +170,7 @@ def build_sidecar(
     else:
         primary = primary_fastq(acc_path)
         orphan = orphan_fastq(acc_path)
+        mate2 = mate2_fastq(acc_path)
         expected = ncbi.get("spots") if verify else None
         verdict = verify_download(
             accession,
@@ -176,9 +178,10 @@ def build_sidecar(
             expected,
             reads_r1=reads_by_path.get(primary, 0) if primary is not None else 0,
             reads_orphan=reads_by_path.get(orphan) if orphan is not None else None,
+            reads_r2=reads_by_path.get(mate2) if mate2 is not None else None,
         )
         reads_per_mate = verdict["reads_r1"]
-        method = "spots" if expected else "unverified"
+        method = "mates" if not verdict["mates_match"] else ("spots" if expected else "unverified")
         completeness = {"method": method, "ratio": verdict["ratio"], "verdict": verdict["verdict"]}
         state = "partial" if verdict["verdict"] == "truncated" else "complete"
 

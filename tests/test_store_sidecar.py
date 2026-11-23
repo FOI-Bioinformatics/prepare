@@ -415,3 +415,17 @@ def test_v070_sidecar_fixture_round_trips_byte_identical(tmp_path):
     assert sidecar.reads_per_mate == 40
     assert sidecar.refetch is None
     assert "refetch" not in json.loads(original)
+
+
+def test_build_sidecar_short_mate_two_is_partial(tmp_path):
+    """A mate-2 file shorter than mate 1 is truncated even when NCBI's spot count is unknown."""
+    acc_dir = tmp_path / "SRR1"
+    acc_dir.mkdir()
+    _write_fastq(acc_dir / "SRR1_1.fastq", 10)
+    _write_fastq(acc_dir / "SRR1_2.fastq", 4)
+
+    sidecar = build_sidecar("SRR1", acc_dir, {}, "3.0.0", "none")
+
+    assert sidecar.state == "partial"
+    assert sidecar.completeness["verdict"] == "truncated"
+    assert sidecar.completeness["method"] == "mates"
