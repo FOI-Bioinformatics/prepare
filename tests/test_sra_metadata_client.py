@@ -283,3 +283,24 @@ class TestSRAMetadataClientRetries:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def test_make_request_failure_does_not_leak_the_api_key(caplog):
+    import requests
+
+    from prepare.core.exceptions import NetworkError
+
+    client = SRAMetadataClient("user@example.org", api_key="SECRETKEY123")
+    response = MagicMock(status_code=503)
+    error = requests.HTTPError(
+        "503 Server Error: Service Unavailable for url: "
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=sra&api_key=SECRETKEY123",
+        response=response,
+    )
+    with patch.object(client.session, "get", side_effect=error):
+        with pytest.raises(NetworkError) as info:
+            client._make_request("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", {"db": "sra"})
+
+    assert "SECRETKEY123" not in str(info.value)
+    assert "api_key=***" in str(info.value)
+    assert "SECRETKEY123" not in caplog.text

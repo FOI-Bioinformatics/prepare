@@ -61,3 +61,19 @@ def test_custom_policy_overrides_the_module_defaults(monkeypatch):
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def test_redact_secrets_hides_the_api_key():
+    from prepare.utils.http import redact_secrets
+
+    url = "https://eutils.ncbi.nlm.nih.gov/x?db=sra&api_key=SECRETKEY123&id=1"
+    assert redact_secrets(f"503 Server Error for url: {url}") == (
+        "503 Server Error for url: https://eutils.ncbi.nlm.nih.gov/x?db=sra&api_key=***&id=1"
+    )
+
+
+def test_redact_secrets_hides_a_key_at_the_end_and_leaves_other_text():
+    from prepare.utils.http import redact_secrets
+
+    assert redact_secrets("GET /x?api_key=abc") == "GET /x?api_key=***"
+    assert redact_secrets("no key here") == "no key here"

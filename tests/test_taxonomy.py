@@ -461,3 +461,23 @@ def test_cached_taxonomy_ids_stay_strings(mock_client_class, tmp_path):
     assert result["is_valid"].dtype == bool
     assert not result[["validated_name", "rank", "lineage"]].isna().any().any()
     mock_client_class.return_value.validate_species_name.assert_not_called()
+
+
+def test_taxonomy_request_failure_does_not_leak_the_api_key(caplog):
+    import requests
+    from unittest.mock import MagicMock, patch
+
+    from prepare.core.exceptions import ProcessingError
+    from prepare.data.taxonomy import NCBITaxonomyClient
+
+    client = NCBITaxonomyClient("user@example.org", api_key="SECRETKEY123")
+    error = requests.HTTPError(
+        "400 Client Error for url: https://eutils.ncbi.nlm.nih.gov/x?db=taxonomy&api_key=SECRETKEY123",
+        response=MagicMock(status_code=400),
+    )
+    with patch.object(client.session, "get", side_effect=error), patch.object(client.pacer, "wait"):
+        with pytest.raises(ProcessingError) as info:
+            client._make_request("https://eutils.ncbi.nlm.nih.gov/x", {"db": "taxonomy"})
+
+    assert "SECRETKEY123" not in str(info.value)
+    assert "SECRETKEY123" not in caplog.text
