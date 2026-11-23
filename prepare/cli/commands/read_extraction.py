@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
-from prepare.cli.base import finite_float, BaseCommand, anchored_folder
+from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
 from prepare.cli.commands.extraction_assembly import assemble_samples
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD
 from prepare.core.exceptions import PrepareError, TransientError
@@ -131,7 +131,7 @@ class ExtractTargetReadsCommand(BaseCommand):
         parser.add_argument(
             "--preset", choices=sorted(MINIMAP2_PRESETS), default="sr", help="minimap2 preset for the read type"
         )
-        parser.add_argument("--threads", type=int, default=4, help="Threads for minimap2 and samtools")
+        parser.add_argument("--threads", type=positive_int, default=4, help="Threads for minimap2 and samtools")
         parser.add_argument(
             "--min-mapq",
             type=_non_negative_int,
@@ -170,7 +170,7 @@ class ExtractTargetReadsCommand(BaseCommand):
         )
         parser.add_argument(
             "--assembly-threads",
-            type=int,
+            type=positive_int,
             default=None,
             help="Threads for the megahit assembly (defaults to 1 on macOS, --threads elsewhere)",
         )
@@ -186,7 +186,7 @@ class ExtractTargetReadsCommand(BaseCommand):
                 "(default: PREPARE_ASSEMBLY_MEMORY, config [runtime] assembly_memory, or auto)"
             ),
         )
-        parser.add_argument("--min-contig-len", type=int, default=None, help="megahit minimum contig length")
+        parser.add_argument("--min-contig-len", type=positive_int, default=None, help="megahit minimum contig length")
         parser.add_argument(
             "--assembly-preset",
             choices=["default", "meta-sensitive", "meta-large"],

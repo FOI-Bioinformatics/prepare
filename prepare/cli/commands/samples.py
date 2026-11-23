@@ -4,7 +4,7 @@ Sample analysis CLI commands.
 
 import argparse
 
-from prepare.cli.base import finite_float, BaseCommand
+from prepare.cli.base import finite_float, positive_int, BaseCommand
 from prepare.core.exceptions import PrepareError
 from prepare.data.defaults import resolve_metadata_table
 from prepare.processing.containment import count_single_sample
@@ -52,7 +52,7 @@ class SingleSampleCommand(BaseCommand):
             default=0.1,
             help="Threshold for the column in the summary file (inclusive)",
         )
-        parser.add_argument("--top-n", type=int, default=100, help="Number of top items to keep")
+        parser.add_argument("--top-n", type=positive_int, default=100, help="Number of top items to keep")
 
     def execute(self, args: argparse.Namespace) -> int:
         try:

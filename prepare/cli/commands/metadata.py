@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from prepare.cli.base import finite_float, BaseCommand, anchored_folder
+from prepare.cli.base import finite_float, int_in_range, BaseCommand, anchored_folder
 from prepare.core.exceptions import DataAccessError, NetworkError, PrepareError, ValidationError
 from prepare.core.settings import require_email, setting_for
 from prepare.data import registry_blocks as rb
@@ -94,7 +94,7 @@ class DownloadMetadataCommand(BaseCommand):
         )
         parser.add_argument(
             "--batch-size",
-            type=int,
+            type=int_in_range(1, 500),
             default=200,
             help="Accessions per NCBI request, from 1 to 500 (default: 200)",
         )
