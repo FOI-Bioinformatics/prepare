@@ -278,3 +278,24 @@ def test_genome_assembly_levels_reads_the_datasets_summary(tmp_path):
 
     assert levels == {"GCF_000005845.2": "Complete Genome", "GCA_000001405.1": "Scaffold"}
     assert run.call_args[0][1][:3] == ["summary", "genome", "accession"]
+
+
+@pytest.mark.parametrize(
+    "stderr, error_type",
+    [
+        ("Error: connection timed out while contacting api.ncbi.nlm.nih.gov", "NetworkError"),
+        ("Error: invalid accession GCF_999", "DataAccessError"),
+    ],
+)
+def test_a_datasets_failure_names_its_stderr(tmp_path, stderr, error_type):
+    """Review: str(CalledProcessError) has no stderr, so the reason was lost; a network failure is exit 4."""
+    from prepare.core import exceptions
+    from prepare.data.genome_download import download_genomes
+
+    failure = subprocess.CalledProcessError(1, ["datasets"], output="", stderr=stderr)
+    with patch("prepare.data.genome_download.SecureSubprocess.run_secure", side_effect=failure):
+        with pytest.raises(exceptions.DataAccessError) as info:
+            download_genomes(["GCF_000006945.2"], tmp_path)
+
+    assert type(info.value).__name__ == error_type
+    assert stderr.split(": ", 1)[1] in str(info.value)

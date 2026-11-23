@@ -16,6 +16,14 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   variance is reported as skipped rather than as p=0. The `sra_profile` summary labels its averages as
   means of datasets, and the `--sample-size` help text matches the sampling.
 - `validate_taxonomy` with an empty species list reports that there is nothing to validate (it divided by zero).
+- `genome_download` names the `datasets` tool's own error, and a network failure exits with status 4.
+- NCBI metadata fetches retry only rate limits, server errors and network failures (a 401 or 403 is not
+  retried), wait only between attempts, and report HTTP 400 as a bad request rather than a missing
+  accession.
+- A download whose FASTQ compression fails is a failed download, as a corrupted compression is; it was
+  recorded as downloaded with some files compressed and some not.
+- Accessions files accept only run accessions (SRR, ERR, DRR); an experiment or sample accession such as
+  `SRX123` is refused when the file is read.
 
 ## [0.13.0] - 2026-11-23
 

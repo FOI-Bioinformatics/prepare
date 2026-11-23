@@ -168,7 +168,7 @@ class TestDownloadSingleMetadata:
 
         assert success is False
         assert result == "network: HTTP 503 after 3 attempts"
-        assert mock_sleep.call_args_list == [call(2), call(4), call(8)]
+        assert mock_sleep.call_args_list == [call(2), call(4)]  # no wait after the last attempt
 
     def test_download_single_metadata_partial_retry(self, tmp_path):
         """Test successful download after one retry."""
@@ -564,7 +564,7 @@ class TestDownloadBatchMetadata:
 
         assert successes == {}
         assert failures == {accession: "network: HTTP 503 after 3 attempts" for accession in batch}
-        assert mock_sleep.call_args_list == [call(2), call(4), call(8)]
+        assert mock_sleep.call_args_list == [call(2), call(4)]  # no wait after the last attempt
 
     def test_success_path_sleeps_only_through_pace_requests(self, tmp_path):
         """The only sleep on the success path is the one _pace_requests issues."""
@@ -1203,7 +1203,7 @@ def test_incomplete_read_in_a_batch_is_retried_then_reported_as_failed(tmp_path)
         successes, failures = _download_batch_metadata(["SRR1", "SRR2"], tmp_path, "a@b.c", None)
     assert successes == {}
     assert set(failures) == {"SRR1", "SRR2"}
-    assert mock_sleep.call_count == 3
+    assert mock_sleep.call_count == 2  # no wait after the last attempt
 
 
 def test_incomplete_read_for_one_accession_is_retried_then_reported_as_failed(tmp_path):
@@ -1220,7 +1220,7 @@ def test_incomplete_read_for_one_accession_is_retried_then_reported_as_failed(tm
         success, message = _download_single_metadata("SRR1", tmp_path, "a@b.c")
     assert success is False
     assert "IncompleteRead" in message
-    assert mock_sleep.call_count == 3
+    assert mock_sleep.call_count == 2  # no wait after the last attempt
 
 
 def _single_download(tmp_path, body, accession="SRR2"):
@@ -1585,3 +1585,38 @@ class TestEntrezTimeout:
 
         assert success is False
         assert message.startswith("network: ")
+
+
+class TestNcbiRetryPolicy:
+    """Only transient NCBI errors are retried, and no wait follows the last attempt."""
+
+    def _single(self, tmp_path, error):
+        with patch("prepare.data.metadata.Entrez.efetch", side_effect=error) as efetch:
+            with patch("prepare.data.metadata_fetch._pace_requests"), patch("time.sleep") as sleep:
+                result = _download_single_metadata("SRR123", tmp_path, "test@example.com")
+        return result, efetch.call_count, sleep.call_count
+
+    def test_a_401_is_not_retried(self, tmp_path):
+        (success, message), calls, sleeps = self._single(tmp_path, _http_error(401, "Unauthorized"))
+        assert (success, calls, sleeps) == (False, 1, 0)
+        assert "HTTP 401" in message
+
+    def test_a_503_is_retried_without_a_wait_after_the_last_attempt(self, tmp_path):
+        (success, message), calls, sleeps = self._single(tmp_path, _http_error(503))
+        assert (success, calls, sleeps) == (False, 3, 2)
+        assert message.startswith("network: ")
+
+    def test_a_400_is_a_bad_request_not_a_missing_accession(self, tmp_path):
+        (success, message), calls, _ = self._single(tmp_path, _http_error(400))
+        assert (success, calls) == (False, 1)
+        assert "bad request" in message and "not found" not in message
+
+    def test_a_network_error_is_retried_without_a_wait_after_the_last_attempt(self, tmp_path):
+        (success, _), calls, sleeps = self._single(tmp_path, URLError("connection refused"))
+        assert (success, calls, sleeps) == (False, 3, 2)
+
+    def test_a_batch_503_waits_between_attempts_only(self, tmp_path):
+        with patch("prepare.data.metadata.Entrez.efetch", side_effect=_http_error(503)):
+            with patch("prepare.data.metadata_fetch._pace_requests"), patch("time.sleep") as sleep:
+                _download_batch_metadata(["SRR1", "SRR2"], tmp_path, "test@example.com", None)
+        assert sleep.call_count == 2

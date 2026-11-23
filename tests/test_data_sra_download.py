@@ -909,21 +909,19 @@ class TestHandleDownloadOutput:
         assert message == "Downloaded 1 files, unverified"
 
     def test_handle_download_output_reports_compression_failure_in_message(self, tmp_path):
-        """A per-file compression failure must not fail the download, but must be visible."""
+        """A compression failure fails the download, as a corrupted compression does: a folder with
+        some files compressed and some not would be a second layout for every later reader."""
         temp_path = tmp_path / "temp"
         output_path = tmp_path / "output" / "SRR123"
         temp_path.mkdir()
         (temp_path / "SRR123_1.fastq").write_text("@seq1\nACGT\n+\nIIII\n")
 
         with patch("prepare.data.sra.fastq.compress_fastq", side_effect=OSError("disk full")):
-            with patch("prepare.data.sra.accession.logger") as mock_logger:
+            with patch("prepare.data.sra.accession.logger"):
                 success, message = _handle_download_output(temp_path, output_path, compress=True)
 
-        assert success is True
-        assert "compression failed for SRR123_1.fastq" in message
-        # The verdict text itself (parseable by parse_verdict_message) must still be present.
-        assert message.startswith("Downloaded 1 files, unverified")
-        mock_logger.warning.assert_called()
+        assert success is False
+        assert message == "compression failed for SRR123_1.fastq"
 
     def test_handle_download_output_short_gz_after_compression_is_a_failure(self, tmp_path):
         """A compressed file holding fewer records than the plain one fails the download."""
