@@ -30,6 +30,10 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 - `genome_download --dry-run` no longer creates the output folder.
 - `sra_report` lists a dataset with any single anomaly (unusual GC alone was never listed), and the anomaly
   check and the report's contamination count use one adapter threshold, 5 % (they used 10 % and 5 %).
+- `sra_profile`'s totals (`quality_summary.json`, run log) leave out datasets profiled from a sample only
+  and count them as `sampled_datasets`, as `sra_report` does; a sample size was added to the read total.
+- The metadata `avg_length` is the mean length of one read; for a paired run it was the length of a
+  spot (300 for 2 x 150 bp).
 
 ### Fixed
 

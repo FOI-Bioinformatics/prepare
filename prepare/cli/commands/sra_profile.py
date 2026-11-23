@@ -235,12 +235,19 @@ class SRAProfileCommand(BaseCommand):
 
     @staticmethod
     def _summary_stats(profiles: List[QualityProfile]) -> Optional[Dict[str, Any]]:
-        """Read and base totals and mean GC percent across ``profiles``, or None when empty."""
+        """Read and base totals and mean GC percent across ``profiles``, or None when empty.
+
+        A profile whose totals are only its sample's (``sampled``) is left out of the totals and
+        counted as ``sampled_datasets``, as ``sra_report`` does, so a sample size is never added
+        to a total. The GC mean covers every profile.
+        """
         if not profiles:
             return None
+        exact = [p for p in profiles if not p.sampled]
         return {
-            "total_reads": sum(p.total_reads for p in profiles),
-            "total_bases": sum(p.total_bases for p in profiles),
+            "total_reads": sum(p.total_reads for p in exact),
+            "total_bases": sum(p.total_bases for p in exact),
+            "sampled_datasets": len(profiles) - len(exact),
             "avg_gc_percent": sum(p.gc_percent for p in profiles) / len(profiles),
         }
 

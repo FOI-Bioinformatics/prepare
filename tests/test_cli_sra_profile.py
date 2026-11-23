@@ -649,3 +649,46 @@ def test_named_accessions_are_profiled_even_if_excluded(tmp_path):
     assert SRAProfileCommand().execute(_args(tmp_path, accession=["SRR1"])) == 0
 
     assert list(pd.read_csv(tmp_path / "sra_statistics.csv")["accession"]) == ["SRR1"]
+
+
+def test_summary_leaves_out_sampled_profiles():
+    exact = QualityProfile(
+        accession="SRR1",
+        total_reads=1000,
+        total_bases=150000,
+        avg_read_length=150,
+        read_length_distribution={},
+        gc_percent=40.0,
+        gc_histogram={},
+        quality_distribution={},
+        n_content=0.0,
+        contamination_indicators={},
+        complexity_score=0.7,
+        duplication_rate=None,
+        technology_confidence=0.9,
+        quality_grade="good",
+        recommendations=[],
+    )
+    sampled = QualityProfile(
+        accession="SRR2",
+        total_reads=10000,
+        total_bases=1500000,
+        avg_read_length=150,
+        read_length_distribution={},
+        gc_percent=50.0,
+        gc_histogram={},
+        quality_distribution={},
+        n_content=0.0,
+        contamination_indicators={},
+        complexity_score=0.7,
+        duplication_rate=None,
+        technology_confidence=0.9,
+        quality_grade="good",
+        recommendations=[],
+        reads_sampled=10000,
+        sampled=True,
+    )
+
+    summary = SRAProfileCommand._summary_stats([exact, sampled])
+
+    assert (summary["total_reads"], summary["total_bases"], summary["sampled_datasets"]) == (1000, 150000, 1)
