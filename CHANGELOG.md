@@ -4,6 +4,11 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-23
+
+Fixes for the medium-severity findings of the 2026-11-23 bug sweep. Three of them change behaviour:
+the default extraction threshold, re-screening and the accepted flag values (see Changed).
+
 ### Changed
 
 - `extract_target_reads` without `--threshold` uses the lowest threshold recorded by the selections made
@@ -15,6 +20,9 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   (it failed with a raw `ValueError` and exit 1).
 - `parse_containment` and `branchwater_search` remove the screening entry of an accession that is no longer
   in a genome's matches; `results_table`, `status` and `status --next` kept reporting it.
+
+### Fixed
+
 - `sra_profile` without `--accession`/`--accessions-file` leaves out excluded accessions and downloads
   whose sidecar records them as unfinished; they entered the totals and the registry analyses.
 - `status` no longer lists an excluded accession of the selection as wanted or missing, and `--stage` and
@@ -34,9 +42,6 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   and count them as `sampled_datasets`, as `sra_report` does; a sample size was added to the read total.
 - The metadata `avg_length` is the mean length of one read; for a paired run it was the length of a
   spot (300 for 2 x 150 bp).
-
-### Fixed
-
 - NCBI efetch connections time out after 120 s and are retried; a stalled connection hung `download_metadata`.
 - A download failure is classified `disk-full` before `not-found`, and a 403/404 counts only as a status
   code, so a number such as 1,404,213 in tool output no longer stops a full disk from ending the run.
