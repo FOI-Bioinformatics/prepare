@@ -418,6 +418,18 @@ def build_report(
     return report
 
 
+# The columns of the two status --export-tsv tables, in the order the rows below are built.
+DATASET_COLUMNS = [
+    "accession", "screened_genomes", "selected", "excluded", "exclusion_reason", "download_state", "download_date",
+    "bytes_total", "metadata", "analyses", "total_reads", "gc_percent", "quality_grade", "download_seconds",
+]  # fmt: skip
+EXTRACTION_COLUMNS = [
+    "accession", "genome_id", "mapped_reads", "breadth", "mean_depth", "extraction_date", "contigs", "total_bp",
+    "n50", "assembly_date", "extraction_seconds", "assembly_seconds", "coverage_tsv", "n90", "largest",
+    "assembly_dir",
+]  # fmt: skip
+
+
 def to_dataframes(registry: Registry) -> Tuple["pd.DataFrame", "pd.DataFrame"]:
     """Flat views of the registry for ``status --export-tsv``: one row per accession, and one row
     per (accession, genome) extraction, as two pandas DataFrames."""
@@ -470,6 +482,7 @@ def to_dataframes(registry: Registry) -> Tuple["pd.DataFrame", "pd.DataFrame"]:
                     "assembly_dir": asm.dir if asm else None,
                 }
             )
-    datasets = pd.DataFrame(rows).set_index("accession") if rows else pd.DataFrame()
-    extractions = pd.DataFrame(ext_rows)
+    # Explicit columns, so a table with no rows is still written with its header.
+    datasets = pd.DataFrame(rows, columns=DATASET_COLUMNS).set_index("accession")
+    extractions = pd.DataFrame(ext_rows, columns=EXTRACTION_COLUMNS)
     return datasets, extractions

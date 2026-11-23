@@ -2059,3 +2059,18 @@ def test_gaps_leave_out_excluded_and_deleted_downloads(tmp_path, capsys):
 
     assert "SRR5" not in gaps
     assert "Downloaded but not extracted for GCF_1 : SRR2" in gaps
+
+
+def test_export_of_a_project_without_extractions_has_a_header(tmp_path):
+    """Review: an empty extractions table was written as a single newline, which pandas cannot read."""
+    import pandas as pd
+
+    from prepare.data.registry import Registry
+    from prepare.processing.status_report import to_dataframes
+
+    datasets, extractions = to_dataframes(Registry(path=tmp_path / "prepare_registry.json"))
+    path = tmp_path / "x_extractions.tsv"
+    extractions.to_csv(path, sep="\t", index=False)  # the export writes through write_csv the same way
+    back = pd.read_csv(path, sep="\t")
+    assert list(back.columns)[:3] == ["accession", "genome_id", "mapped_reads"] and back.empty
+    assert "download_state" in datasets.columns and datasets.empty

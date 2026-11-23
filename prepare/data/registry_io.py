@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional, Union
 from prepare.core.constants import SHORT_LOCK_HEARTBEAT_SECONDS, SHORT_LOCK_POLL_SECONDS
 from prepare.core.exceptions import DataAccessError
 from prepare.core.settings import settings_or
-from prepare.data.file_io import write_text_atomic
+from prepare.data.file_io import finite_json, write_text_atomic
 from prepare.utils.lockfile import LockPolicy, verify_held
 
 logger = logging.getLogger(__name__)
@@ -152,7 +152,8 @@ def _write_registry(registry: "Registry", target: Path, lock: Path) -> Path:
     # write_text_atomic removes its temporary file on any exit that did not replace the target,
     # KeyboardInterrupt included, and fsync keeps a power loss from leaving an empty registry.
     try:
-        return write_text_atomic(target, json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", fsync=True)
+        text = json.dumps(finite_json(payload), sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return write_text_atomic(target, text + "\n", fsync=True)
     except OSError as e:
         raise DataAccessError(f"Cannot write registry {target}: {e}") from e
 

@@ -280,8 +280,16 @@ def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict
         if to_extract:
             steps.append({"command": base, "accessions": to_extract})
         assembled = set(query(registry, "assembled", genome_id))
+        # An assembly already recorded, even with no contigs, was tried: running it again changes nothing.
+        tried = {
+            acc
+            for acc in registry.datasets
+            if (block := rb.extraction_block(registry, acc, genome_id)) is not None and block.assembly is not None
+        }
         to_assemble = [
-            acc for acc in query(registry, "extracted", genome_id) if acc not in assembled and acc not in excluded
+            acc
+            for acc in query(registry, "extracted", genome_id)
+            if acc not in assembled and acc not in excluded and acc not in tried
         ]
         if to_assemble:
             steps.append({"command": f"{base} --assemble", "accessions": to_assemble})

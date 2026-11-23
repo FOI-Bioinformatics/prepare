@@ -34,6 +34,10 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 - `store_link` and `store_unlink` handle a repeated accession once.
 - Store journal lines are written after the catalogue commit, so a write that is rolled back leaves no
   line for `store_reindex` to replay; a replay keeps each project's `created` and `last_seen` times.
+- `status --export-tsv` writes a header for an empty table (a project without extractions gave a file
+  pandas could not read). The run log and the registry write NaN and infinity as `null`, so strict JSON
+  readers such as jq accept them. `status --next` no longer suggests `--assemble` for an extraction whose
+  assembly was already tried and gave no contigs.
 
 ## [0.13.0] - 2026-11-23
 

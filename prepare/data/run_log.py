@@ -20,6 +20,7 @@ never changes the command's exit code. The registry itself holds no list of runs
 import argparse
 import json
 import logging
+import math
 import os
 import secrets
 import socket
@@ -132,7 +133,10 @@ def new_run_id(command: str, started: datetime) -> str:
 
 
 def _json_safe(value: Any) -> Any:
-    """``value`` with paths as strings, sequences and sets as lists and anything unknown as its text."""
+    """``value`` with paths as strings, sequences and sets as lists, NaN and infinity as None (they are
+    not JSON, and strict readers such as jq refuse them) and anything unknown as its text."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, Path):

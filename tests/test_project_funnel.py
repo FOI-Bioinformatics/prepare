@@ -184,3 +184,18 @@ def test_funnel_pairs_follow_the_extracted_and_assembled_members(tmp_path):
 
     assert result["extracted"]["pairs"] == 1
     assert (result["assembled"]["pairs"], result["assembled"]["total_bp"]) == (2, 20)
+
+
+def test_assembled_once_with_no_contigs_is_not_suggested_again(tmp_path):
+    """Review: a 0-contig assembly stayed in 'extracted minus assembled' and --assemble was suggested forever."""
+    from prepare.cli.commands.status.suggest import next_steps
+    from prepare.data.registry import ProjectPaths, Registry, record_assembly, record_download, record_extraction
+
+    registry = Registry(path=tmp_path / "prepare_registry.json")
+    registry.genomes["G"] = {}
+    record_download(registry, "SRR1", "downloaded", tmp_path / "fastq")
+    record_extraction(registry, "SRR1", "G", [], 50, False, {})
+    record_assembly(registry, "SRR1", "G", tmp_path / "asm", {"contigs": 0}, "v1", {})
+
+    steps = next_steps(registry, ProjectPaths.anchored(tmp_path))
+    assert not [s for s in steps if s["command"].endswith("--assemble")]

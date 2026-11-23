@@ -5,6 +5,7 @@ This module provides abstract file operations to handle different file types and
 """
 
 import logging
+import math
 import os
 import secrets
 import shutil
@@ -235,6 +236,20 @@ def atomic_path(target: Union[str, Path], fsync: bool = False) -> Iterator[Path]
                 tmp.unlink(missing_ok=True)
             except OSError as e:
                 logger.warning(f"Could not remove temporary file {tmp}: {e}")
+
+
+def finite_json(value: Any) -> Any:
+    """``value`` (plain JSON data) with every NaN or infinite float replaced by None.
+
+    ``json.dumps`` writes those as the tokens ``NaN`` and ``Infinity``, which are not JSON.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: finite_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [finite_json(item) for item in value]
+    return value
 
 
 def write_text_atomic(path: Union[str, Path], text: str, encoding: str = "utf-8", fsync: bool = False) -> Path:

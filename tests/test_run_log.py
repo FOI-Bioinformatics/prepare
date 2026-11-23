@@ -341,3 +341,31 @@ def test_cli_masks_api_key(project, run_log_on, monkeypatch):
 
 def test_records_run_defaults_to_false():
     assert DoctorCommand().records_run(_args()) is False
+
+
+def _strict(text):
+    def refuse(constant):
+        raise ValueError(f"non-standard JSON constant {constant}")
+
+    return json.loads(text, parse_constant=refuse)
+
+
+def test_nan_in_the_run_log_is_written_as_null(project, run_log_on):
+    """Review: NaN was written as the bare token NaN, which strict JSON readers such as jq refuse."""
+    _record(project, summary={"mean_gc": float("nan"), "ratio": float("inf")})
+    line = (project / ".prepare" / "runs" / "runs.jsonl").read_text().splitlines()[-1]
+    record = _strict(line)
+    assert record["summary"]["mean_gc"] is None and record["summary"]["ratio"] is None
+
+
+def test_nan_in_the_registry_is_written_as_null(tmp_path):
+    from prepare.data.registry import Registry, load_registry, save_registry
+
+    registry = Registry(path=tmp_path / "prepare_registry.json")
+    registry.datasets["SRR1"] = {"analyses": {"profile": {"summary": {"gc_percent": float("nan")}}}}
+    save_registry(registry)
+
+    _strict((tmp_path / "prepare_registry.json").read_text())
+    assert load_registry(tmp_path / "prepare_registry.json").datasets["SRR1"]["analyses"]["profile"]["summary"] == {
+        "gc_percent": None
+    }
