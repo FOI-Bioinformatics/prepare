@@ -18,6 +18,14 @@ from prepare.core.utils import get_genome_columns
 logger = logging.getLogger(__name__)
 
 
+def _fold_enrichment(observed: float, expected: float, total_observed: float, total_expected: float) -> float:
+    """The observed share over the expected share, the quantity the Fisher test compares."""
+    if expected > 0:
+        share = observed / total_observed if total_observed > 0 else 0.0
+        return share / (expected / total_expected)
+    return float("inf") if observed > 0 else 1.0
+
+
 def calculate_enrichment(
     observed_counts: Dict[str, int], expected_counts: Dict[str, int], min_count: int = 5
 ) -> pd.DataFrame:
@@ -58,12 +66,7 @@ def calculate_enrichment(
             if observed < min_count and expected < min_count:
                 continue
 
-            # Fold enrichment of the proportions, the quantity the Fisher test below compares
-            if expected > 0:
-                share = observed / total_observed if total_observed > 0 else 0.0
-                fold_enrichment = share / (expected / total_expected)
-            else:
-                fold_enrichment = float("inf") if observed > 0 else 1.0
+            fold_enrichment = _fold_enrichment(observed, expected, total_observed, total_expected)
 
             # p-value with Fisher's exact test on the contingency table
             # [[observed, total_observed - observed],
