@@ -19,9 +19,9 @@ from prepare.core.exceptions import PrepareError, ValidationError
 from prepare.core.validation import validate_accession
 from prepare.data import run_log
 from prepare.data.file_io import visible_files, write_text_atomic
-from prepare.data.registry import load_registry, record_analysis
+from prepare.data.registry import load_registry, query, record_analysis
 from prepare.data.registry_batch import registry_batch
-from prepare.data.sra import is_transient_folder
+from prepare.data.sra import accession_has_fastq, fastq_files, is_transient_folder
 from prepare.data.sra_metadata import generate_statistics_report
 from prepare.sra.analytics import QualityProfile, SRADatasetAnalyzer
 from prepare.sra.dataset_stats import DATASET_READ_ERRORS
@@ -155,7 +155,26 @@ class SRAProfileCommand(BaseCommand):
         ]
         if not found:
             raise ValidationError(f"No accession folders in {folder}; give --accession or --accessions-file")
-        return found
+        # Excluded accessions and downloads whose sidecar says they did not finish are left out, as
+        # download_sra and extract_target_reads leave them out; a folder without FASTQ files is still
+        # reported as a failure, and a named accession is profiled as given.
+        excluded = set(query(load_registry(args.registry), "excluded"))
+        incomplete = [
+            acc
+            for acc in found
+            if acc not in excluded and fastq_files(folder / acc) and not accession_has_fastq(folder / acc)
+        ]
+        usable = [acc for acc in found if acc not in excluded and acc not in incomplete]
+        if len(usable) < len(found):
+            self.logger.info(
+                "Left out %d excluded and %d incomplete download folder(s) in %s",
+                len(found) - len(usable) - len(incomplete),
+                len(incomplete),
+                folder,
+            )
+        if not usable:
+            raise ValidationError(f"No complete, non-excluded accession folders in {folder}")
+        return usable
 
     def _print_profile(self, profile: QualityProfile) -> None:
         """Print one accession's profile."""

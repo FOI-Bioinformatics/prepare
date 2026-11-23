@@ -621,3 +621,31 @@ def test_an_accession_flag_that_is_not_an_accession_is_refused_before_any_work(t
     assert not (tmp_path / "sra_statistics.csv").exists()
     registry = tmp_path / "prepare_registry.json"
     assert not registry.exists() or "evil" not in registry.read_text()
+
+
+def test_discovery_skips_blacklisted_and_partial_folders(tmp_path):
+    from prepare.data.registry import load_registry, record_exclusion, save_registry
+
+    for accession in ("SRR1", "SRR2", "SRR3"):
+        _paired_dataset(tmp_path, accession)
+    (tmp_path / "fastq" / "SRR2" / "SRR2.json").write_text(json.dumps({"state": "partial"}))
+    registry = load_registry(tmp_path / "prepare_registry.json")
+    record_exclusion(registry, "SRR1", "blacklisted")
+    save_registry(registry)
+
+    assert SRAProfileCommand().execute(_args(tmp_path)) == 0
+
+    assert list(pd.read_csv(tmp_path / "sra_statistics.csv")["accession"]) == ["SRR3"]
+
+
+def test_named_accessions_are_profiled_even_if_excluded(tmp_path):
+    from prepare.data.registry import load_registry, record_exclusion, save_registry
+
+    _paired_dataset(tmp_path, "SRR1")
+    registry = load_registry(tmp_path / "prepare_registry.json")
+    record_exclusion(registry, "SRR1", "blacklisted")
+    save_registry(registry)
+
+    assert SRAProfileCommand().execute(_args(tmp_path, accession=["SRR1"])) == 0
+
+    assert list(pd.read_csv(tmp_path / "sra_statistics.csv")["accession"]) == ["SRR1"]

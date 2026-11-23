@@ -11,6 +11,8 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   `--threshold` that leaves out selected samples logs a warning. `status --next` suggests the same threshold.
 - `parse_containment` and `branchwater_search` remove the screening entry of an accession that is no longer
   in a genome's matches; `results_table`, `status` and `status --next` kept reporting it.
+- `sra_profile` without `--accession`/`--accessions-file` leaves out excluded accessions and downloads
+  whose sidecar records them as unfinished; they entered the totals and the registry analyses.
 
 ### Fixed
 
