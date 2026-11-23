@@ -303,6 +303,23 @@ class StoreGcCommand(BaseCommand):
                 return name[: -len(suffix)]
         return name
 
+    @staticmethod
+    def _unpublished_copy(paths: StorePaths, accession: str, name: str) -> bool:
+        """Whether ``tmp/<name>`` may hold the only copy of ``accession``: a run killed between the two
+        renames of ``publish_folder`` leaves ``tmp/<ACC>_old`` (and the staged ``tmp/<ACC>``) with no
+        ``sra/<ACC>``. Such a pair is kept, with a warning, instead of being removed as a leftover."""
+        if name not in (accession, f"{accession}_old") or (paths.sra / accession).exists():
+            return False
+        if not (paths.tmp / f"{accession}_old").is_dir():
+            return False
+        logger.warning(
+            "tmp/%s is a staged copy of %s with no published folder; move it to sra/%s or run store_verify",
+            name,
+            accession,
+            accession,
+        )
+        return True
+
     @classmethod
     def _leftover_candidates(cls, paths: StorePaths) -> List[Dict[str, Any]]:
         """Leftover build folders, cached archives and staged downloads, minus anything a live
@@ -337,7 +354,8 @@ class StoreGcCommand(BaseCommand):
                     reason = "leftover (staged download)"
                 else:
                     continue
-                if lock_is_held(paths, cls._accession_of_leftover(entry.name)):
+                accession = cls._accession_of_leftover(entry.name)
+                if lock_is_held(paths, accession) or cls._unpublished_copy(paths, accession, entry.name):
                     continue
                 candidates.append({"path": entry, "bytes": tree_bytes(entry), "reason": reason})
         sra_cache = paths.sra / ".sra-cache"

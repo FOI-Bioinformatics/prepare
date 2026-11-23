@@ -4,6 +4,11 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+### Changed
+
+- `store_link` and a download into a project no longer replace a symlink that points outside the store;
+  they report it and leave it in place.
+
 ### Fixed
 
 - Statistics library: `calculate_enrichment` reports the fold of proportions, which is what its Fisher
@@ -24,6 +29,9 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   recorded as downloaded with some files compressed and some not.
 - Accessions files accept only run accessions (SRR, ERR, DRR); an experiment or sample accession such as
   `SRX123` is refused when the file is read.
+- `store_gc` keeps a staged copy and its `_old` partner when the published folder is missing (a run killed
+  between the two renames of a publish), with a warning; they were removed as leftovers.
+- `store_link` and `store_unlink` handle a repeated accession once.
 
 ## [0.13.0] - 2026-11-23
 

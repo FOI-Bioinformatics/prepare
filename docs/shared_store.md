@@ -36,7 +36,7 @@ prepare store_gc --dry-run                                           # candidate
 | `store_init` | Create a store at `--data-root` and record the project's use of it. `--set-default` also records the root as the user's default. |
 | `store_adopt` | Fold an existing project `fastq/` folder into the store. |
 | `store_status` | Dataset and byte counts. `--details` lists every dataset (the former `--verbose` is a deprecated alias). |
-| `store_link`, `store_unlink` | Add or remove the project link of one accession. `store_unlink` also removes the project's use of the dataset from the catalogue and the journal, so `store_gc` can reclaim it once no other project uses it. |
+| `store_link`, `store_unlink` | Add or remove the project link of one accession. `store_unlink` also removes the project's use of the dataset from the catalogue and the journal, so `store_gc` can reclaim it once no other project uses it. `store_link` does not replace a symlink that points outside the store. |
 | `store_verify` | Check a dataset's files against the recorded size, md5 or spot count. |
 | `store_reindex` | Rebuild the catalogue from the sidecar files on disk. |
 | `store_usage` | Show which projects and genomes used an accession, or which datasets are unused. `--bytes-by-organism` totals bytes per genome. |

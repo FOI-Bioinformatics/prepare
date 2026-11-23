@@ -1347,3 +1347,36 @@ def test_unlink_exits_4_when_the_usage_cannot_be_removed(tmp_path, monkeypatch, 
 
     assert not (project / "fastq" / "SRR1").exists()
     assert "store_unlink SRR1 again" in caplog.text
+
+
+def test_gc_keeps_staged_copies_when_the_published_folder_is_missing(tmp_path, capsys, caplog):
+    """Review: a run killed between publish_folder's two renames leaves tmp/<ACC>_old and tmp/<ACC>
+    with no sra/<ACC>; both are the only copies and must not be removed as leftovers."""
+    root = tmp_path / "store"
+    paths = init_store(root)
+    with catalog_write(paths):
+        pass
+    for name in ("SRR1", "SRR1_old"):
+        (paths.tmp / name).mkdir(parents=True)
+        (paths.tmp / name / "SRR1.fastq.gz").write_bytes(b"x" * 10)
+
+    with caplog.at_level(logging.WARNING):
+        rc = StoreGcCommand().execute(_gc_args(data_root=str(root), yes=True, json=True))
+    report = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert (paths.tmp / "SRR1").is_dir() and (paths.tmp / "SRR1_old").is_dir()
+    assert not any("SRR1" in entry["path"] for entry in report["leftovers"])
+    assert "no published folder" in caplog.text
+
+
+def test_gc_still_removes_an_old_copy_once_the_new_one_is_published(tmp_path, capsys):
+    root = tmp_path / "store"
+    paths = init_store(root)
+    with catalog_write(paths):
+        pass
+    _write_dataset_dir(paths, "SRR1")
+    (paths.tmp / "SRR1_old").mkdir(parents=True)
+
+    assert StoreGcCommand().execute(_gc_args(data_root=str(root), yes=True, json=True)) == 0
+    assert not (paths.tmp / "SRR1_old").exists()
