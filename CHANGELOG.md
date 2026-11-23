@@ -15,6 +15,7 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   (Illumina 1.3-1.7) are detected and decoded. A group comparison whose groups have no within-group
   variance is reported as skipped rather than as p=0. The `sra_profile` summary labels its averages as
   means of datasets, and the `--sample-size` help text matches the sampling.
+- `validate_taxonomy` with an empty species list reports that there is nothing to validate (it divided by zero).
 
 ## [0.13.0] - 2026-11-23
 

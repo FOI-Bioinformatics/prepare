@@ -822,3 +822,22 @@ class TestTaxonomicSummaryWithEnrichMap:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+@patch("prepare.cli.commands.advanced_analysis.validate_taxonomic_assignments")
+def test_validate_taxonomy_with_no_species_returns_0(mock_validate, tmp_path, caplog):
+    """Review: an empty species file divided by zero in the summary."""
+    species = tmp_path / "species.txt"
+    species.write_text("\n\n")
+    args = argparse.Namespace(
+        species_file=str(species),
+        species_column=None,
+        email="test@example.com",
+        api_key=None,
+        output_file=str(tmp_path / "validation.csv"),
+        cache_file=str(tmp_path / "cache.csv"),
+    )
+
+    assert TaxonomyValidationCommand().execute(args) == 0
+    mock_validate.assert_not_called()
+    assert "No species to validate" in caplog.text

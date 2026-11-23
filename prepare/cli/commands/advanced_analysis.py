@@ -318,6 +318,9 @@ class TaxonomyValidationCommand(BaseCommand):
                     species_list = [line.strip() for line in f if line.strip()]
 
             logger.info(f"Loaded {len(species_list)} species names")
+            if not species_list:
+                logger.warning("No species to validate in %s", args.species_file)
+                return 0
 
             # Validate taxonomy
             logger.info("Validating species names against NCBI taxonomy...")
