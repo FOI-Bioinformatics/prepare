@@ -3917,3 +3917,17 @@ class TestDownloadSraUsageNotRecorded:
 
         assert rc == 4
         assert "store_link SRR2 again before store_gc" in caplog.text
+
+
+@patch("prepare.cli.commands.sra.require_tools")
+def test_download_sra_with_an_unreadable_blacklist_exits_1(_which, tmp_path, caplog):
+    args = TestDownloadSraRegistryWrites._args(tmp_path)
+    (tmp_path / "acc.txt").write_text("SRR1\n")
+    args.blacklist = [str(tmp_path / "missing_blacklist.txt")]
+
+    with patch("prepare.data.sra.download._check_existing_downloads") as mock_check, caplog.at_level(logging.ERROR):
+        rc = DownloadSraCommand().execute(args)
+
+    assert rc == 1
+    mock_check.assert_not_called()
+    assert "missing_blacklist.txt" in caplog.text

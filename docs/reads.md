@@ -52,7 +52,7 @@ prepare download_sra --accessions-file accessions.txt --dry-run
 prepare download_sra --accessions-file accessions.txt --report-file download_report.csv
 ```
 
-Accessions excluded with `blacklist` are skipped on a real run, without `--blacklist blacklist.txt` on every call (that flag still works). `--dry-run` neither reads nor writes the registry, so it applies no blacklist exclusions and records nothing. See [project_state.md](project_state.md) for `blacklist`.
+Accessions excluded with `blacklist` are skipped on a real run, without `--blacklist blacklist.txt` on every call (that flag still works; a `--blacklist` file that cannot be read as UTF-8 text stops the run with exit status 1 before any download). `--dry-run` neither reads nor writes the registry, so it applies no blacklist exclusions and records nothing. See [project_state.md](project_state.md) for `blacklist`.
 
 ### Report files
 

@@ -92,15 +92,34 @@ class TestReadBlacklistFiles:
         result = _read_blacklist_files(None)
         assert result == set()
 
-    def test_read_blacklist_files_nonexistent_file(self, tmp_path):
-        """Test handling nonexistent blacklist file."""
-        nonexistent = tmp_path / "nonexistent.txt"
+    def test_missing_blacklist_file_raises(self, tmp_path):
+        """A blacklist that cannot be read stops the run; skipping it would download what it excludes."""
+        with pytest.raises(DataAccessError, match="blacklist"):
+            _read_blacklist_files([tmp_path / "nonexistent.txt"])
 
-        with patch("prepare.data.sra.download.logger") as mock_logger:
-            result = _read_blacklist_files([nonexistent])
+    def test_utf16_blacklist_file_raises(self, tmp_path):
+        blacklist = tmp_path / "blacklist.txt"
+        blacklist.write_text("SRR1\nSRR2\n", encoding="utf-16")
 
-        assert result == set()
-        mock_logger.warning.assert_called_once()
+        with pytest.raises(DataAccessError, match="blacklist"):
+            _read_blacklist_files([blacklist])
+
+    def test_blacklist_with_bom_is_read(self, tmp_path):
+        blacklist = tmp_path / "blacklist.txt"
+        blacklist.write_text("\ufeffSRR1\nSRR2\n", encoding="utf-8")
+
+        assert _read_blacklist_files([blacklist]) == {"SRR1", "SRR2"}
+
+    def test_download_sra_with_a_missing_blacklist_downloads_nothing(self, tmp_path):
+        accessions_file = tmp_path / "accessions.txt"
+        accessions_file.write_text("SRR123\n")
+
+        with patch("prepare.data.sra.download._check_existing_downloads") as mock_check:
+            with pytest.raises(DataAccessError, match="blacklist"):
+                download_sra(tmp_path / "downloads", accessions_file, blacklist=[tmp_path / "missing.txt"])
+
+        mock_check.assert_not_called()
+        assert not (tmp_path / "downloads").exists()
 
     def test_read_blacklist_files_empty_file(self, tmp_path):
         """Test handling empty blacklist file."""
