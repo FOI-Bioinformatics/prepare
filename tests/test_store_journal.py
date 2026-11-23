@@ -360,3 +360,56 @@ def test_a_torn_last_line_does_not_swallow_the_next_record(tmp_path):
 
     records = list(journal._lines(paths.journal / "usage.jsonl"))
     assert [r["accession"] for r in records] == ["SRR1"]
+
+
+def _usage_lines(paths):
+    path = paths.journal / journal.USAGE_FILE
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+
+
+def _project_lines(paths):
+    path = paths.journal / journal.PROJECTS_FILE
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+
+
+def test_a_rolled_back_session_writes_no_journal_line(tmp_path):
+    """Review: the line was appended before the SQLite commit, so a rolled-back write stayed journaled."""
+    paths = init_store(tmp_path / "store")
+    with pytest.raises(RuntimeError):
+        with catalog_write(paths) as cat:
+            cat.upsert_project("p1", "p1", str(tmp_path), str(tmp_path / "r.json"))
+            raise RuntimeError("later failure")
+    assert _project_lines(paths) == []
+
+
+def test_a_committed_session_writes_each_line_once(tmp_path):
+    paths = init_store(tmp_path / "store")
+    with catalog_write(paths) as cat:
+        cat.upsert_project("p1", "p1", str(tmp_path), str(tmp_path / "r.json"))
+    assert [line["project_id"] for line in _project_lines(paths)] == ["p1"]
+
+
+def test_commit_now_flushes_the_lines_queued_so_far(tmp_path):
+    paths = init_store(tmp_path / "store")
+    with catalog_write(paths) as cat:
+        cat.upsert_project("p1", "p1", str(tmp_path), str(tmp_path / "r.json"))
+        cat.commit_now()
+        assert [line["project_id"] for line in _project_lines(paths)] == ["p1"]
+    assert len(_project_lines(paths)) == 1
+
+
+def test_replay_keeps_project_timestamps(tmp_path):
+    paths = init_store(tmp_path / "store")
+    with catalog_write(paths) as cat:
+        cat.upsert_project("p1", "p1", str(tmp_path), str(tmp_path / "r.json"))
+    with Catalog(paths) as cat:
+        before = dict(cat.conn.execute("SELECT created, last_seen FROM projects WHERE project_id = 'p1'").fetchone())
+    paths.catalog.unlink()
+
+    with catalog_write(paths) as cat:
+        cat.journal_enabled = False
+        journal.replay(paths, cat)
+    with Catalog(paths) as cat:
+        after = dict(cat.conn.execute("SELECT created, last_seen FROM projects WHERE project_id = 'p1'").fetchone())
+
+    assert after == before

@@ -32,6 +32,8 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 - `store_gc` keeps a staged copy and its `_old` partner when the published folder is missing (a run killed
   between the two renames of a publish), with a warning; they were removed as leftovers.
 - `store_link` and `store_unlink` handle a repeated accession once.
+- Store journal lines are written after the catalogue commit, so a write that is rolled back leaves no
+  line for `store_reindex` to replay; a replay keeps each project's `created` and `last_seen` times.
 
 ## [0.13.0] - 2026-11-23
 

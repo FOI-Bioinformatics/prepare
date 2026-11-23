@@ -62,7 +62,13 @@ def _ends_unterminated(path: Path) -> bool:
 
 
 def append_project(
-    paths: StorePaths, project_id: str, name: str, path: str, registry: str, hostname: Optional[str] = None
+    paths: StorePaths,
+    project_id: str,
+    name: str,
+    path: str,
+    registry: str,
+    hostname: Optional[str] = None,
+    at: Optional[str] = None,
 ) -> None:
     """Append one project record (mirroring ``Catalog.upsert_project``'s arguments).
 
@@ -83,6 +89,7 @@ def append_project(
             "registry": registry,
             "hostname": hostname if hostname is not None else socket.gethostname(),
         },
+        at=at,
     )
 
 
@@ -183,6 +190,7 @@ def replay(paths: StorePaths, catalog: Any) -> Tuple[int, int]:
                 record.get("path", ""),
                 record.get("registry", ""),
                 hostname=record.get("hostname"),
+                at=record.get("at"),
             )
             project_ids.add(record["project_id"])
         for record in _lines(paths.journal / USAGE_FILE):

@@ -166,6 +166,9 @@ class Catalog:
         self.journal_enabled: bool = True
         # Set by catalog_write to the lock it holds, so commit_now can check it is still ours.
         self._held_lock: Any = None
+        # Inside a catalog_write session: journal appends wait here until the commit, so a
+        # session that is rolled back leaves no line behind. None outside a session (immediate).
+        self._pending_journal: Optional[List[Callable[[], None]]] = None
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -359,7 +362,13 @@ class Catalog:
 
     @_wrap_sqlite_errors
     def upsert_project(
-        self, project_id: str, name: str, path: str, registry: str, hostname: Optional[str] = None
+        self,
+        project_id: str,
+        name: str,
+        path: str,
+        registry: str,
+        hostname: Optional[str] = None,
+        at: Optional[str] = None,
     ) -> None:
         """Insert or update one project's row, keeping its original ``created`` timestamp.
 
@@ -367,9 +376,11 @@ class Catalog:
         say where a project it cannot see from here was last written. ``hostname`` defaults to
         this machine (``socket.gethostname()``); ``journal.replay`` passes the host a journal
         line actually recorded, so rebuilding a lost catalogue on a different machine does not
-        overwrite every project's real host with the rebuilding machine's.
+        overwrite every project's real host with the rebuilding machine's. ``at`` (a journal line's
+        own time, passed by ``journal.replay``) stands for now, so a rebuilt catalogue keeps the
+        projects' ``created`` and ``last_seen`` times.
         """
-        now = _now()
+        now = at or _now()
         host = hostname if hostname is not None else socket.gethostname()
         self.conn.execute(
             """
@@ -387,7 +398,9 @@ class Catalog:
         if self.journal_enabled:
             from prepare.store import journal
 
-            journal.append_project(self.paths, project_id, name, path, registry, hostname=host)
+            self._journal(
+                functools.partial(journal.append_project, self.paths, project_id, name, path, registry, host, now)
+            )
 
     # ------------------------------------------------------------------- usage
 
@@ -473,16 +486,32 @@ class Catalog:
         if self.journal_enabled:
             from prepare.store import journal
 
-            journal.append_usage(
-                self.paths,
-                accession,
-                project_id,
-                genome_id,
-                stage,
-                detail,
-                at=now,
-                last_used=latest if last_used is not None else None,
+            self._journal(
+                functools.partial(
+                    journal.append_usage,
+                    self.paths,
+                    accession,
+                    project_id,
+                    genome_id,
+                    stage,
+                    detail,
+                    at=now,
+                    last_used=latest if last_used is not None else None,
+                )
             )
+
+    def _journal(self, append: Callable[[], None]) -> None:
+        """Run one journal append now, or after the session's commit inside ``catalog_write``."""
+        if self._pending_journal is None:
+            append()
+        else:
+            self._pending_journal.append(append)
+
+    def _flush_journal(self) -> None:
+        """Write the journal lines of everything committed so far in this session."""
+        pending, self._pending_journal = self._pending_journal or [], []
+        for append in pending:
+            append()
 
     def commit_now(self) -> None:
         """Commit inside a ``catalog_write`` session, once the lock is checked to be still ours.
@@ -495,6 +524,7 @@ class Catalog:
             self.conn.commit()
         except sqlite3.Error as e:
             raise DataAccessError(f"Cannot commit catalog write: {e}") from e
+        self._flush_journal()
 
     # ----------------------------------------------------------------- queries
 
@@ -627,9 +657,12 @@ def catalog_write(paths: StorePaths) -> Iterator[Catalog]:
 
             journal.backfill_from_catalog(paths, catalog)
             catalog._held_lock = lock
+            catalog._pending_journal = []
             yield catalog
             verify_held(lock)
             try:
                 catalog.conn.commit()
             except sqlite3.Error as e:
                 raise DataAccessError(f"Cannot commit catalog write: {e}") from e
+            # Journal lines follow the commit, still under the lock: a rolled-back session has none.
+            catalog._flush_journal()
