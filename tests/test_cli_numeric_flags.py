@@ -37,3 +37,30 @@ def test_batch_size_bounds_are_accepted():
     parser = create_parser()
     assert parser.parse_args(["download_metadata", "--batch-size", "1"]).batch_size == 1
     assert parser.parse_args(["download_metadata", "--batch-size", "500"]).batch_size == 500
+
+
+EXTRACT_THRESHOLD = ["extract_target_reads", "--parsed-containment", "p.txt", "--genome-id", "G", "--genome-fasta", "g"]
+
+
+@pytest.mark.parametrize("value", ["1.5", "-0.1"])
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["branchwater_search", "--signature", "g.sig", "--threshold"],
+        ["select_datasets", "--threshold"],
+        EXTRACT_THRESHOLD + ["--threshold"],
+        ["download_metadata", "--threshold"],
+        ["count_metadata", "--metadata-column", "m", "--threshold"],
+        ["results_table", "--min-containment"],
+        ["explore_containment", "--parsed-containment", "p.txt", "--min-containment"],
+    ],
+)
+def test_a_containment_threshold_outside_0_to_1_is_a_usage_error(argv, value, capsys):
+    with pytest.raises(SystemExit) as info:
+        create_parser().parse_args(argv + [value])
+    assert info.value.code == 2
+
+
+def test_max_cache_age_days_must_not_be_negative():
+    with pytest.raises(SystemExit):
+        create_parser().parse_args(["branchwater_search", "--signature", "g.sig", "--max-cache-age-days", "-1"])

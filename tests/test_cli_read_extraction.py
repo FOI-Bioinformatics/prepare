@@ -2145,3 +2145,21 @@ class TestThresholdFollowsTheSelection:
         )
         assert _dry_run_listed(ExtractTargetReadsCommand(), args, caplog) == ["SRR1"]
         assert args.threshold == 0.1
+
+
+def test_assembly_flags_without_assemble_are_named_in_a_warning(tmp_path, caplog):
+    """Review: --assembly-preset and the other assembly flags were ignored without a word."""
+    root, table, genome = _project_tree(tmp_path, {"SRR1": 0.9})
+    args = _args(
+        tmp_path,
+        parsed_containment=str(table),
+        genome_fasta=str(genome),
+        fastq_folder=str(root / "fastq"),
+        dry_run=True,
+        assembly_preset="meta-large",
+        keep_intermediate=True,
+    )
+    with caplog.at_level("WARNING"):
+        assert ExtractTargetReadsCommand().execute(args) == 0
+    warning = [r.message for r in caplog.records if r.levelname == "WARNING" and "--assemble" in r.message]
+    assert warning and "--assembly-preset" in warning[0] and "--keep-intermediate" in warning[0]

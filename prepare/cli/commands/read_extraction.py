@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
-from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
+from prepare.cli.base import finite_float, positive_int, unit_interval, BaseCommand, anchored_folder
 from prepare.cli.commands.extraction_assembly import assemble_samples
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD
 from prepare.core.exceptions import PrepareError, TransientError
@@ -116,7 +116,7 @@ class ExtractTargetReadsCommand(BaseCommand):
         parser.add_argument("--output-folder", default="targeted", help="Root folder for the extracted reads")
         parser.add_argument(
             "--threshold",
-            type=finite_float,
+            type=unit_interval,
             default=None,
             help=(
                 "Minimum containment for a sample to be included (default: the lowest threshold of the recorded "
@@ -585,6 +585,22 @@ class ExtractTargetReadsCommand(BaseCommand):
             ignore_selection=getattr(args, "ignore_selection", False),
         )
 
+    def _warn_ignored_assembly_flags(self, args: argparse.Namespace) -> None:
+        """Name the assembly-only flags given without --assemble, which then have no effect."""
+        if args.assemble:
+            return
+        given = {
+            "--assembly-threads": args.assembly_threads is not None,
+            "--assembly-memory": getattr(args, SETTINGS["assembly_memory"].cli_dest, None) is not None,
+            "--min-contig-len": args.min_contig_len is not None,
+            "--assembly-preset": args.assembly_preset != "meta-sensitive",
+            "--keep-intermediate": args.keep_intermediate,
+            "--no-coverage": args.no_coverage,
+        }
+        named = [flag for flag, present in given.items() if present]
+        if named:
+            self.logger.warning("%s only apply with --assemble; ignored", ", ".join(named))
+
     def _resolve_threshold(self, args: argparse.Namespace, registry) -> None:
         """Set ``args.threshold``: as given, else the recorded selection's, else the default.
 
@@ -650,6 +666,7 @@ class ExtractTargetReadsCommand(BaseCommand):
             args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
             args.output_folder = str(anchored_folder(args.output_folder, getattr(args, "registry", None)))
             self._warn_dangling_links(args)
+            self._warn_ignored_assembly_flags(args)
             registry = load_registry(args.registry)
             self._resolve_threshold(args, registry)
             store = self._resolve_store(args, registry)

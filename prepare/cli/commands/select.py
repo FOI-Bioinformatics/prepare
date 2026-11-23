@@ -5,7 +5,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List
 
-from prepare.cli.base import finite_float, positive_int, BaseCommand
+from prepare.cli.base import positive_int, unit_interval, BaseCommand
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD, DEFAULT_TOP_N
 from prepare.core.exceptions import PrepareError, ValidationError
 from prepare.data import registry_blocks as rb
@@ -122,7 +122,7 @@ class SelectDatasetsCommand(BaseCommand):
         )
         parser.add_argument(
             "--threshold",
-            type=finite_float,
+            type=unit_interval,
             default=DEFAULT_CONTAINMENT_THRESHOLD,
             help="Minimum containment, inclusive",
         )

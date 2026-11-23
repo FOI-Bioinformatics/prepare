@@ -184,7 +184,8 @@ class GenomeDownloadCommand(BaseCommand):
         if args.genus:
             accessions.extend(get_accessions_for_genus(args.genus, representative_only=args.representative_only))
 
-        return accessions
+        # A genome named by more than one source (or twice) is handled once, in first-seen order.
+        return list(dict.fromkeys(accessions))
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
@@ -342,7 +343,8 @@ class GenomePrepareCommand(BaseCommand):
         if args.genus:
             accessions.extend(get_accessions_for_genus(args.genus, representative_only=args.representative_only))
 
-        return accessions
+        # A genome named by more than one source (or twice) is handled once, in first-seen order.
+        return list(dict.fromkeys(accessions))
 
     def _create_manifest(self, output_dir: Path, manifest_file: str, registry: Optional[str] = None) -> int:
         """Create a manifest CSV from the genome FASTA files in output_dir and record its rows."""

@@ -8,6 +8,12 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 - `store_link` and a download into a project no longer replace a symlink that points outside the store;
   they report it and leave it in place.
+- `branchwater_search --output` records the screening under the output file's stem, the name
+  `parse_containment` gives the genome; it used the FASTA's name, so the two commands recorded one genome
+  twice.
+- Containment thresholds outside 0-1 are usage errors (exit 2): `--threshold` of `branchwater_search`,
+  `select_datasets`, `extract_target_reads`, `download_metadata` and `count_metadata`, and
+  `--min-containment` of `results_table` and the explore commands. `--max-cache-age-days` must not be negative.
 
 ### Fixed
 
@@ -38,6 +44,8 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   pandas could not read). The run log and the registry write NaN and infinity as `null`, so strict JSON
   readers such as jq accept them. `status --next` no longer suggests `--assemble` for an extraction whose
   assembly was already tried and gave no contigs.
+- `genome_download` and `genome_prepare` handle a genome named more than once (or by two sources) once.
+- `extract_target_reads` names the assembly-only flags given without `--assemble` in a warning.
 
 ## [0.13.0] - 2026-11-23
 

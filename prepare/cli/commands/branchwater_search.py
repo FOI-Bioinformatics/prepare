@@ -1,9 +1,16 @@
 """CLI command that searches the Branchwater index with a genome and writes a Branchwater CSV."""
 
 import argparse
+from typing import Tuple
 from pathlib import Path
 
-from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
+from prepare.cli.base import (
+    BaseCommand,
+    anchored_folder,
+    non_negative_int,
+    positive_int,
+    unit_interval,
+)
 from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
 from prepare.core.exceptions import PrepareError
 from prepare.core.validation import genome_name
@@ -39,7 +46,7 @@ class BranchwaterSearchCommand(BaseCommand):
         source.add_argument("--genome-fasta", help="Genome FASTA to sketch (needs the sourmash extra)")
         source.add_argument("--signature", help="Existing sourmash signature file (k=21, scaled=1000)")
         parser.add_argument(
-            "--threshold", type=finite_float, default=0.1, help="Minimum containment to keep (inclusive)"
+            "--threshold", type=unit_interval, default=0.1, help="Minimum containment to keep (inclusive)"
         )
         parser.add_argument("--branchwater-folder", default="branchwater", help="Folder for the Branchwater CSV")
         parser.add_argument(
@@ -52,7 +59,7 @@ class BranchwaterSearchCommand(BaseCommand):
         parser.add_argument("--refresh", action="store_true", help="Bypass a cached result and query the server again")
         parser.add_argument(
             "--max-cache-age-days",
-            type=int,
+            type=non_negative_int,
             default=None,
             help="Refetch if the cached result is older than this many days (default: no age limit)",
         )
@@ -64,6 +71,18 @@ class BranchwaterSearchCommand(BaseCommand):
             help="Most screening entries to keep in the registry per genome (the CSV keeps them all)",
         )
 
+    def _genome_and_output(self, args: argparse.Namespace, source: Path, folder: Path) -> Tuple[str, Path]:
+        """The genome id the matches are recorded under, and the CSV they are written to.
+
+        Without --output the CSV is named after the genome; with it, the genome takes the CSV's
+        name, as ``parse_containment`` does when it reads that file.
+        """
+        genome_id = genome_name(source)
+        output = Path(args.output) if args.output else folder / f"{genome_id}.csv"
+        if output.stem != genome_id:
+            self.logger.info("Recording the matches under %s, the name of %s", output.stem, output.name)
+        return output.stem, output
+
     def execute(self, args: argparse.Namespace) -> int:
         try:
             if args.genome_fasta:
@@ -74,8 +93,7 @@ class BranchwaterSearchCommand(BaseCommand):
                 source = Path(args.signature)
 
             folder = anchored_folder(args.branchwater_folder, getattr(args, "registry", None))
-            genome_id = genome_name(source)
-            output = Path(args.output) if args.output else folder / f"{genome_id}.csv"
+            genome_id, output = self._genome_and_output(args, source, folder)
             cache_dir = None if args.no_cache else output.parent / ".branchwater-cache"
             matches = search_index(
                 signature,

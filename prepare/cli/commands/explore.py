@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from prepare.cli.base import finite_float, BaseCommand
+from prepare.cli.base import unit_interval, BaseCommand
 from prepare.core.exceptions import ExitCode, PrepareError
 from prepare.core.utils import get_genome_columns
 from prepare.data.file_io import write_csv
@@ -116,7 +116,7 @@ class ExploreContainmentCommand(BaseCommand):
         )
         parser.add_argument(
             "--min-containment",
-            type=finite_float,
+            type=unit_interval,
             default=0.0,
             help="Minimum containment threshold for inclusion",
         )
@@ -232,7 +232,7 @@ class FindByTaxonomyCommand(BaseCommand):
         )
         parser.add_argument(
             "--min-containment",
-            type=finite_float,
+            type=unit_interval,
             default=0.0,
             help="Minimum containment threshold",
         )

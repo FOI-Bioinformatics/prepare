@@ -903,3 +903,13 @@ def test_genome_download_dry_run_creates_no_folder(_tools, tmp_path):
     )
     assert GenomeDownloadCommand().execute(args) == 0
     assert not output.exists()
+
+
+def test_genome_download_handles_a_repeated_accession_once(tmp_path):
+    args = argparse.Namespace(
+        accessions=["GCF_000006945.2", "GCF_000006945.2"],
+        accession_file=None,
+        species=None,
+        genus=None,
+    )
+    assert GenomeDownloadCommand()._collect_accessions(args) == ["GCF_000006945.2"]
