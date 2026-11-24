@@ -1586,6 +1586,19 @@ class TestRescreeningDropsVanishedAccessions:
         assert "screening" not in r.datasets["SRR2"]
         assert r.datasets["SRR2"]["download"]["state"] == "downloaded"
 
+    def test_rescreening_keeps_the_cani_of_an_unchanged_entry(self, tmp_path):
+        """Audit P14: parse_containment wrote cani=None over the value branchwater_search recorded."""
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
+        reg.record_screening(r, "SRR1", "G", 0.5, 0.98, "branchwater_search", 0.1, tmp_path / "matches" / "G.csv")
+        self._record(r, tmp_path, "\tG\nSRR1\t0.5\n")
+        assert r.datasets["SRR1"]["screening"]["genomes"]["G"]["cani"] == 0.98
+
+    def test_rescreening_with_a_new_containment_drops_the_old_cani(self, tmp_path):
+        r = reg.load_registry(tmp_path / "prepare_registry.json")
+        reg.record_screening(r, "SRR1", "G", 0.5, 0.98, "branchwater_search", 0.1, tmp_path / "matches" / "G.csv")
+        self._record(r, tmp_path, "\tG\nSRR1\t0.6\n")
+        assert r.datasets["SRR1"]["screening"]["genomes"]["G"]["cani"] is None
+
 
 @pytest.mark.perf
 def test_record_selection_with_many_kept_accessions_is_fast(tmp_path):

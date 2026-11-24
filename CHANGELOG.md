@@ -8,6 +8,8 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 - `sra_sketch --genome-id` must be a plain name (letters, digits, `.`, `_`, `-`); a value such as `a/b` or
   `../x` wrote the matches CSV into a subfolder or outside `matches/` and is now a usage error (exit 2).
+- `parse_containment` keeps the cANI an accession's screening entry already holds (from `branchwater_search`
+  or `status --init`) while its containment is unchanged; it wrote no value over it.
 - `store_reindex` keeps the first and the last journal line of each project, so a catalogue rebuilt
   after compaction keeps the project's `created` time. The one-time copy of a pre-journal catalogue
   into the journal now carries each project's `created` and `last_seen` times as well.

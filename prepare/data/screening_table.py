@@ -190,8 +190,11 @@ def _write_row(
     screening.discard("inferred")
     for genome, value, keep in entries:
         if keep:
+            # The table holds no cANI; one recorded for the same containment still describes this match.
+            earlier = screening.genomes.get(genome)
+            cani = earlier.cani if earlier is not None and earlier.containment == value else None
             screening.genomes[genome] = rb.ScreeningEntry(
-                containment=value, cani=None, csv=csv_paths[genome], source="matches"
+                containment=value, cani=cani, csv=csv_paths[genome], source="matches"
             )
         else:
             screening.genomes.pop(genome, None)
