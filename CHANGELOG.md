@@ -26,13 +26,13 @@ The low-severity findings of the 2026-11-23 bug sweep and the minors deferred by
 
 ### Fixed
 
-- Statistics library: `calculate_enrichment` reports the fold of proportions, which is what its Fisher
-  test compares; two samples with no genome above the threshold are at distance 0 (Jaccard, Dice,
+- Statistics library: `calculate_enrichment` reports the fold of proportions (the share of the observed
+  counts over the share of the expected counts), the quantity whose null its Fisher test checks; two samples with no genome above the threshold are at distance 0 (Jaccard, Dice,
   cosine); Shannon diversity uses no pseudo-count, and Pielou evenness gives 0 without a warning for a
   sample with fewer than two species.
 - GC and N content in the dataset statistics record and in quality profiles are fractions of all
   sampled bases, not means of per-read fractions; cached records are recomputed. Phred+64 qualities
-  (Illumina 1.3-1.7) are detected and decoded. A group comparison whose groups have no within-group
+  (Illumina 1.3-1.7) are detected and decoded (all characters from `@` to `i`, some above `J`). A group comparison whose groups have no within-group
   variance is reported as skipped rather than as p=0. The `sra_profile` summary labels its averages as
   means of datasets, and the `--sample-size` help text matches the sampling.
 - `validate_taxonomy` with an empty species list reports that there is nothing to validate (it divided by zero).
@@ -47,8 +47,9 @@ The low-severity findings of the 2026-11-23 bug sweep and the minors deferred by
 - `store_gc` keeps a staged copy and its `_old` partner when the published folder is missing (a run killed
   between the two renames of a publish), with a warning; they were removed as leftovers.
 - `store_link` and `store_unlink` handle a repeated accession once.
-- Store journal lines are written after the catalogue commit, so a write that is rolled back leaves no
-  line for `store_reindex` to replay; a replay keeps each project's `created` and `last_seen` times.
+- Store journal lines are written at the end of a catalogue session, just before its commit, so a session
+  that fails leaves no line for `store_reindex` to replay; a replay of an uncompacted journal keeps each
+  project's `created` and `last_seen` times.
 - `status --export-tsv` writes a header for an empty table (a project without extractions gave a file
   pandas could not read). The run log and the registry write NaN and infinity as `null`, so strict JSON
   readers such as jq accept them. `status --next` no longer suggests `--assemble` for an extraction whose

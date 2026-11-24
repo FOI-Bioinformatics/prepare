@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 def _fold_enrichment(observed: float, expected: float, total_observed: float, total_expected: float) -> float:
-    """The observed share over the expected share, the quantity the Fisher test compares."""
+    """The observed share over the expected share (a ratio of proportions); 1 means no enrichment.
+
+    Fisher's exact test reports an odds ratio, but it tests the same null hypothesis: equal shares.
+    """
     if expected > 0:
         share = observed / total_observed if total_observed > 0 else 0.0
         return share / (expected / total_expected)
@@ -38,7 +41,8 @@ def calculate_enrichment(
         min_count: Minimum count for inclusion in results
 
     Returns:
-        DataFrame with enrichment statistics
+        DataFrame with enrichment statistics; ``fold_enrichment`` is each key's share of the observed
+        counts over its share of the expected counts
 
     Raises:
         ProcessingError: If the calculation fails

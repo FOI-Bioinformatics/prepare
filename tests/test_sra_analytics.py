@@ -49,10 +49,8 @@ class TestSequenceQualityAnalyzer:
         self.analyzer = SequenceQualityAnalyzer()
 
     def test_analyzer_initialization(self):
-        """Test SequenceQualityAnalyzer initialization."""
-        assert hasattr(self.analyzer, "quality_encodings")
-        assert "sanger" in self.analyzer.quality_encodings
-        assert self.analyzer.quality_encodings["sanger"] == 33
+        """The analyzer needs no configuration; the quality offset is read from the data."""
+        assert SequenceQualityAnalyzer() is not None
 
     def test_calculate_gc_content(self):
         """Test GC content calculation."""

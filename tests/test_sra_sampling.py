@@ -221,3 +221,11 @@ def test_phred33_is_unchanged():
     hist = quality_histogram([b"IIII", b"####"])  # Q40 and Q2 in Phred+33
     assert distribution_from_histogram(hist)["median"] == pytest.approx(21.0)
     assert int(hist[40]) == 4
+
+
+def test_high_quality_phred33_up_to_tilde_is_not_read_as_phred64():
+    """Review (0.14.0): HiFi-like Phred+33 qualities (all at Q31 or above, up to '~') were decoded with offset 64."""
+    from prepare.data.sra.sampling import distribution_from_histogram, quality_histogram
+
+    hist = quality_histogram([b"@@~~", b"~~~~"])  # Q31 and Q93 in Phred+33
+    assert distribution_from_histogram(hist)["median"] == 93.0

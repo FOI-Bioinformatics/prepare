@@ -57,9 +57,6 @@ def _gc_histogram(gc_contents: List[float]) -> Dict[str, int]:
 class SequenceQualityAnalyzer:
     """Analyzes sequence quality metrics from FASTQ files."""
 
-    def __init__(self):
-        self.quality_encodings = {"sanger": 33, "illumina_1.3": 64, "illumina_1.5": 64, "solexa": 64}
-
     def analyze_fastq_quality(
         self,
         fastq_path: Union[str, Path, Sequence[Union[str, Path]]],

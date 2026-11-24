@@ -312,12 +312,16 @@ class StoreGcCommand(BaseCommand):
             return False
         if not (paths.tmp / f"{accession}_old").is_dir():
             return False
-        logger.warning(
-            "tmp/%s is a staged copy of %s with no published folder; move it to sra/%s or run store_verify",
-            name,
-            accession,
-            accession,
-        )
+        if name == f"{accession}_old":  # one warning per accession, on the folder that is always there
+            # The staged tmp/<ACC> is the newer, complete copy; tmp/<ACC>_old is the one it was to replace.
+            newer = (paths.tmp / accession).is_dir()
+            publish = f"tmp/{accession}" if newer else f"tmp/{accession}_old"
+            logger.warning(
+                "sra/%s is missing, and a publish of it was interrupted; move %s to sra/%s",
+                accession,
+                publish,
+                accession,
+            )
         return True
 
     @classmethod
