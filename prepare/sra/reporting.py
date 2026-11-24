@@ -12,9 +12,8 @@ than a report without charts.
 """
 
 import logging
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, Optional, Union, Any
 
 import pandas as pd
 import numpy as np
@@ -29,13 +28,29 @@ from prepare.sra.analytics import (
 )
 from prepare.core.optional import require
 from prepare.data.file_io import write_text_atomic
-from prepare.utils.html import CATEGORICAL_COLORS, REPORT_CSS, plotly_js_script, plotly_layout
+from prepare.utils.html import (
+    CATEGORICAL_COLORS,
+    chart_panel,
+    figure_title,
+    page_footer,
+    page_head,
+    plotly_layout,
+    utc_stamp,
+)
 
 # Quality-grade colours drawn from the validated categorical palette (ordinal:
 # excellent -> poor).
 _GRADE_COLORS = {"excellent": "#008300", "good": "#2a78d6", "fair": "#eda100", "poor": "#e34948"}
 
 logger = logging.getLogger(__name__)
+
+# How each numeric column is named, with its unit, in figures and test headings.
+METRIC_LABELS = {
+    "avg_read_length": "Mean read length (bp)",
+    "gc_percent": "GC content (%)",
+    "total_reads": "Reads",
+    "complexity_score": "Complexity score",
+}
 
 _PURPOSE = "An SRA HTML report"
 
@@ -67,122 +82,6 @@ class SRAReportGenerator:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.analyzer = SRADatasetAnalyzer(fastq_dir=fastq_dir)
-
-    def generate_quality_dashboard(
-        self,
-        accessions: List[str],
-        title: str = "SRA Quality Dashboard",
-        profiles: Optional[Dict[str, "QualityProfile"]] = None,
-    ) -> Path:
-        """
-        Generate interactive quality control dashboard.
-
-        Args:
-            accessions: List of SRA accessions to analyze
-            title: Dashboard title
-            profiles: Previously computed profiles keyed by accession. An accession
-                present here is reused as-is rather than reprofiled from FASTQ.
-
-        Returns:
-            Path to generated HTML dashboard
-
-        Raises:
-            ConfigurationError: If plotly or jinja2 is not installed
-        """
-        _require_report_packages()
-        logger.info(f"Generating quality dashboard for {len(accessions)} datasets")
-
-        # Profile all datasets, reusing any profile already supplied
-        supplied = profiles or {}
-        profiles = {}
-        for accession in accessions:
-            if accession in supplied:
-                profiles[accession] = supplied[accession]
-                continue
-            try:
-                profile = self.analyzer.profile_dataset_quality(accession)
-                profiles[accession] = profile
-            except Exception as e:
-                logger.warning(f"Failed to profile {accession}: {e}")
-
-        if not profiles:
-            raise ValueError("No datasets could be profiled")
-
-        # Create dashboard data
-        dashboard_data = {
-            "title": title,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "total_datasets": len(profiles),
-            "profiles": profiles,
-        }
-
-        # Calculate summary statistics
-        summary_stats = self._calculate_quality_summary(profiles)
-        dashboard_data["summary_stats"] = summary_stats
-
-        # Detect anomalies
-        anomaly_report = self.analyzer.detect_dataset_anomalies(list(profiles.keys()), profiles=profiles)
-        dashboard_data["anomaly_report"] = anomaly_report
-
-        # Create visualizations
-        dashboard_data["plots"] = self._create_quality_plots(profiles)
-
-        # Generate HTML dashboard
-        html_content = self._generate_quality_html(dashboard_data)
-
-        dashboard_path = self.output_dir / f"quality_dashboard_{int(datetime.now().timestamp())}.html"
-        write_text_atomic(dashboard_path, html_content)
-
-        logger.info(f"Quality dashboard saved to {dashboard_path}")
-        return dashboard_path
-
-    def create_comparative_analysis(
-        self,
-        groups: Dict[str, List[str]],
-        title: str = "Comparative Analysis Report",
-        profiles: Optional[Dict[str, "QualityProfile"]] = None,
-    ) -> Path:
-        """
-        Create comparative analysis report between dataset groups.
-
-        Args:
-            groups: Dictionary mapping group names to accession lists
-            title: Report title
-            profiles: Previously computed profiles keyed by accession, passed straight
-                through to ``SRADatasetAnalyzer.compare_datasets`` so an accession already
-                profiled (e.g. by an earlier ``sra_profile`` run) is not reprofiled
-                from FASTQ just to build this HTML report.
-
-        Returns:
-            Path to generated HTML report
-
-        Raises:
-            ConfigurationError: If plotly or jinja2 is not installed
-        """
-        _require_report_packages()
-        logger.info(f"Creating comparative analysis for {len(groups)} groups")
-
-        # Perform comparative analysis
-        comparison = self.analyzer.compare_datasets(groups, profiles=profiles)
-
-        report_data = {
-            "title": title,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "comparison": comparison,
-            "group_counts": {name: len(accessions) for name, accessions in groups.items()},
-        }
-
-        # Create comparative visualizations
-        report_data["plots"] = self._create_comparative_plots(comparison)
-
-        # Generate HTML report
-        html_content = self._generate_comparative_html(report_data)
-
-        report_path = self.output_dir / f"comparative_analysis_{int(datetime.now().timestamp())}.html"
-        write_text_atomic(report_path, html_content)
-
-        logger.info(f"Comparative analysis saved to {report_path}")
-        return report_path
 
     def quality_section(
         self, profiles: Dict[str, QualityProfile], anomalies: Optional[AnomalyReport] = None
@@ -225,7 +124,7 @@ class SRAReportGenerator:
                 "group_counts": {name: len(accessions) for name, accessions in comparison.dataset_groups.items()},
                 "plots": self._create_comparative_plots(comparison),
             }
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = utc_stamp()
         html = _render_page(
             "SRA report", title, timestamp, quality=self.quality_section(profiles, anomalies), comparative=comparative
         )
@@ -254,14 +153,18 @@ class SRAReportGenerator:
         )
         fig_grades.update_layout(**plotly_layout())
         fig_grades.update_layout(title_text="Quality grade distribution")
-        plots["quality_grades"] = pyo.plot(fig_grades, output_type="div", include_plotlyjs=False)
+        plots["quality_grades"] = chart_panel(
+            pyo.plot(fig_grades, output_type="div", include_plotlyjs=False), figure_title(fig_grades)
+        )
 
         # GC content distribution
         gc_percents = [p.gc_percent for p in profiles.values()]
         fig_gc = go.Figure(data=[go.Histogram(x=gc_percents, nbinsx=25)])
         fig_gc.update_layout(**plotly_layout())
         fig_gc.update_layout(title_text="GC content distribution", xaxis_title="GC content (%)", yaxis_title="Count")
-        plots["gc_distribution"] = pyo.plot(fig_gc, output_type="div", include_plotlyjs=False)
+        plots["gc_distribution"] = chart_panel(
+            pyo.plot(fig_gc, output_type="div", include_plotlyjs=False), figure_title(fig_gc)
+        )
 
         # Read length vs complexity scatter
         read_lengths = [p.avg_read_length for p in profiles.values()]
@@ -285,7 +188,9 @@ class SRAReportGenerator:
             xaxis_title="Average read length (bp)",
             yaxis_title="Complexity score",
         )
-        plots["complexity_scatter"] = pyo.plot(fig_complexity, output_type="div", include_plotlyjs=False)
+        plots["complexity_scatter"] = chart_panel(
+            pyo.plot(fig_complexity, output_type="div", include_plotlyjs=False), figure_title(fig_complexity)
+        )
 
         return plots
 
@@ -310,11 +215,11 @@ class SRAReportGenerator:
                         fig_box.add_trace(go.Box(y=group_data, name=group, boxpoints="outliers"))
 
                     fig_box.update_layout(**plotly_layout())
-                    fig_box.update_layout(
-                        title_text=f"{col.replace('_', ' ').title()} by group",
-                        yaxis_title=col.replace("_", " ").title(),
+                    label = METRIC_LABELS.get(col, col)
+                    fig_box.update_layout(title_text=f"{label} by group", yaxis_title=label)
+                    plots[f"{col}_boxplot"] = chart_panel(
+                        pyo.plot(fig_box, output_type="div", include_plotlyjs=False), figure_title(fig_box)
                     )
-                    plots[f"{col}_boxplot"] = pyo.plot(fig_box, output_type="div", include_plotlyjs=False)
 
         return plots
 
@@ -353,41 +258,21 @@ class SRAReportGenerator:
             "high_contamination_count": high_contamination,
         }
 
-    def _generate_quality_html(self, dashboard_data: Dict[str, Any]) -> str:
-        """Generate HTML content for quality dashboard."""
-        return _render_page(
-            "SRA quality",
-            dashboard_data["title"],
-            dashboard_data["timestamp"],
-            quality=dashboard_data,
-            comparative=None,
-        )
 
-    def _generate_comparative_html(self, report_data: Dict[str, Any]) -> str:
-        """Generate HTML content for comparative analysis report."""
-        return _render_page(
-            "SRA comparison", report_data["title"], report_data["timestamp"], quality=None, comparative=report_data
-        )
-
-
-_PAGE_TEMPLATE = """
-<!DOCTYPE html>
-<html>
+_PAGE_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ title }}</title>
-    {{ plotly_js|safe }}
-    <style>{{ report_css|safe }}</style>
+    {{ head_html|safe }}
 </head>
 <body>
+    <a class="pre-skip" href="#report">Skip to the report</a>
     <header class="pre-header"><div class="pre-wrap">
         <p class="pre-eyebrow">PREPARE &middot; {{ eyebrow }}</p>
         <h1 class="pre-title">{{ title }}</h1>
         <p class="pre-readout"><span>generated <b>{{ timestamp }}</b></span>
         {% if quality %}<span><b>{{ quality.total_datasets }}</b> datasets</span>{% endif %}</p>
     </div></header>
-    <main class="pre-wrap">
+    <main class="pre-wrap" id="report">
     {% if quality %}{% with summary_stats=quality.summary_stats, anomaly_report=quality.anomaly_report,
         plots=quality.plots %}
         <section class="pre-stats" aria-label="Quality summary">
@@ -424,7 +309,7 @@ _PAGE_TEMPLATE = """
             <h2>Quality metrics</h2>
             <div class="pre-grid">
             {% for plot_name, plot_html in plots.items() %}
-                <div class="pre-panel">{{ plot_html|safe }}</div>
+                {{ plot_html|safe }}
             {% endfor %}
             </div>
         </section>
@@ -445,7 +330,7 @@ _PAGE_TEMPLATE = """
             <h2>Statistical tests</h2>
             {% for test_name, test_result in comparison.statistical_tests.items() %}
             <div class="pre-note{% if test_result.significant %} warn{% endif %}">
-                <h3>{{ test_name.replace('_', ' ').title() }}</h3>
+                <h3>{{ metric_labels.get(test_name, test_name) }}</h3>
                 {# A skipped test carries no p-value (None) or NaN, which is not equal to itself. #}
                 {% if test_result.p_value is none or test_result.p_value != test_result.p_value %}
                 <p>{{ test_result.test }}{% if test_result.note %} &middot; {{ test_result.note }}{% endif %}</p>
@@ -466,7 +351,7 @@ _PAGE_TEMPLATE = """
             <h2>Comparative visualizations</h2>
             <div class="pre-grid">
             {% for plot_name, plot_html in plots.items() %}
-                <div class="pre-panel">{{ plot_html|safe }}</div>
+                {{ plot_html|safe }}
             {% endfor %}
             </div>
         </section>
@@ -481,7 +366,7 @@ _PAGE_TEMPLATE = """
         </div>
         {% endif %}
     {% endwith %}{% endif %}
-        <footer class="pre-footer">Generated by PREPARE</footer>
+        {{ footer_html|safe }}
     </main>
 </body>
 </html>
@@ -498,8 +383,9 @@ def _render_page(
     """Render one report page with a quality section, a comparative section, or both."""
     template = _jinja_template(_PAGE_TEMPLATE)
     return template.render(
-        plotly_js=plotly_js_script(),
-        report_css=REPORT_CSS,
+        head_html=page_head(title),
+        footer_html=page_footer(),
+        metric_labels=METRIC_LABELS,
         eyebrow=eyebrow,
         title=title,
         timestamp=timestamp,

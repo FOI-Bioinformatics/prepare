@@ -19,13 +19,21 @@ class TestResolveMetadataTable:
         (tmp_path / "metadata_table.txt").write_text("Run_ID\tx\n")
         (tmp_path / "metadata").mkdir()
         (tmp_path / "metadata" / "branchwater_metadata.txt").write_text("Run_ID\tx\n")
-        assert resolve_metadata_table(None) == Path("metadata_table.txt")
+        assert resolve_metadata_table(None) == tmp_path.resolve() / "metadata_table.txt"
 
     def test_falls_back_to_branchwater_metadata(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         (tmp_path / "metadata").mkdir()
         (tmp_path / "metadata" / "branchwater_metadata.txt").write_text("Run_ID\tx\n")
-        assert resolve_metadata_table(None) == Path("metadata/branchwater_metadata.txt")
+        assert resolve_metadata_table(None) == tmp_path.resolve() / "metadata/branchwater_metadata.txt"
+
+    def test_default_table_is_found_in_the_project_root_from_a_subfolder(self, tmp_path, monkeypatch):
+        """Audit P15: the default candidates were looked for in the working directory only."""
+        (tmp_path / "prepare_registry.json").write_text("{}")
+        (tmp_path / "metadata_table.txt").write_text("Run_ID\tx\n")
+        (tmp_path / "sub").mkdir()
+        monkeypatch.chdir(tmp_path / "sub")
+        assert resolve_metadata_table(None) == tmp_path.resolve() / "metadata_table.txt"
 
     def test_missing_lists_candidates(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

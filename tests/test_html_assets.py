@@ -91,7 +91,8 @@ class TestTableScript:
         assert 'val = "\'" + val' in html.TABLE_SCRIPT
 
     def test_sort_parses_only_whole_numeric_cells_and_starts_ascending(self):
-        assert "/^-?\\d+(\\.\\d+)?$/" in html.TABLE_SCRIPT
+        # Whole cells only; an exponent (1e-05) still reads as a number (audit G18).
+        assert "/^-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?$/" in html.TABLE_SCRIPT
         assert "parseFloat" not in html.TABLE_SCRIPT
         assert 'getAttribute("data-sort-dir") == "asc"' in html.TABLE_SCRIPT
 
@@ -100,3 +101,22 @@ class TestTableScript:
         assert html.TABLE_SCRIPT.rstrip().endswith("</script>")
         # Single braces so it drops into both Jinja and f-string contexts.
         assert "{{" not in html.TABLE_SCRIPT and "}}" not in html.TABLE_SCRIPT
+
+
+def test_utc_stamp_converts_an_offset_time_to_utc():
+    assert html.utc_stamp("2026-11-24T07:01:30+01:00") == "2026-11-24 06:01 UTC"
+
+
+def test_page_footer_names_the_utc_time_and_version():
+    import re
+
+    from prepare import __version__
+
+    footer = html.page_footer()
+    assert re.search(r"Generated \d{4}-\d\d-\d\d \d\d:\d\d UTC by PREPARE ", footer)
+    assert __version__ in footer
+
+
+def test_page_head_escapes_the_title():
+    head = html.page_head("<b>x</b>")
+    assert "<title>&lt;b&gt;x&lt;/b&gt;</title>" in head and 'name="viewport"' in head

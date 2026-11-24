@@ -9,12 +9,14 @@ template autoescapes every value, plotly.js is embedded inline (``plotly_js_scri
 page uses the shared ``REPORT_CSS``.
 """
 
-from typing import Any, Dict, List
+import os
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 from prepare.core.optional import require
 from prepare.processing.project_report import SECTION_TITLES
 from prepare.processing.project_report_markdown import format_cell, section_blocks, subtitle
-from prepare.utils.html import REPORT_CSS, plotly_js_script, plotly_layout
+from prepare.utils.html import chart_panel, figure_title, page_footer, page_head, plotly_layout
 
 PURPOSE = "The project report's HTML page"
 FUNNEL_STAGES = ("screened", "selected", "downloaded", "analysed", "extracted", "assembled")
@@ -29,7 +31,7 @@ def require_html() -> None:
 
 def _figure_div(figure: Any) -> str:
     offline = require("plotly.offline", "interactive", PURPOSE)
-    return str(offline.plot(figure, output_type="div", include_plotlyjs=False))
+    return chart_panel(str(offline.plot(figure, output_type="div", include_plotlyjs=False)), figure_title(figure))
 
 
 def _stage_figure_object(funnel: Dict[str, Any]) -> Any:
@@ -68,11 +70,26 @@ def _genome_figure(genomes: Dict[str, Any]) -> str:
     return _figure_div(_genome_figure_object(genomes))
 
 
-def _sections(report: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Template data per section: id, title, blocks with formatted cells and an optional figure."""
+def _linked(cell: Any, root: Path, output_dir: Optional[Path]) -> Any:
+    """``cell`` as a link (``{"text", "href"}``) when it names an existing ``.html`` file of the project,
+    relative to the report's folder ``output_dir``; otherwise ``cell`` unchanged."""
+    if output_dir is None or not isinstance(cell, str) or not cell.endswith(".html"):
+        return cell
+    target = (root / cell).resolve()
+    if not target.is_file():
+        return cell
+    return {"text": cell, "href": Path(os.path.relpath(target, output_dir.resolve())).as_posix()}
+
+
+def _sections(report: Dict[str, Any], output_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Template data per section: id, title, blocks with formatted cells and an optional figure.
+
+    With ``output_dir`` (the folder the page is written to), an output that is an HTML page of the
+    project becomes a link to it."""
     figures = {"funnel": _funnel_figure(report["funnel"])}
     if report["genomes"]:
         figures["genomes"] = _genome_figure(report["genomes"])
+    root = Path(report["project"].get("root") or ".")
     sections = []
     for name, blocks in section_blocks(report).items():
         sections.append(
@@ -84,7 +101,7 @@ def _sections(report: Dict[str, Any]) -> List[Dict[str, Any]]:
                     {
                         "text": block.text,
                         "header": list(block.header),
-                        "rows": [[format_cell(cell) for cell in row] for row in block.rows],
+                        "rows": [[_linked(format_cell(cell), root, output_dir) for cell in row] for row in block.rows],
                     }
                     for block in blocks
                 ],
@@ -93,21 +110,25 @@ def _sections(report: Dict[str, Any]) -> List[Dict[str, Any]]:
     return sections
 
 
-def render_html(report: Dict[str, Any]) -> str:
-    """The report as one HTML page with every section of ``SECTION_TITLES``; needs plotly and jinja2."""
+def render_html(report: Dict[str, Any], output_dir: Optional[Union[str, Path]] = None) -> str:
+    """The report as one HTML page with every section of ``SECTION_TITLES``; needs plotly and jinja2.
+
+    ``output_dir`` is the folder the page is written to; the project's HTML outputs are linked from it."""
     require_html()
     jinja2 = require("jinja2", "interactive", PURPOSE)
     template = jinja2.Environment(loader=jinja2.BaseLoader(), autoescape=True).from_string(_PAGE_TEMPLATE)
     project = report["project"]
+    title = f"Project report: {project['name']}" if project.get("name") else "Project report"
+    note = "Written by prepare project_report; the same content is in project_report.md and project_report.json."
     return str(
         template.render(
-            title="Project report",
+            title=title,
             subtitle=subtitle(report),
             project=project,
             funnel=report["funnel"],
-            sections=_sections(report),
-            plotly_js=plotly_js_script(),
-            report_css=REPORT_CSS,
+            sections=_sections(report, Path(output_dir) if output_dir is not None else None),
+            head_html=page_head(title),
+            footer_html=page_footer(note),
         )
     )
 
@@ -115,11 +136,7 @@ def render_html(report: Dict[str, Any]) -> str:
 _PAGE_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ title }}</title>
-    {{ plotly_js|safe }}
-    <style>{{ report_css|safe }}</style>
+    {{ head_html|safe }}
     <style>
         /* Static tables: no sort control, and space between the blocks of a section. */
         table.pre-table th { cursor: default; }
@@ -145,14 +162,17 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
         {% for section in sections %}
         <section class="pre-section" id="{{ section.id }}">
             <h2>{{ section.title }}</h2>
-            {% if section.figure %}<div class="pre-panel">{{ section.figure|safe }}</div>{% endif %}
+            {% if section.figure %}{{ section.figure|safe }}{% endif %}
             {% for block in section.blocks %}
                 {% if block.header %}
                 <div class="pre-table-wrap"><table class="pre-table">
                     <thead><tr>{% for cell in block.header %}<th scope="col">{{ cell }}</th>{% endfor %}</tr></thead>
                     <tbody>
                     {% for row in block.rows %}
-                        <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+                        <tr>{% for cell in row %}<td>
+                            {%- if cell is mapping %}<a href="{{ cell.href }}">{{ cell.text }}</a>
+                            {%- else %}{{ cell }}{% endif -%}
+                        </td>{% endfor %}</tr>
                     {% endfor %}
                     </tbody>
                 </table></div>
@@ -162,8 +182,7 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
             {% endfor %}
         </section>
         {% endfor %}
-        <footer class="pre-footer">Written by prepare project_report; the same content is in
-            project_report.md and project_report.json.</footer>
+        {{ footer_html|safe }}
     </main>
 </body>
 </html>

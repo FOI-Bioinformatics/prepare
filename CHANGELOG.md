@@ -4,8 +4,56 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-24
+
+The Low findings of the 2026-10-21 pipeline and page audit that were still present, the two minors
+deferred by the 0.12.1 review, and the four minors deferred after 0.14.0. Changed behaviour is listed first.
+
+### Changed
+
+- A relative path to a file one step writes and another reads back is taken against the project root, as
+  the project folders already were: the tables of `parse_containment`, the input and output of
+  `select_datasets`, `extract_target_reads --parsed-containment`, `results_table`, the metadata tables
+  and outputs of `parse_metadata`, `check_metadata_attributes`, `count_metadata` and `single_sample`, the
+  `sra_profile` and `sra_report` folders, `--blacklist-file`, `status --parsed-containment`, the explore
+  commands' files, and `--branchwater-folder` of `use_branchwater` and `extract_branchwater_metadata`. Run
+  from a subfolder, these commands read and wrote those files in the subfolder. An accession list
+  (`--accessions-file`, `download_sra --blacklist`) is looked for in the project root first, then in the
+  working directory, with a warning when both hold one. Other files the user names (`--groups-file`,
+  `blacklist --from-file`, `plot_map`, `plot_metadata_counts --file-path`) stay relative to the working
+  directory. The default metadata table is looked for in the root of the project `--registry` names.
+- `sra_report` exits with status 1 when it leaves an accession out (no readable FASTQ files), as
+  `sra_profile` does; the report of the other accessions is still written. It exited 0.
+- `SRAReportGenerator.generate_quality_dashboard` and `create_comparative_analysis` are removed; no command
+  called them, and `generate_report` writes both sections.
+
 ### Fixed
 
+- `sra_sketch --genome-id` must be a plain name (letters, digits, `.`, `_`, `-`); a value such as `a/b` or
+  `../x` wrote the matches CSV into a subfolder or outside `matches/` and is now a usage error (exit 2).
+- `parse_containment` keeps the cANI an accession's screening entry already holds (from `branchwater_search`
+  or `status --init`) while its containment is unchanged; it wrote no value over it.
+- `parse_metadata` with unreadable metadata files, `sra_info` without any metadata, and `sra_profile` with
+  accessions it could not profile report the error through the common error report, which keeps the
+  traceback for `--log-file` (exit codes unchanged).
+- An interrupt of `extract_target_reads` no longer loses the line naming the samples whose result could not
+  be recorded, including one whose recording was failing when the stop arrived.
+- `download_metadata` names how many accessions failed for a network reason ("NCBI could not be reached
+  for 1 of 2 accession(s)"); it counted every failed accession.
+- The explorer, `sra_report` and `project_report` pages share one head and one footer, which gives the time
+  in UTC and the PREPARE version; the explorer had no date or version and `sra_report` a local time without
+  a zone. `sra_report` declares its language and has a skip link, as the other pages do. The
+  `project_report` title names the project, and its created and updated times are in UTC.
+  `explore_containment --title` sets the explorer's title.
+- Figure titles, axis labels and test headings of `sra_report` name each metric with its unit ("GC content
+  (%) by group"); they read "Gc Percent By Group". Every chart panel of the HTML pages carries a text
+  description (`role="figure"` and the figure's title), and the explorer's column headers are marked as such.
+  The `interactive_plot` figures follow the page width and use the report style, instead of a fixed 800 px
+  width and plotly's default style.
+- The explorer table shows the recorded containment, where a value above 1 was shown as 1.000; its CSV
+  export is named after the page title and the table says it holds the rows shown; the column sort orders
+  values written in scientific notation as numbers. The project report lists every analysis output, one
+  row each (it listed the first), and links the outputs that are HTML pages of the project.
 - `store_reindex` keeps the first and the last journal line of each project, so a catalogue rebuilt
   after compaction keeps the project's `created` time. The one-time copy of a pre-journal catalogue
   into the journal now carries each project's `created` and `last_seen` times as well.

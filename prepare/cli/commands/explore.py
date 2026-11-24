@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from prepare.cli.base import unit_interval, BaseCommand
+from prepare.cli.base import anchor_args, unit_interval, BaseCommand
 from prepare.core.exceptions import DataAccessError, ExitCode, PrepareError
 from prepare.core.utils import get_genome_columns
 from prepare.data.file_io import write_csv
@@ -17,6 +17,8 @@ from prepare.data.genome_taxonomy import (
     save_taxonomy_cache,
     summarize_by_taxonomy,
 )
+
+DEFAULT_EXPLORER_TITLE = "PREPARE Containment Explorer"
 
 
 class EnrichTaxonomyCommand(BaseCommand):
@@ -53,6 +55,7 @@ class EnrichTaxonomyCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "parsed_containment", "taxonomy_map", "metadata", "output", "cache")
             containment_path = Path(args.parsed_containment)
             if not containment_path.exists():
                 return self.fail(DataAccessError(f"Containment file not found: {containment_path}"), self.name)
@@ -113,6 +116,7 @@ class ExploreContainmentCommand(BaseCommand):
             default="containment_explorer.html",
             help="Output HTML file",
         )
+        parser.add_argument("--title", default=DEFAULT_EXPLORER_TITLE, help="Title of the explorer page")
         parser.add_argument(
             "--min-containment",
             type=unit_interval,
@@ -133,6 +137,7 @@ class ExploreContainmentCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "parsed_containment", "taxonomy_map", "metadata", "output", "cache")
             from prepare.visualization.explorer import generate_containment_explorer, require_explorer_packages
 
             # Check before the taxonomy lookup, which may call NCBI.
@@ -168,6 +173,7 @@ class ExploreContainmentCommand(BaseCommand):
                 taxonomy=taxonomy,
                 metadata=metadata,
                 output_file=args.output,
+                title=getattr(args, "title", None) or DEFAULT_EXPLORER_TITLE,
                 min_containment=args.min_containment,
             )
             self.logger.info("Generated containment explorer: %s", output_path)
@@ -247,6 +253,7 @@ class FindByTaxonomyCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "parsed_containment", "taxonomy_map", "metadata", "output", "cache")
             if not any([args.family, args.genus, args.species]):
                 self.logger.error("At least one of --family, --genus, or --species is required")
                 return int(ExitCode.USAGE)

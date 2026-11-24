@@ -14,7 +14,14 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from prepare.cli.base import BaseCommand, accessions_from_args, anchored_folder, resolve_command_store
+from prepare.cli.base import (
+    resolve_input_args,
+    anchor_args,
+    BaseCommand,
+    accessions_from_args,
+    anchored_folder,
+    resolve_command_store,
+)
 from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
 from prepare.core.validation import validate_accession
 from prepare.data import run_log
@@ -326,15 +333,22 @@ class SRAProfileCommand(BaseCommand):
         term = getattr(args, "_termination", None)
         if term is not None and term.stop.is_set():
             raise KeyboardInterrupt("sra_profile stopped")
-        if failed:
-            self.logger.warning("%d of %d accession(s) could not be profiled", len(failed), len(accessions))
-            return 1
-        return 0
+        return self._exit_for_failed(failed, accessions)
+
+    def _exit_for_failed(self, failed: List[str], accessions: List[str]) -> int:
+        """0, or 1 through ``fail`` naming (at most ten of) the accessions that could not be profiled."""
+        if not failed:
+            return 0
+        shown = ", ".join(failed[:10]) + (f" and {len(failed) - 10} more" if len(failed) > 10 else "")
+        message = f"{len(failed)} of {len(accessions)} accession(s) could not be profiled: {shown}"
+        return self.fail(DataAccessError(message), self.name)
 
     def execute(self, args: argparse.Namespace) -> int:
         """Profile the datasets; 1 when any accession could not be profiled."""
         try:
             args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
+            anchor_args(args, "output_report", "output_dir")
+            resolve_input_args(args, "accessions_file")
             return self._run(args)
         except (PrepareError, OSError) as e:
             return self.fail(e, "Profiling failed")

@@ -344,3 +344,51 @@ def test_markdown_funnel_says_its_counts_come_from_the_registry(registry, no_che
     text = render_markdown(_report(registry))
     assert "as recorded in the registry" in text
     assert "prepare status" in text
+
+
+def test_html_title_names_the_project_and_times_are_utc(registry, no_checks):
+    """Audit G16: the title was the constant "Project report"; created/updated were local times."""
+    pytest.importorskip("plotly")
+    pytest.importorskip("jinja2")
+    import re
+
+    from prepare.visualization.project_report import render_html
+
+    report = _report(registry)
+    report["project"]["name"] = "Wolbachia survey"
+    page = render_html(report)
+    assert "<title>Project report: Wolbachia survey</title>" in page
+    assert re.search(r"Generated \d{4}-\d\d-\d\d \d\d:\d\d UTC by PREPARE \d+\.\d+\.\d+", page)
+    assert re.search(r"<td>created</td>\s*<td[^>]*>\d{4}-\d\d-\d\d \d\d:\d\d UTC</td>", page)
+
+
+def test_html_figures_have_a_text_alternative(registry, no_checks):
+    pytest.importorskip("plotly")
+    pytest.importorskip("jinja2")
+    import re
+
+    from prepare.visualization.project_report import render_html
+
+    page = render_html(_report(registry))
+    panels = re.findall(r'<div class="pre-panel"([^>]*)>', page)
+    assert panels and all('role="figure"' in p and re.search(r'aria-label="[^"]+"', p) for p in panels)
+
+
+def test_outputs_lists_every_output_and_links_html_ones(registry, no_checks, tmp_path):
+    """Audit G17: only the first output per analysis was listed, and nothing linked."""
+    pytest.importorskip("plotly")
+    pytest.importorskip("jinja2")
+    from prepare.data.registry import record_analysis, save_registry
+    from prepare.visualization.project_report import render_html
+
+    root = tmp_path
+    (root / "reports").mkdir()
+    (root / "reports" / "sra_report.html").write_text("<html></html>")
+    record_analysis(registry, "SRR1", "report", root / "reports" / "sra_report.html", {})
+    save_registry(registry)
+    report = _report(registry)
+    markdown = render_markdown(report)
+    assert "profiles/SRR1.json" in markdown and "profiles/SRR2.json" in markdown
+    page = render_html(report, output_dir=root / "report")
+    assert '<a href="../reports/sra_report.html">reports/sra_report.html</a>' in page
+    assert "profiles/SRR2.json" in page

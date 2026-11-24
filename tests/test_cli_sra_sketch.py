@@ -471,3 +471,33 @@ def test_an_accession_without_fastq_files_fails(tmp_path, caplog):
         assert SRASketchCommand().execute(_args(tmp_path, accession=["SRR1", "SRR9"])) == 1
     assert "SRR9" in caplog.text
     assert (tmp_path / "sketches" / "SRR1.sig.gz").is_file()
+
+
+@pytest.mark.parametrize("genome_id", ["a/b", "../x", ".hidden", ""])
+def test_a_genome_id_that_is_not_a_plain_name_is_refused(tmp_path, genome_id, caplog):
+    """Audit P16: --genome-id was joined into matches/<id>.csv unchecked, so ../x escaped the folder."""
+    from prepare.data.branchwater_search import sketch_fasta
+
+    _dataset(tmp_path)
+    sig = tmp_path / "g.sig"
+    sig.write_text(json.dumps([sketch_fasta(_genome(tmp_path))]))
+
+    with caplog.at_level(logging.ERROR):
+        rc = SRASketchCommand().execute(_args(tmp_path, signature=str(sig), genome_id=genome_id))
+
+    assert rc == 2
+    assert repr(genome_id) in caplog.text
+    assert not (tmp_path / "x.csv").exists() and not (tmp_path / "matches" / "a").exists()
+    assert not (tmp_path / "sketches").exists()
+
+
+@pytest.mark.parametrize("genome_id", ["E.coli_K-12", "GCF_000005845.2"])
+def test_a_genome_id_with_dots_and_dashes_is_accepted(tmp_path, genome_id):
+    from prepare.data.branchwater_search import sketch_fasta
+
+    _dataset(tmp_path)
+    sig = tmp_path / "g.sig"
+    sig.write_text(json.dumps([sketch_fasta(_genome(tmp_path))]))
+
+    assert SRASketchCommand().execute(_args(tmp_path, signature=str(sig), genome_id=genome_id)) == 0
+    assert (tmp_path / "matches" / f"{genome_id}.csv").is_file()

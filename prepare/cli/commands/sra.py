@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
+from prepare.cli.base import resolve_input_args, finite_float, positive_int, BaseCommand, anchored_folder
 from prepare.cli.commands.sra_record import STORE_SAVED_SUFFIX  # noqa: F401 - re-exported
 from prepare.cli.commands.sra_record import record_present, result_recorder, sidecar_completeness
 from prepare.cli.commands.sra_verdicts import present_verdicts, registry_inputs
@@ -646,6 +646,7 @@ class DownloadSraCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
+        resolve_input_args(args, "accessions_file", "blacklist")
         outcomes, started, aborted = RunOutcomes(), datetime.now(timezone.utc), None
         self.__dict__["_usage_unrecorded"] = []  # each run reports only the accessions it linked or saved
         try:

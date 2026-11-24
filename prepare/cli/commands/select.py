@@ -5,7 +5,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List
 
-from prepare.cli.base import positive_int, unit_interval, BaseCommand
+from prepare.cli.base import anchor_args, positive_int, unit_interval, BaseCommand
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD, DEFAULT_TOP_N
 from prepare.core.exceptions import PrepareError, ValidationError
 from prepare.data import registry_blocks as rb
@@ -194,6 +194,7 @@ class SelectDatasetsCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "parsed_containment", "metadata_file", "output")
             run_filters = RunFilters(
                 max_run_size=args.max_run_size,
                 min_spots=args.min_spots,
@@ -205,7 +206,7 @@ class SelectDatasetsCommand(BaseCommand):
             run_filters.validate()
             metadata_file = None
             if args.metadata_column or run_filters.active():
-                metadata_file = resolve_metadata_table(args.metadata_file)
+                metadata_file = resolve_metadata_table(args.metadata_file, getattr(args, "registry", None))
 
             # A snapshot, read without the lock: ranking can take a while on a large table, and the
             # selection is recorded afterwards against the registry as it is then (see below).

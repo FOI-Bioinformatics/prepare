@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Dict, List
 
-from prepare.cli.base import BaseCommand, refuse_bad_accessions
+from prepare.cli.base import anchor_args, BaseCommand, refuse_bad_accessions
 from prepare.core.exceptions import PrepareError
 from prepare.data import registry_blocks as rb
 from prepare.data import run_log
@@ -67,6 +67,7 @@ class BlacklistCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "blacklist_file")
             if args.list:
                 registry = load_registry(args.registry)
                 for acc in query(registry, "excluded"):

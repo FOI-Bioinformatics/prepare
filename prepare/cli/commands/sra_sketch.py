@@ -11,14 +11,23 @@ recorded per accession in the project registry.
 """
 
 import argparse
+import re
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from prepare.cli.base import BaseCommand, accessions_from_args, anchored_folder, positive_int, resolve_command_store
+from prepare.cli.base import (
+    resolve_input_args,
+    BaseCommand,
+    accessions_from_args,
+    anchored_folder,
+    positive_int,
+    resolve_command_store,
+)
 from prepare.core import settings
+from prepare.core.constants import GENOME_ID_PATTERN
 from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
 from prepare.core.validation import genome_name, validate_accession
 from prepare.core.optional import require
@@ -113,7 +122,10 @@ class SRASketchCommand(BaseCommand):
             "--signature", default=None, help="Existing plain sourmash signature of the genome (k=21, scaled=1000)"
         )
         parser.add_argument(
-            "--genome-id", default=None, help="Name of the matches CSV (default: the genome file's name without suffix)"
+            "--genome-id",
+            default=None,
+            help="Name of the matches CSV: letters, digits, '.', '_' and '-' "
+            "(default: the genome file's name without suffix)",
         )
         parser.add_argument("--matches-folder", default="matches", help="Folder the containment CSV is written to")
         parser.add_argument(
@@ -414,8 +426,13 @@ class SRASketchCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         """Sketch the datasets; 1 when any accession could not be sketched."""
+        genome_id = getattr(args, "genome_id", None)
+        if genome_id is not None and not re.fullmatch(GENOME_ID_PATTERN, genome_id):
+            message = f"--genome-id must be a plain name (letters, digits, '.', '_', '-'): {genome_id!r}"
+            return self.fail(ValidationError(message), self.name)
         try:
             registry = getattr(args, "registry", None)
+            resolve_input_args(args, "accessions_file")
             args.fastq_folder = str(anchored_folder(args.fastq_folder, registry))
             args.output_dir = str(anchored_folder(args.output_dir, registry))
             args.matches_folder = str(anchored_folder(args.matches_folder, registry))

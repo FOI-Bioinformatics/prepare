@@ -325,3 +325,58 @@ class TestChartTitlesNameTheirRule:
 
         pytest.importorskip("plotly")
         assert "Sample-by-family containment (maximum over the family's genomes)" in _build_heatmap(self._long(4))
+
+
+_FOOTER = r"Generated \d{4}-\d\d-\d\d \d\d:\d\d UTC by PREPARE \d+\.\d+\.\d+"
+
+
+def test_explorer_page_frame(containment_df, taxonomy, tmp_path):
+    """Audit G16: the explorer footer had no date or version; the page renders without a registry."""
+    import re
+
+    out = generate_containment_explorer(containment_df, taxonomy, output_file=tmp_path / "e.html", title="My hits")
+    page = out.read_text()
+    assert page.startswith('<!DOCTYPE html>\n<html lang="en">')
+    assert page.count('class="pre-skip"') == 1 and "<title>My hits</title>" in page
+    assert re.search(_FOOTER, page)
+
+
+def test_explore_containment_title_flag_reaches_the_page(tmp_path, monkeypatch):
+    import argparse
+    from unittest.mock import patch
+
+    from prepare.cli.commands.explore import ExploreContainmentCommand
+
+    parser = argparse.ArgumentParser()
+    ExploreContainmentCommand().configure_parser(parser)
+    table = tmp_path / "parsed_containment.txt"
+    table.write_text("\tG1\nSRR1\t0.9\n")
+    args = parser.parse_args(["--parsed-containment", str(table), "--title", "X", "--output", str(tmp_path / "o.html")])
+    with (
+        patch("prepare.visualization.explorer.generate_containment_explorer", return_value=tmp_path / "o.html") as gen,
+        patch("prepare.cli.commands.explore.fetch_taxonomy_for_genomes", return_value={}, create=True),
+    ):
+        ExploreContainmentCommand().execute(args)
+    assert gen.call_args.kwargs.get("title") == "X"
+
+
+def test_explorer_charts_and_headers_are_described(containment_df, taxonomy, tmp_path):
+    """Audit G21: charts had no text alternative and the sortable headers no scope."""
+    import re
+
+    page = generate_containment_explorer(containment_df, taxonomy, output_file=tmp_path / "e.html").read_text()
+    panels = re.findall(r'<div class="pre-panel"([^>]*)>', page)
+    assert panels and all('role="figure"' in p and re.search(r'aria-label="[^"]+"', p) for p in panels)
+    headers = re.findall(r"<th [^>]*>", page)
+    assert headers and all('scope="col"' in h for h in headers)
+
+
+def test_explorer_shows_the_recorded_containment_and_names_its_export(taxonomy, tmp_path):
+    """Audit G18: a value above 1 was shown clipped to 1.000; the export had a fixed name and the sort
+    ignored scientific notation."""
+    df = pd.DataFrame({"genA": [1.2, 0.5], "genB": [0.2, 0.1]}, index=["SRR001", "SRR002"])
+    page = generate_containment_explorer(df, taxonomy, output_file=tmp_path / "e.html", title="My hits").read_text()
+    assert "<span>1.200</span>" in page and "--v:1.000" in page
+    assert "document.title" in page and "containment_results.csv" not in page
+    assert "Export CSV saves the rows shown" in page
+    assert r"([eE][-+]?\d+)?" in page

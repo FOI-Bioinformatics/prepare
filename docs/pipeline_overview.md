@@ -7,6 +7,17 @@ dataset stands at any time. This page lists the stages in order, with the comman
 and what the registry keeps. Depth on a topic is in the page named in the relevant section; the flags of
 every command are in `prepare <command> --help`.
 
+A relative path given to a project folder (`--fastq-folder`, `--matches-folder`, `--branchwater-folder` and
+the like) or to a file a command writes for a later step (`parsed_containment.txt`, `accessions.txt`,
+`metadata_table.txt`, `results.tsv`, `blacklist.txt`, the `sra_profile` and `sra_report` folders, the
+explore outputs) is taken against the project root, the folder of `prepare_registry.json`, so a command run
+from a subfolder uses the same files. An accession list read with `--accessions-file` or `download_sra
+--blacklist` is looked for in the project root first, where `select_datasets` and `blacklist` write theirs,
+then in the working directory; when both hold a file of that name, the project root's is used and a warning
+names the other. Other files the user names (`--groups-file`, `blacklist --from-file`, `plot_map --output`,
+`plot_metadata_counts --file-path`) are taken against the working directory, as the shell would. Absolute
+paths are used as given.
+
 ## Stage summary
 
 | Stage | Commands | Main output | Recorded in the registry |
@@ -92,7 +103,9 @@ and `containment`. An unreadable file makes `use_branchwater`, `parse_containmen
 Use the details table when a later step needs cANI or sample provenance. `parsed_containment.txt` stays
 the samples-by-genomes matrix that the rest of the pipeline reads. `plot_containment` writes a plot image
 (png by default). The registry keeps the screened accessions with their containment per genome, up to a
-cap described in [project_state.md](project_state.md#the-registry).
+cap described in [project_state.md](project_state.md#the-registry). The cANI that `branchwater_search` or
+`status --init` recorded from a match CSV is kept while the accession's containment for that genome is
+unchanged; `parse_containment` reads no cANI itself.
 
 ## 2. Select
 

@@ -5,7 +5,9 @@ stylesheet and Plotly styling, and the sortable/filterable table JavaScript so
 the several HTML generators do not each carry their own copy.
 """
 
-from typing import Any, Dict, List
+from datetime import datetime, timezone
+from html import escape
+from typing import Any, Dict, List, Optional
 
 from prepare.core.optional import require
 
@@ -312,7 +314,7 @@ function sortTable(col) {
     var rows = Array.from(table.tBodies[0].rows);
     var asc = !(table.getAttribute("data-sort-col") == col
                 && table.getAttribute("data-sort-dir") == "asc");
-    var numeric = /^-?\\d+(\\.\\d+)?$/;
+    var numeric = /^-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?$/;
     rows.sort(function(a, b) {
         var va = a.cells[col].textContent.trim();
         var vb = b.cells[col].textContent.trim();
@@ -362,7 +364,57 @@ function exportCSV() {
     var blob = new Blob([csv.join("\\n")], {type: "text/csv"});
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "containment_results.csv";
+    var name = document.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    a.download = (name || "table") + ".csv";
     a.click();
 }
 </script>"""
+
+
+# --- Page frame ---------------------------------------------------------------
+# The head and footer every report page shares, so the pages carry one stamp format.
+
+
+def utc_stamp(iso: Optional[str] = None) -> str:
+    """``iso`` (an ISO 8601 time with any offset; now when omitted) as "YYYY-MM-DD HH:MM UTC".
+
+    A value that is not an ISO time is returned unchanged; one without an offset is taken as local time.
+    """
+    if iso is None:
+        moment = datetime.now(timezone.utc)
+    else:
+        try:
+            moment = datetime.fromisoformat(str(iso))
+        except ValueError:
+            return str(iso)
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def page_head(title: str) -> str:
+    """The inside of a report page's ``<head>``: charset, viewport, title, plotly.js and the stylesheet."""
+    return (
+        '<meta charset="UTF-8">\n'
+        '    <meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"    <title>{escape(title)}</title>\n"
+        f"    {plotly_js_script()}\n"
+        f"    <style>{REPORT_CSS}</style>"
+    )
+
+
+def page_footer(note: str = "") -> str:
+    """The footer of a report page: when (UTC) and by which PREPARE version, then ``note`` (escaped)."""
+    from prepare import __version__
+
+    text = f"Generated {utc_stamp()} by PREPARE {__version__}." + (f" {escape(note)}" if note else "")
+    return f'<footer class="pre-footer">{text}</footer>'
+
+
+def figure_title(fig: Any) -> str:
+    """The title text of a plotly figure, without markup after a line break; "Figure" when it has none."""
+    text = getattr(getattr(fig.layout, "title", None), "text", None) or "Figure"
+    return str(text).split("<br>")[0]
+
+
+def chart_panel(html: str, label: str) -> str:
+    """``html`` (one figure) in a page panel described by ``label`` for screen readers."""
+    return f'<div class="pre-panel" role="figure" aria-label="{escape(label)}">{html}</div>'

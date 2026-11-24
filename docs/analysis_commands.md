@@ -131,7 +131,7 @@ prepare genome_search --genus Francisella --format tsv
 
 ## explore_containment
 
-`explore_containment` writes an interactive HTML browser of the containment table (default `containment_explorer.html`). `--min-containment` drops weak hits (a page with no hit left says so), `--metadata` adds an optional sample metadata table, and `--open` opens the page in a browser. Without a taxonomy for the genomes the page shows the results table only and points at `enrich_taxonomy`. It also writes a GTDB taxonomy cache (default `taxonomy_cache.tsv`) next to it. The taxonomy is computed on the fly unless `--taxonomy-map` names an existing map.
+`explore_containment` writes an interactive HTML browser of the containment table (default `containment_explorer.html`). `--min-containment` drops weak hits (a page with no hit left says so), `--metadata` adds an optional sample metadata table, `--title` sets the page title (default "PREPARE Containment Explorer"), and `--open` opens the page in a browser. The table shows the recorded containment (the bar is capped at 1), its Export CSV button saves the rows shown, filtered and at most 5000, to a file named after the page title. Without a taxonomy for the genomes the page shows the results table only and points at `enrich_taxonomy`. It also writes a GTDB taxonomy cache (default `taxonomy_cache.tsv`) next to it. The taxonomy is computed on the fly unless `--taxonomy-map` names an existing map.
 
 ```bash
 prepare explore_containment --parsed-containment parsed_containment.txt --min-containment 0.1

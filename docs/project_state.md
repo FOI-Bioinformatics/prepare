@@ -57,7 +57,7 @@ prepare status --accessions-file accessions.txt --list-missing
 prepare status --parsed-containment parsed_containment.txt --json
 ```
 
-`--list-missing` also prints the missing accessions. Presence is checked against the standard layout: `fastq/<ACC>/`, `metadata/<ACC>_metadata.xml` and `genomes/<GCF>.fna`. `--fastq-folder`, `--metadata-folder` and `--genomes-folder` override these locations.
+`--list-missing` also prints the missing accessions. Presence is checked per accession against the standard layout, `fastq/<ACC>/` and `metadata/<ACC>_metadata.xml`; the genome FASTA files under `genomes/` are counted. `--fastq-folder`, `--metadata-folder` and `--genomes-folder` override these locations.
 
 ### Funnel and timing
 
@@ -133,7 +133,7 @@ Run log rules:
 
 - Nothing is written in a folder without a registry. A run log that cannot be written is reported as a warning and does not change the exit code.
 - `PREPARE_RUN_LOG=false`, or `run_log = false` under `[runtime]` in the config file, turns the run log off.
-- The commands that keep a run log are `download_sra`, `sra_profile`, `sra_report`, `results_table`, `extract_target_reads`, `store_verify`, `project_report`, `select_datasets`, `blacklist`, and `status` with `--init` or `--reconcile`.
+- The commands that keep a run log are `download_sra`, `sra_profile`, `sra_report`, `sra_sketch`, `results_table`, `extract_target_reads`, `store_verify`, `project_report`, `select_datasets`, `blacklist`, and `status` with `--init` or `--reconcile`.
 - A dry run, `blacklist --list`, a plain `status` (also with `--json`, `--next` or `--export-tsv`), `doctor` and `runs` record nothing. For `results_table`, `select_datasets` and `project_report`, `--no-record` also leaves the run out of the run log.
 - The summary of a run holds counts and totals. Per-accession results go to the run's detail file, one row per accession (per accession and genome for `extract_target_reads`). Examples are failed and downloaded accessions with reason and attempts for `download_sra`, the figures of each accession for `sra_profile` and `sra_report`, mapped reads, breadth and mean depth for `extract_target_reads` (for a sample skipped as already extracted, the values recorded earlier with `skipped: true`), the verdict and fix for `store_verify`, and the rank of each accession for `select_datasets`.
 - PREPARE does not add `.prepare/` to a project's `.gitignore`. Add it there if the run log should not be committed with the registry.
@@ -175,7 +175,7 @@ The report has ten sections:
 6. The failed downloads with their reason, the number of attempts over all runs (`attempts_total`) and the date. The report CSV and `download_run.json` of `download_sra` count the attempts of one run.
 7. Timing: the totals and medians of `status` plus the minimum, quartiles, 90th percentile and maximum of each step.
 8. The environment checks of `doctor`, without network access. `--no-environment` leaves them out.
-9. The recorded exports and analysis outputs.
+9. The recorded exports and analysis outputs, one row per output (up to `--max-rows` per analysis); in the HTML page an output that is an HTML page of the project is a link to it.
 10. The last 10 runs of the run log.
 
 Tables and accession lists are cut to `--max-rows` rows (200 by default, 0 for all) and say how many rows there were. `results_table` writes every extraction row.

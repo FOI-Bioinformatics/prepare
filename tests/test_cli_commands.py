@@ -83,7 +83,9 @@ class TestUseBranchwaterCommand:
 
         result = command.execute(args)
         assert result == 0
-        mock_command.assert_called_once_with("test_folder", str(tmp_path.resolve() / "matches"), errors=[])
+        mock_command.assert_called_once_with(
+            str(tmp_path.resolve() / "test_folder"), str(tmp_path.resolve() / "matches"), errors=[]
+        )
 
     @patch("prepare.cli.commands.branchwater.process_branchwater_files")
     def test_execute_failure(self, mock_command, tmp_path, monkeypatch):
@@ -96,7 +98,9 @@ class TestUseBranchwaterCommand:
 
         result = command.execute(args)
         assert result == 1
-        mock_command.assert_called_once_with("test_folder", str(tmp_path.resolve() / "matches"), errors=[])
+        mock_command.assert_called_once_with(
+            str(tmp_path.resolve() / "test_folder"), str(tmp_path.resolve() / "matches"), errors=[]
+        )
 
     def test_use_branchwater_returns_1_on_file_error(self, tmp_path, caplog):
         """An unreadable file fails through the shared path: one ERROR line with the traceback attached."""
@@ -174,7 +178,7 @@ class TestExtractBranchwaterMetadataCommand:
         assert result == 0
         mock_mkdir.assert_called_once_with(exist_ok=True)
         expected = tmp_path.resolve() / "metadata" / "branchwater_metadata.txt"
-        mock_command.assert_called_once_with("test_folder", expected, errors=[])
+        mock_command.assert_called_once_with(str(tmp_path.resolve() / "test_folder"), expected, errors=[])
 
 
 class TestParseContainmentCommand:
@@ -249,7 +253,7 @@ class TestParseContainmentCommand:
         mock_command.assert_called_once_with(
             str(tmp_path.resolve() / "test_matches"),
             str(tmp_path / "parsed.txt"),
-            "summary.txt",
+            str(tmp_path.resolve() / "summary.txt"),
             0.05,
             details_file=None,
         )
@@ -1078,7 +1082,8 @@ class TestDownloadSraCommand:
         assert call_kwargs.pop("timings") == {}
         assert call_kwargs == {
             "fastq_folder": str(tmp_path / "fastq"),
-            "accessions_file": "accessions.txt",
+            # Not found anywhere: named from the project root, where select_datasets writes it.
+            "accessions_file": str(tmp_path.resolve() / "accessions.txt"),
             "max_downloads": None,
             "dry_run": False,
             "num_threads": 4,
@@ -2847,7 +2852,7 @@ class TestSingleSampleCommand:
 
     @patch("prepare.cli.commands.samples.resolve_metadata_table")
     @patch("prepare.cli.commands.samples.count_single_sample")
-    def test_execute(self, mock_command, mock_resolve):
+    def test_execute(self, mock_command, mock_resolve, tmp_path):
         """Test command execution."""
         mock_command.return_value = {"organism1": 5, "organism2": 3}
         mock_resolve.return_value = Path("metadata.txt")
@@ -2860,13 +2865,15 @@ class TestSingleSampleCommand:
             metadata_file="metadata.txt",
             threshold=0.1,
             top_n=100,
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         result = command.execute(args)
         assert result == 0
-        mock_resolve.assert_called_once_with("metadata.txt")
+        # Project files are taken from the project root (the registry's folder).
+        mock_resolve.assert_called_once_with(str(tmp_path.resolve() / "metadata.txt"), args.registry)
         mock_command.assert_called_once_with(
-            summary_file="summary.txt",
+            summary_file=str(tmp_path.resolve() / "summary.txt"),
             metadata_file="metadata.txt",
             summary_column="test_genome",
             metadata_column="organism",
@@ -2915,7 +2922,9 @@ class TestParseMetadataCommand:
 
         result = command.execute(args)
         assert result == 0
-        mock_command.assert_called_once_with(str(tmp_path.resolve() / "metadata"), "metadata_table.txt", errors=[])
+        mock_command.assert_called_once_with(
+            str(tmp_path.resolve() / "metadata"), str(tmp_path.resolve() / "metadata_table.txt"), errors=[]
+        )
 
     @patch("prepare.cli.commands.metadata.parse_metadata")
     def test_execute_resolves_the_project_root_once(self, mock_parse, tmp_path):
@@ -3093,7 +3102,7 @@ class TestCountMetadataCommand:
 
     @patch("prepare.cli.commands.metadata.resolve_metadata_table")
     @patch("prepare.cli.commands.metadata.count_metadata")
-    def test_execute(self, mock_command, mock_resolve):
+    def test_execute(self, mock_command, mock_resolve, tmp_path):
         """Test command execution."""
         mock_command.return_value = None
         mock_resolve.return_value = Path("metadata.txt")
@@ -3106,17 +3115,19 @@ class TestCountMetadataCommand:
             threshold=0.5,
             output_file="counts.txt",
             stat_file=None,
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         result = command.execute(args)
         assert result == 0
-        mock_resolve.assert_called_once_with("metadata.txt")
+        root = tmp_path.resolve()
+        mock_resolve.assert_called_once_with(str(root / "metadata.txt"), args.registry)
         mock_command.assert_called_once_with(
-            summary_file="summary.txt",
+            summary_file=str(root / "summary.txt"),
             metadata_file="metadata.txt",
             metadata_column="organism",
             threshold=0.5,
-            output_file="counts.txt",
+            output_file=str(root / "counts.txt"),
             stat_file=None,
         )
 
@@ -3313,7 +3324,7 @@ class TestPlotMetadataCountsCommand:
         assert args.show_title is True
 
     @patch("prepare.cli.commands.metadata.plot_metadata_counts")
-    def test_execute(self, mock_command):
+    def test_execute(self, mock_command, tmp_path):
         """Test command execution."""
         import matplotlib.pyplot as plt
 
@@ -3321,13 +3332,24 @@ class TestPlotMetadataCountsCommand:
         command = PlotMetadataCountsCommand()
 
         args = argparse.Namespace(
-            file_path="counts.txt", plot_type="bar", title=None, colors=None, save_format=None, show_title=False
+            file_path="counts.txt",
+            plot_type="bar",
+            title=None,
+            colors=None,
+            save_format=None,
+            show_title=False,
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         result = command.execute(args)
         assert result == 0
         mock_command.assert_called_once_with(
-            file_path="counts.txt", title=None, plot_type="bar", colors=None, show_title=False, save_format=None
+            file_path="counts.txt",  # a required path the user names: taken as given
+            title=None,
+            plot_type="bar",
+            colors=None,
+            show_title=False,
+            save_format=None,
         )
 
     @patch("prepare.cli.commands.metadata.plot_metadata_counts")
@@ -3811,10 +3833,11 @@ class TestFoldersAnchoredOnTheProject:
     def test_use_branchwater_writes_the_project_matches_folder(self, mock_process, proj):
         args = self._parse(["use_branchwater", "--branchwater-folder", "bw"])
         assert UseBranchwaterCommand().execute(args) == 0
-        assert mock_process.call_args.args == ("bw", str(proj / "matches"))
+        # The Branchwater folder is a project folder too (audit P15).
+        assert mock_process.call_args.args == (str(proj / "bw"), str(proj / "matches"))
 
     def test_extract_branchwater_metadata_writes_the_project_metadata_folder(self, proj):
-        (proj / "sub" / "bw").mkdir()
+        (proj / "bw").mkdir()
         args = self._parse(["extract_branchwater_metadata", "--branchwater-folder", "bw"])
         assert ExtractBranchwaterMetadataCommand().execute(args) == 0
         assert not (proj / "sub" / "metadata").exists()

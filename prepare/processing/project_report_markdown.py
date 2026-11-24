@@ -12,6 +12,7 @@ import math
 from typing import Any, Callable, Dict, List, NamedTuple, Sequence
 
 from prepare.processing.project_report import SECTION_TITLES
+from prepare.utils.html import utc_stamp
 
 FUNNEL_DETAIL = (
     ("excluded", "excluded"),
@@ -22,6 +23,8 @@ FUNNEL_DETAIL = (
     ("seconds", "seconds"),
     ("failed_seconds", "failed seconds"),
 )
+# Project fields holding a time, shown in UTC like the page stamp.
+_TIME_FIELDS = ("created", "updated")
 TIMING_FIELDS = ("count", "min", "p25", "median", "p75", "p90", "max")
 
 
@@ -69,7 +72,11 @@ def _table(header: Sequence[str], rows: Sequence[Sequence[Any]]) -> Block:
 
 
 def _project(section: Dict[str, Any]) -> List[Block]:
-    rows = [[key.replace("_", " "), value] for key, value in section.items() if value is not None]
+    rows = [
+        [key.replace("_", " "), utc_stamp(value) if key in _TIME_FIELDS else value]
+        for key, value in section.items()
+        if value is not None
+    ]
     return [_table(["field", "value"], rows)]
 
 
@@ -170,11 +177,16 @@ def _outputs(section: Dict[str, Any]) -> List[Block]:
         rows = [[name, e.get("date"), e.get("output"), e.get("summary")] for name, e in section["exports"].items()]
         blocks.append(_table(["export", "date", "output", "summary"], rows))
     if section["analyses"]:
+        # One row per output, so every one is listed (up to --max-rows per analysis).
         rows = [
-            [name, a["datasets"], a["latest"], a["outputs_total"], a["outputs"][0] if a["outputs"] else None]
+            [name, a["datasets"], a["latest"], output]
             for name, a in section["analyses"].items()
+            for output in (a["outputs"] or [None])
         ]
-        blocks.append(_table(["analysis", "datasets", "latest", "outputs", "first output"], rows))
+        blocks.append(_table(["analysis", "datasets", "latest", "output"], rows))
+        cut = sum(a["outputs_total"] - len(a["outputs"]) for a in section["analyses"].values())
+        if cut:
+            blocks.append(_text(f"{cut} further output(s) not listed; --max-rows 0 lists them all."))
     return blocks or [_text("No export or analysis output is recorded.")]
 
 
@@ -213,7 +225,7 @@ def subtitle(report: Dict[str, Any]) -> str:
     """The line under the title: when, by which PREPARE version and from which registry."""
     project = report.get("project", {})
     return (
-        f"Generated {report.get('generated')} by PREPARE {project.get('prepare_version')} "
+        f"Generated {utc_stamp(report.get('generated'))} by PREPARE {project.get('prepare_version')} "
         f"from {project.get('registry')}."
     )
 

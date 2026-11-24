@@ -3,12 +3,13 @@
 import argparse
 import contextlib
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 import pandas as pd
 
-from prepare.cli.base import finite_float, positive_int, unit_interval, BaseCommand, anchored_folder
+from prepare.cli.base import anchor_args, finite_float, positive_int, unit_interval, BaseCommand, anchored_folder
 from prepare.cli.commands.extraction_assembly import assemble_samples
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD
 from prepare.core.exceptions import PrepareError, TransientError
@@ -473,6 +474,7 @@ class ExtractTargetReadsCommand(BaseCommand):
         clock: Optional[Stopwatch] = None,
         progress: Optional[ProgressReporter] = None,
         recorded: Optional[Dict[str, Dict[str, Any]]] = None,
+        failures: Optional[List[Tuple[str, PrepareError]]] = None,
     ) -> None:
         """Checkpoint one sample, count it on ``progress``, then stop the run if a signal arrived.
 
@@ -490,7 +492,9 @@ class ExtractTargetReadsCommand(BaseCommand):
         by its caller (``_notify_result`` only catches ``Exception``), so it reaches ``execute``
         and then ``BaseCommand.run``, which logs, stops any running tool and returns 130. The
         sample just checkpointed above is recorded either way; the next one in
-        ``extract_target_reads``'s ``samples`` list is never started.
+        ``extract_target_reads``'s ``samples`` list is never started. Before that interrupt, the
+        run's recording failures so far (``failures``, plus this sample's own) are logged, since the
+        report after the run is not reached.
         """
         timing = clock.lap() if clock is not None else None
         try:
@@ -510,6 +514,9 @@ class ExtractTargetReadsCommand(BaseCommand):
                 clock.restart()
             term = getattr(args, "_termination", None)
             if term is not None and term.stop.is_set():
+                pending = sys.exc_info()[1]
+                failed = list(failures or []) + ([(accession, pending)] if isinstance(pending, PrepareError) else [])
+                self._log_record_failures(failed)
                 raise KeyboardInterrupt(f"extract_target_reads stopped after {accession}")
 
     def _fail_for_recording(self, failures: List[Tuple[str, PrepareError]], exit_code: int) -> int:
@@ -518,10 +525,15 @@ class ExtractTargetReadsCommand(BaseCommand):
         is above ``exit_code``."""
         if not failures:
             return exit_code
-        named = ", ".join(f"{acc} ({(str(e).splitlines() or [''])[0]})" for acc, e in failures)
-        self.logger.error("Recording failed for %d sample(s): %s", len(failures), named)
+        self._log_record_failures(failures)
         first = next((e for _, e in failures if isinstance(e, TransientError)), failures[0][1])
         return max(exit_code, self.fail(first, "Error recording extraction results"))
+
+    def _log_record_failures(self, failures: List[Tuple[str, PrepareError]]) -> None:
+        """One ERROR line naming each sample whose result was not recorded, with its reason's first line."""
+        if failures:
+            named = ", ".join(f"{acc} ({(str(e).splitlines() or [''])[0]})" for acc, e in failures)
+            self.logger.error("Recording failed for %d sample(s): %s", len(failures), named)
 
     @staticmethod
     def _progress_reporter(selected: List[str], available: Set[str], already_done: Dict[str, Any]) -> ProgressReporter:
@@ -681,6 +693,7 @@ class ExtractTargetReadsCommand(BaseCommand):
             self._check_required_tools(args)
             args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
             args.output_folder = str(anchored_folder(args.output_folder, getattr(args, "registry", None)))
+            anchor_args(args, "parsed_containment")
             self._warn_dangling_links(args)
             self._warn_ignored_assembly_flags(args)
             registry = load_registry(args.registry)
@@ -720,7 +733,7 @@ class ExtractTargetReadsCommand(BaseCommand):
                     force=args.force,
                     already_done=already_done,
                     on_result=lambda accession, outcome: self._record_result_and_check_stop(
-                        args, accession, outcome, store, clock, progress, already_done
+                        args, accession, outcome, store, clock, progress, already_done, record_failures
                     ),
                     min_mapq=args.min_mapq,
                     temp_folder=setting_for(args, "temp_folder"),
@@ -756,6 +769,7 @@ class ExtractTargetReadsCommand(BaseCommand):
                 run_log.note_run(args, summary={**counts, "assembly_failed": len(assembly.failed)})
                 term = getattr(args, "_termination", None)
                 if term is not None and term.stop.is_set():
+                    self._log_record_failures(record_failures)
                     raise KeyboardInterrupt("extract_target_reads assembly stopped")
                 if assembly.failed:
                     # First line of each reason only; the per-sample ERROR line has the full text.

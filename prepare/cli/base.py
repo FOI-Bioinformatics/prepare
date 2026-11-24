@@ -28,6 +28,8 @@ if TYPE_CHECKING:
     from prepare.data.registry import Registry
     from prepare.store.layout import StorePaths
 
+logger = logging.getLogger(__name__)
+
 
 def read_accessions_file(path: Union[str, Path]) -> List[str]:
     """Accessions listed in ``path``, one per line, in file order.
@@ -75,6 +77,54 @@ def anchored_folder(folder: Union[str, Path], registry: Optional[str]) -> Path:
 
     path = Path(folder)
     return path if path.is_absolute() else project_root(registry_path(registry)) / path
+
+
+def project_input(path: Union[str, Path], registry: Optional[str] = None) -> Path:
+    """An input list named by the user (``--accessions-file``, ``--blacklist``), found from a subfolder too.
+
+    An absolute path is used as given. A relative one is taken against the project root when the file
+    is there (``select_datasets`` and ``blacklist`` write their lists there), else against the working
+    directory, where a list the user wrote by hand usually is. When both exist and differ, the project
+    root's copy is used and a warning names the one left out, since it may be an older list.
+    """
+    from prepare.data.registry import project_root, registry_path
+
+    given = Path(path)
+    if given.is_absolute():
+        return given
+    at_root = project_root(registry_path(registry)) / given
+    if at_root.is_file():
+        if given.is_file() and not given.resolve().samefile(at_root):
+            logger.warning("Using %s; %s in the working directory is not used", at_root, given.resolve())
+        return at_root
+    return given if given.exists() else at_root
+
+
+def resolve_input_args(args: argparse.Namespace, *dests: str) -> None:
+    """Apply ``project_input`` to each named argument of ``args`` that is set (a path or a list of paths)."""
+    registry = getattr(args, "registry", None)
+    for dest in dests:
+        value = getattr(args, dest, None)
+        if isinstance(value, (list, tuple)):
+            setattr(args, dest, [str(project_input(item, registry)) for item in value])
+        elif value is not None:
+            setattr(args, dest, str(project_input(value, registry)))
+
+
+def anchor_args(args: argparse.Namespace, *dests: str) -> None:
+    """Resolve each named project file or folder argument of ``args`` against the project root.
+
+    For the files one pipeline step writes and another reads back (a parsed containment table, an
+    accession list a command writes, a report folder), as ``anchored_folder`` does for the project
+    folders. An argument that is absent or None is left alone; a list the user writes by hand
+    (``--accessions-file``, ``--groups-file``) is not passed here and stays relative to the working
+    directory.
+    """
+    registry = getattr(args, "registry", None)
+    for dest in dests:
+        value = getattr(args, dest, None)
+        if value is not None:
+            setattr(args, dest, str(anchored_folder(value, registry)))
 
 
 def resolve_command_store(args: argparse.Namespace, registry: "Registry") -> Optional["StorePaths"]:

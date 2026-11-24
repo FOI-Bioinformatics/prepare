@@ -26,9 +26,11 @@ from prepare.core.utils import get_genome_columns
 from prepare.data.file_io import write_text_atomic
 from prepare.utils.html import (
     CONTAINMENT_SCALE,
-    REPORT_CSS,
     TABLE_SCRIPT,
-    plotly_js_script,
+    chart_panel,
+    figure_title,
+    page_footer,
+    page_head,
     plotly_layout,
 )
 
@@ -228,7 +230,8 @@ def _sunburst_figure(long_df: pd.DataFrame):
 
 def _build_sunburst(long_df: pd.DataFrame) -> str:
     """Build taxonomy sunburst chart. Returns Plotly HTML fragment."""
-    return _sunburst_figure(long_df).to_html(full_html=False, include_plotlyjs=False)
+    fig = _sunburst_figure(long_df)
+    return chart_panel(fig.to_html(full_html=False, include_plotlyjs=False), figure_title(fig))
 
 
 def _build_heatmap(long_df: pd.DataFrame) -> str:
@@ -245,7 +248,7 @@ def _build_heatmap(long_df: pd.DataFrame) -> str:
         aspect="auto",
     )
     fig.update_layout(**plotly_layout(height=min(EXPLORER_HEATMAP_MAX_HEIGHT, max(320, 22 * len(pivot.index) + 110))))
-    return fig.to_html(full_html=False, include_plotlyjs=False)
+    return chart_panel(fig.to_html(full_html=False, include_plotlyjs=False), figure_title(fig))
 
 
 def _build_distributions(long_df: pd.DataFrame) -> tuple:
@@ -260,7 +263,7 @@ def _build_distributions(long_df: pd.DataFrame) -> tuple:
         labels={"family": "Family", "containment": "Containment"},
     )
     box_fig.update_layout(**plotly_layout(height=450, xaxis_tickangle=-30, showlegend=False))
-    box_html = box_fig.to_html(full_html=False, include_plotlyjs=False)
+    box_html = chart_panel(box_fig.to_html(full_html=False, include_plotlyjs=False), figure_title(box_fig))
 
     genus_counts = long_df.groupby("genus")["sample"].nunique().reset_index()
     genus_counts.columns = ["genus", "sample_count"]
@@ -276,7 +279,7 @@ def _build_distributions(long_df: pd.DataFrame) -> tuple:
         labels={"genus": "Genus", "sample_count": "Samples"},
     )
     bar_fig.update_layout(**plotly_layout(height=450, xaxis_tickangle=-30))
-    bar_html = bar_fig.to_html(full_html=False, include_plotlyjs=False)
+    bar_html = chart_panel(bar_fig.to_html(full_html=False, include_plotlyjs=False), figure_title(bar_fig))
 
     return box_html, bar_html
 
@@ -295,12 +298,13 @@ def _build_table_html(long_df: pd.DataFrame, max_rows: int = EXPLORER_TABLE_ROWS
     rows = []
     for _, r in long_df.sort_values("containment", ascending=False).head(max_rows).iterrows():
         raw = r.get("containment", 0)
-        val = 0.0 if pd.isna(raw) else max(0.0, min(1.0, float(raw)))
+        shown = 0.0 if pd.isna(raw) else float(raw)
+        val = max(0.0, min(1.0, shown))  # the bar's width only; the cell shows the recorded value
         before = "".join(f"<td>{html_escape(str(r.get(c, '')))}</td>" for c in ["sample", "genome"])
         containment = (
             f'<td class="pre-num"><span class="pre-cell">'
             f'<span class="pre-heatbar" style="--v:{val:.3f}"></span>'
-            f"<span>{val:.3f}</span></span></td>"
+            f"<span>{shown:.3f}</span></span></td>"
         )
         after = "".join(
             f"<td>{html_escape(str(r.get(c, '')))}</td>" for c in ["species", "genus", "family", "location", "date"]
@@ -315,11 +319,7 @@ _TABLE_HEADERS = ["Sample", "Genome", "Containment", "Species", "Genus", "Family
 _HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ title }}</title>
-    {{ plotly_js|safe }}
-    <style>{{ report_css|safe }}</style>
+    {{ head_html|safe }}
 </head>
 <body>
     <a class="pre-skip" href="#results">Skip to results</a>
@@ -371,15 +371,15 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         <section class="pre-section">
             <h2>Taxonomy overview</h2>
             <div class="pre-grid">
-                {% if sunburst_html %}<div class="pre-panel">{{ sunburst_html|safe }}</div>{% endif %}
-                {% if heatmap_html %}<div class="pre-panel">{{ heatmap_html|safe }}</div>{% endif %}
+                {% if sunburst_html %}{{ sunburst_html|safe }}{% endif %}
+                {% if heatmap_html %}{{ heatmap_html|safe }}{% endif %}
             </div>
         </section>
         {% endif %}
 
         <section class="pre-section" id="results">
             <h2>Results</h2>
-            {% if table_note %}<p class="pre-note">{{ table_note }}</p>{% endif %}
+            <p class="pre-note">{% if table_note %}{{ table_note }}. {% endif %}Export CSV saves the rows shown.</p>
             <div class="pre-toolbar">
                 <input type="text" id="searchInput" onkeyup="filterTable()"
                        aria-label="Filter results" placeholder="Filter across all columns&hellip;">
@@ -390,7 +390,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
                     <thead>
                         <tr>
                         {%- for h in headers %}
-                            <th tabindex="0" role="button"
+                            <th scope="col" tabindex="0" role="button"
                                 onclick="sortTable({{ loop.index0 }})"
                                 onkeydown="sortKey(event,{{ loop.index0 }})">{{ h }}</th>
                         {%- endfor %}
@@ -407,13 +407,13 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         <section class="pre-section">
             <h2>Distributions</h2>
             <div class="pre-grid">
-                {% if box_html %}<div class="pre-panel">{{ box_html|safe }}</div>{% endif %}
-                {% if bar_html %}<div class="pre-panel">{{ bar_html|safe }}</div>{% endif %}
+                {% if box_html %}{{ box_html|safe }}{% endif %}
+                {% if bar_html %}{{ bar_html|safe }}{% endif %}
             </div>
         </section>
         {% endif %}
 
-        <footer class="pre-footer">Generated by PREPARE</footer>
+        {{ footer_html|safe }}
     </main>
 
     {{ table_script|safe }}
@@ -438,8 +438,8 @@ def _assemble_html(title, summary, sunburst_html, heatmap_html, table_rows, box_
         table_note=table_note,
         box_html=box_html,
         bar_html=bar_html,
-        plotly_js=plotly_js_script(),
-        report_css=REPORT_CSS,
+        head_html=page_head(title),
+        footer_html=page_footer(),
         table_script=TABLE_SCRIPT,
         headers=_TABLE_HEADERS,
     )

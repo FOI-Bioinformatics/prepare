@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from prepare.cli.base import int_in_range, unit_interval, BaseCommand, anchored_folder
+from prepare.cli.base import resolve_input_args, anchor_args, int_in_range, unit_interval, BaseCommand, anchored_folder
 from prepare.core.exceptions import DataAccessError, NetworkError, PrepareError, ValidationError
 from prepare.core.settings import require_email, setting_for
 from prepare.data import registry_blocks as rb
@@ -147,6 +147,7 @@ class DownloadMetadataCommand(BaseCommand):
         try:
             args.matches_folder = str(anchored_folder(args.matches_folder, getattr(args, "registry", None)))
             args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
+            resolve_input_args(args, "accessions_file")
             failures: Dict[str, str] = {}
             downloaded = download_metadata(
                 email=email,
@@ -179,9 +180,10 @@ class DownloadMetadataCommand(BaseCommand):
         names = sorted(failures)
         shown = ", ".join(names[:10]) + (f" and {len(names) - 10} more" if len(names) > 10 else "")
         self.logger.error("No metadata for %d accession(s): %s", len(names), shown)
-        if any(reason.startswith("network: ") for reason in failures.values()):
+        network = sum(1 for reason in failures.values() if reason.startswith("network: "))
+        if network:
             error: PrepareError = NetworkError(
-                f"NCBI could not be reached for {len(names)} accession(s); try again later"
+                f"NCBI could not be reached for {network} of {len(names)} accession(s); try again later"
             )
         else:
             error = DataAccessError(f"NCBI returned no metadata for {len(names)} accession(s)")
@@ -271,6 +273,7 @@ class ParseMetadataCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         try:
             args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
+            anchor_args(args, "metadata_table_file")
             errors: List[str] = []
             df = parse_metadata(args.metadata_folder, args.metadata_table_file, errors=errors)
             term = getattr(args, "_termination", None)
@@ -279,8 +282,7 @@ class ParseMetadataCommand(BaseCommand):
             if term is not None and term.stop.is_set():
                 raise KeyboardInterrupt("parse_metadata stopped")
             if errors:
-                self.logger.error("%d metadata file(s) could not be parsed: %s", len(errors), ", ".join(errors))
-                return 1
+                raise DataAccessError(f"{len(errors)} metadata file(s) could not be parsed: {', '.join(errors)}")
             return 0
         except PrepareError as e:
             return self.fail(e, "Error parsing metadata")
@@ -315,7 +317,10 @@ class CheckMetadataAttributesCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
-            check_metadata_attributes(str(resolve_metadata_table(args.file_path)), args.output_file)
+            anchor_args(args, "file_path", "output_file")
+            check_metadata_attributes(
+                str(resolve_metadata_table(args.file_path, getattr(args, "registry", None))), args.output_file
+            )
             return 0
         except PrepareError as e:
             return self.fail(e, "Error checking metadata attributes")
@@ -367,9 +372,10 @@ class CountMetadataCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "summary_file", "metadata_file", "output_file", "stat_file")
             count_metadata(
                 summary_file=args.summary_file,
-                metadata_file=str(resolve_metadata_table(args.metadata_file)),
+                metadata_file=str(resolve_metadata_table(args.metadata_file, getattr(args, "registry", None))),
                 metadata_column=args.metadata_column,
                 threshold=args.threshold,
                 output_file=args.output_file,
@@ -455,7 +461,7 @@ class PlotMapCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         fig = None
         try:
-            data = pd.read_csv(resolve_metadata_table(args.metadata_file), sep="\t")
+            data = pd.read_csv(resolve_metadata_table(args.metadata_file, getattr(args, "registry", None)), sep="\t")
             if args.lat_lon_column not in data.columns:
                 raise ValidationError(f"--lat-lon-column {args.lat_lon_column!r} is not a column of the metadata table")
             plugin = visualizer_registry.get("map")

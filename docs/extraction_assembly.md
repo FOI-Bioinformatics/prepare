@@ -19,7 +19,7 @@ prepare extract_target_reads \
 - `--preset` matches the read type: `sr` for Illumina, and `map-ont`, `map-pb` or `map-hifi` for long reads.
 - `--threads` sets the threads for minimap2 and samtools (default 4).
 - `--assemble` runs megahit on each sample's extracted reads.
-- `--data-root` names a shared data store to resolve `--fastq-folder` against (see [shared_store.md](shared_store.md)).
+- `--data-root` names the shared data store in which the extraction records its use of each dataset, and whose sidecars say whether a linked store copy is complete (see [shared_store.md](shared_store.md)). Reads are always taken from `--fastq-folder`.
 - `--timeout SECONDS` stops minimap2, samtools or megahit after that time. The default, 0, means no limit.
 - `--force` redoes extraction and assembly even when the registry says they are done.
 

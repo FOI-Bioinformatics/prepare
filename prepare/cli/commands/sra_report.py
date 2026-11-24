@@ -15,7 +15,14 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from prepare.cli.base import BaseCommand, anchored_folder, read_accessions_file, resolve_command_store
+from prepare.cli.base import (
+    resolve_input_args,
+    anchor_args,
+    BaseCommand,
+    anchored_folder,
+    read_accessions_file,
+    resolve_command_store,
+)
 from prepare.cli.commands.sra_profile import add_sampling_arguments
 from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
 from prepare.core.optional import require
@@ -36,6 +43,12 @@ REPORT_HTML = "sra_report.html"
 REPORT_JSON = "sra_report.json"
 
 _GROUPS_EXAMPLE = json.dumps({"Group_A": ["SRR123456", "SRR123457"], "Group_B": ["SRR789012", "SRR789013"]})
+
+
+def _named(accessions: List[str]) -> str:
+    """At most ten of ``accessions``, then how many more."""
+    more = f" and {len(accessions) - 10} more" if len(accessions) > 10 else ""
+    return ", ".join(accessions[:10]) + more
 
 
 def _in_several_groups(groups: Dict[str, List[str]]) -> List[str]:
@@ -350,7 +363,7 @@ class SRAReportCommand(BaseCommand):
             )
             return 1
         if failed:
-            self.logger.warning("Left out of the report (no readable FASTQ files): %s", ", ".join(failed))
+            self.logger.warning("Left out of the report (no readable FASTQ files): %s", _named(failed))
 
         anomalies = reporter.analyzer.detect_dataset_anomalies(list(profiles), profiles=profiles)
         self._print_quality(profiles, anomalies)
@@ -379,12 +392,22 @@ class SRAReportCommand(BaseCommand):
             )
             self._open(output, args.no_open)
         self._record(args, output, profiles, anomalies, groups)
-        return 0
+        return self._exit_for_left_out(failed, accessions)
+
+    def _exit_for_left_out(self, failed: List[str], accessions: List[str]) -> int:
+        """0, or 1 through ``fail`` when accessions were left out: the report covers the others, and
+        the run still fails, as ``sra_profile``'s does."""
+        if not failed:
+            return 0
+        message = f"{len(failed)} of {len(accessions)} accession(s) left out of the report: {_named(failed)}"
+        return self.fail(DataAccessError(message), self.name)
 
     def execute(self, args: argparse.Namespace) -> int:
         """Write the report; 1 when no dataset could be profiled."""
         try:
             args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
+            anchor_args(args, "output_dir", "quality_profiles")
+            resolve_input_args(args, "accessions_file")
             return self._run(args)
         except (PrepareError, OSError) as e:
             return self.fail(e, "Report failed")

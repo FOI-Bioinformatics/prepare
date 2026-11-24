@@ -7,7 +7,7 @@ genomes and analyze associated metadata.
 
 import logging
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 __author__ = "Andreas Sjodin"
 __email__ = "andreas.sjodin@gmail.com"
 

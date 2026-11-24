@@ -18,11 +18,11 @@ METADATA_TABLE_CANDIDATES: List[Path] = [
 ]
 
 
-def resolve_metadata_table(explicit: Optional[str]) -> Path:
+def resolve_metadata_table(explicit: Optional[str], registry: Optional[str] = None) -> Path:
     """Return the metadata table to use.
 
     An explicit path must exist. Otherwise the first existing candidate in
-    ``METADATA_TABLE_CANDIDATES`` is used, so a project that only ran
+    ``METADATA_TABLE_CANDIDATES``, taken against the project root, is used, so a project that only ran
     ``extract_branchwater_metadata`` still works with the defaults.
 
     Raises:
@@ -34,7 +34,10 @@ def resolve_metadata_table(explicit: Optional[str]) -> Path:
             raise DataAccessError(f"Metadata table not found: {explicit}")
         return path
 
-    for candidate in METADATA_TABLE_CANDIDATES:
+    from prepare.data.registry import project_root, registry_path
+
+    root = project_root(registry_path(registry))
+    for candidate in (root / name for name in METADATA_TABLE_CANDIDATES):
         if candidate.exists():
             logger.info("Using metadata table %s", candidate)
             return candidate

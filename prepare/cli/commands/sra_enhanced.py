@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from prepare.cli.base import (
+    resolve_input_args,
     BaseCommand,
     accessions_from_args,
     finite_float,
@@ -139,6 +140,7 @@ class SRAInfoCommand(BaseCommand):
     def execute(self, args):
         email = require_email(args)
         try:
+            resolve_input_args(args, "accessions_file")
             accessions = read_accessions_file(args.accessions_file)
 
             if not accessions:
@@ -153,8 +155,7 @@ class SRAInfoCommand(BaseCommand):
                 client.close()
 
             if not metadata:
-                self.logger.error("Could not fetch metadata for any accessions")
-                return 1
+                return self.fail(DataAccessError("Could not fetch metadata for any accessions"), self.name)
 
             self._print_analysis_summary(accessions, metadata, tech_counts, total_size_gb, args.bandwidth_mbps)
 
@@ -446,6 +447,7 @@ class SRAValidateCommand(BaseCommand):
     def execute(self, args):
         try:
             args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
+            resolve_input_args(args, "accessions_file")
             fastq_folder = Path(args.fastq_folder)
             if not fastq_folder.exists():
                 return self.fail(DataAccessError(f"FASTQ folder {fastq_folder} does not exist"), self.name)
