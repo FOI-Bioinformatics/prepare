@@ -59,7 +59,7 @@ class SingleSampleCommand(BaseCommand):
             anchor_args(args, "summary_file", "metadata_file")
             count_dict = count_single_sample(
                 summary_file=args.summary_file,
-                metadata_file=str(resolve_metadata_table(args.metadata_file)),
+                metadata_file=str(resolve_metadata_table(args.metadata_file, getattr(args, "registry", None))),
                 summary_column=args.summary_column,
                 metadata_column=args.metadata_column,
                 threshold=args.threshold,

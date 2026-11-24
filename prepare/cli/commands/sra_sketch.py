@@ -18,7 +18,14 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from prepare.cli.base import BaseCommand, accessions_from_args, anchored_folder, positive_int, resolve_command_store
+from prepare.cli.base import (
+    resolve_input_args,
+    BaseCommand,
+    accessions_from_args,
+    anchored_folder,
+    positive_int,
+    resolve_command_store,
+)
 from prepare.core import settings
 from prepare.core.constants import GENOME_ID_PATTERN
 from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
@@ -425,6 +432,7 @@ class SRASketchCommand(BaseCommand):
             return self.fail(ValidationError(message), self.name)
         try:
             registry = getattr(args, "registry", None)
+            resolve_input_args(args, "accessions_file")
             args.fastq_folder = str(anchored_folder(args.fastq_folder, registry))
             args.output_dir = str(anchored_folder(args.output_dir, registry))
             args.matches_folder = str(anchored_folder(args.matches_folder, registry))

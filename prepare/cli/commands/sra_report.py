@@ -15,7 +15,14 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from prepare.cli.base import anchor_args, BaseCommand, anchored_folder, read_accessions_file, resolve_command_store
+from prepare.cli.base import (
+    resolve_input_args,
+    anchor_args,
+    BaseCommand,
+    anchored_folder,
+    read_accessions_file,
+    resolve_command_store,
+)
 from prepare.cli.commands.sra_profile import add_sampling_arguments
 from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
 from prepare.core.optional import require
@@ -400,6 +407,7 @@ class SRAReportCommand(BaseCommand):
         try:
             args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
             anchor_args(args, "output_dir", "quality_profiles")
+            resolve_input_args(args, "accessions_file")
             return self._run(args)
         except (PrepareError, OSError) as e:
             return self.fail(e, "Report failed")

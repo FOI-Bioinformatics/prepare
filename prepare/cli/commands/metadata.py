@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from prepare.cli.base import anchor_args, int_in_range, unit_interval, BaseCommand, anchored_folder
+from prepare.cli.base import resolve_input_args, anchor_args, int_in_range, unit_interval, BaseCommand, anchored_folder
 from prepare.core.exceptions import DataAccessError, NetworkError, PrepareError, ValidationError
 from prepare.core.settings import require_email, setting_for
 from prepare.data import registry_blocks as rb
@@ -147,6 +147,7 @@ class DownloadMetadataCommand(BaseCommand):
         try:
             args.matches_folder = str(anchored_folder(args.matches_folder, getattr(args, "registry", None)))
             args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
+            resolve_input_args(args, "accessions_file")
             failures: Dict[str, str] = {}
             downloaded = download_metadata(
                 email=email,
@@ -317,7 +318,9 @@ class CheckMetadataAttributesCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         try:
             anchor_args(args, "file_path", "output_file")
-            check_metadata_attributes(str(resolve_metadata_table(args.file_path)), args.output_file)
+            check_metadata_attributes(
+                str(resolve_metadata_table(args.file_path, getattr(args, "registry", None))), args.output_file
+            )
             return 0
         except PrepareError as e:
             return self.fail(e, "Error checking metadata attributes")
@@ -372,7 +375,7 @@ class CountMetadataCommand(BaseCommand):
             anchor_args(args, "summary_file", "metadata_file", "output_file", "stat_file")
             count_metadata(
                 summary_file=args.summary_file,
-                metadata_file=str(resolve_metadata_table(args.metadata_file)),
+                metadata_file=str(resolve_metadata_table(args.metadata_file, getattr(args, "registry", None))),
                 metadata_column=args.metadata_column,
                 threshold=args.threshold,
                 output_file=args.output_file,
@@ -418,7 +421,6 @@ class PlotMetadataCountsCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
-            anchor_args(args, "file_path")
             plot_metadata_counts(
                 file_path=args.file_path,
                 title=args.title,
@@ -459,8 +461,7 @@ class PlotMapCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         fig = None
         try:
-            anchor_args(args, "metadata_file", "output")
-            data = pd.read_csv(resolve_metadata_table(args.metadata_file), sep="\t")
+            data = pd.read_csv(resolve_metadata_table(args.metadata_file, getattr(args, "registry", None)), sep="\t")
             if args.lat_lon_column not in data.columns:
                 raise ValidationError(f"--lat-lon-column {args.lat_lon_column!r} is not a column of the metadata table")
             plugin = visualizer_registry.get("map")

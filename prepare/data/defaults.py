@@ -18,7 +18,7 @@ METADATA_TABLE_CANDIDATES: List[Path] = [
 ]
 
 
-def resolve_metadata_table(explicit: Optional[str]) -> Path:
+def resolve_metadata_table(explicit: Optional[str], registry: Optional[str] = None) -> Path:
     """Return the metadata table to use.
 
     An explicit path must exist. Otherwise the first existing candidate in
@@ -36,7 +36,7 @@ def resolve_metadata_table(explicit: Optional[str]) -> Path:
 
     from prepare.data.registry import project_root, registry_path
 
-    root = project_root(registry_path())
+    root = project_root(registry_path(registry))
     for candidate in (root / name for name in METADATA_TABLE_CANDIDATES):
         if candidate.exists():
             logger.info("Using metadata table %s", candidate)

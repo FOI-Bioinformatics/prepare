@@ -83,7 +83,9 @@ class TestUseBranchwaterCommand:
 
         result = command.execute(args)
         assert result == 0
-        mock_command.assert_called_once_with("test_folder", str(tmp_path.resolve() / "matches"), errors=[])
+        mock_command.assert_called_once_with(
+            str(tmp_path.resolve() / "test_folder"), str(tmp_path.resolve() / "matches"), errors=[]
+        )
 
     @patch("prepare.cli.commands.branchwater.process_branchwater_files")
     def test_execute_failure(self, mock_command, tmp_path, monkeypatch):
@@ -96,7 +98,9 @@ class TestUseBranchwaterCommand:
 
         result = command.execute(args)
         assert result == 1
-        mock_command.assert_called_once_with("test_folder", str(tmp_path.resolve() / "matches"), errors=[])
+        mock_command.assert_called_once_with(
+            str(tmp_path.resolve() / "test_folder"), str(tmp_path.resolve() / "matches"), errors=[]
+        )
 
     def test_use_branchwater_returns_1_on_file_error(self, tmp_path, caplog):
         """An unreadable file fails through the shared path: one ERROR line with the traceback attached."""
@@ -174,7 +178,7 @@ class TestExtractBranchwaterMetadataCommand:
         assert result == 0
         mock_mkdir.assert_called_once_with(exist_ok=True)
         expected = tmp_path.resolve() / "metadata" / "branchwater_metadata.txt"
-        mock_command.assert_called_once_with("test_folder", expected, errors=[])
+        mock_command.assert_called_once_with(str(tmp_path.resolve() / "test_folder"), expected, errors=[])
 
 
 class TestParseContainmentCommand:
@@ -1078,7 +1082,8 @@ class TestDownloadSraCommand:
         assert call_kwargs.pop("timings") == {}
         assert call_kwargs == {
             "fastq_folder": str(tmp_path / "fastq"),
-            "accessions_file": "accessions.txt",
+            # Not found anywhere: named from the project root, where select_datasets writes it.
+            "accessions_file": str(tmp_path.resolve() / "accessions.txt"),
             "max_downloads": None,
             "dry_run": False,
             "num_threads": 4,
@@ -2866,7 +2871,7 @@ class TestSingleSampleCommand:
         result = command.execute(args)
         assert result == 0
         # Project files are taken from the project root (the registry's folder).
-        mock_resolve.assert_called_once_with(str(tmp_path.resolve() / "metadata.txt"))
+        mock_resolve.assert_called_once_with(str(tmp_path.resolve() / "metadata.txt"), args.registry)
         mock_command.assert_called_once_with(
             summary_file=str(tmp_path.resolve() / "summary.txt"),
             metadata_file="metadata.txt",
@@ -3116,7 +3121,7 @@ class TestCountMetadataCommand:
         result = command.execute(args)
         assert result == 0
         root = tmp_path.resolve()
-        mock_resolve.assert_called_once_with(str(root / "metadata.txt"))
+        mock_resolve.assert_called_once_with(str(root / "metadata.txt"), args.registry)
         mock_command.assert_called_once_with(
             summary_file=str(root / "summary.txt"),
             metadata_file="metadata.txt",
@@ -3339,7 +3344,7 @@ class TestPlotMetadataCountsCommand:
         result = command.execute(args)
         assert result == 0
         mock_command.assert_called_once_with(
-            file_path=str(tmp_path.resolve() / "counts.txt"),
+            file_path="counts.txt",  # a required path the user names: taken as given
             title=None,
             plot_type="bar",
             colors=None,
@@ -3828,10 +3833,11 @@ class TestFoldersAnchoredOnTheProject:
     def test_use_branchwater_writes_the_project_matches_folder(self, mock_process, proj):
         args = self._parse(["use_branchwater", "--branchwater-folder", "bw"])
         assert UseBranchwaterCommand().execute(args) == 0
-        assert mock_process.call_args.args == ("bw", str(proj / "matches"))
+        # The Branchwater folder is a project folder too (audit P15).
+        assert mock_process.call_args.args == (str(proj / "bw"), str(proj / "matches"))
 
     def test_extract_branchwater_metadata_writes_the_project_metadata_folder(self, proj):
-        (proj / "sub" / "bw").mkdir()
+        (proj / "bw").mkdir()
         args = self._parse(["extract_branchwater_metadata", "--branchwater-folder", "bw"])
         assert ExtractBranchwaterMetadataCommand().execute(args) == 0
         assert not (proj / "sub" / "metadata").exists()

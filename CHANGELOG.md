@@ -14,12 +14,14 @@ deferred by the 0.12.1 review, and the four minors deferred after 0.14.0. Change
 - A relative path to a file one step writes and another reads back is taken against the project root, as
   the project folders already were: the tables of `parse_containment`, the input and output of
   `select_datasets`, `extract_target_reads --parsed-containment`, `results_table`, the metadata tables
-  and outputs of `parse_metadata`, `check_metadata_attributes`, `count_metadata`, `single_sample`,
-  `plot_metadata_counts` and `plot_map`, the `sra_profile` and `sra_report` folders, `--blacklist-file`,
-  `status --parsed-containment` and the explore commands' files. Run from a subfolder, these commands read
-  and wrote those files in the subfolder. Lists written by hand (`--accessions-file`, `--groups-file`,
-  `blacklist --from-file`) stay relative to the working directory. The default metadata table is looked
-  for in the project root.
+  and outputs of `parse_metadata`, `check_metadata_attributes`, `count_metadata` and `single_sample`, the
+  `sra_profile` and `sra_report` folders, `--blacklist-file`, `status --parsed-containment`, the explore
+  commands' files, and `--branchwater-folder` of `use_branchwater` and `extract_branchwater_metadata`. Run
+  from a subfolder, these commands read and wrote those files in the subfolder. An accession list
+  (`--accessions-file`, `download_sra --blacklist`) is looked for in the project root first, then in the
+  working directory, with a warning when both hold one. Other files the user names (`--groups-file`,
+  `blacklist --from-file`, `plot_map`, `plot_metadata_counts --file-path`) stay relative to the working
+  directory. The default metadata table is looked for in the root of the project `--registry` names.
 - `sra_report` exits with status 1 when it leaves an accession out (no readable FASTQ files), as
   `sra_profile` does; the report of the other accessions is still written. It exited 0.
 - `SRAReportGenerator.generate_quality_dashboard` and `create_comparative_analysis` are removed; no command
