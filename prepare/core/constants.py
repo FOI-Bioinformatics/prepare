@@ -8,6 +8,7 @@ This module centralizes all magic numbers and hard-coded values used throughout 
 SRA_VALID_PREFIXES = ("SRR", "ERR", "DRR")
 SRA_ACCESSION_PATTERN = r"^(?:SRR|ERR|DRR)[0-9]+$"  # a run, as SRA_VALID_PREFIXES
 GENOME_ACCESSION_PATTERN = r"^GC[AF]_\d{9}\.\d+$"
+GENOME_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"  # a genome id used as a file name
 GENOME_ACCESSION_PREFIXES = ("GCF_", "GCA_")
 
 # Default Thresholds
