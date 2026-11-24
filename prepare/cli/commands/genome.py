@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from prepare.cli.base import BaseCommand
 from prepare.core.constants import GENOME_FASTA_GLOBS
 from prepare.data.accessions import read_accessions_file
-from prepare.core.exceptions import PrepareError
+from prepare.core.exceptions import PrepareError, ValidationError
 from prepare.core.validation import genome_name
 from prepare.data.file_io import open_atomic, visible_files, write_text_atomic
 from prepare.data.genome_download import (
@@ -190,10 +190,10 @@ class GenomeDownloadCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         try:
             if not any([args.accessions, args.accession_file, args.species, args.genus]):
-                self.logger.error(
-                    "At least one of --accessions, --accession-file, --species, " "or --genus is required"
+                return self.fail(
+                    ValidationError("At least one of --accessions, --accession-file, --species or --genus is required"),
+                    self.name,
                 )
-                return 1
 
             accessions = self._collect_accessions(args)
             if not accessions:
@@ -382,11 +382,12 @@ class GenomePrepareCommand(BaseCommand):
 
             if not args.skip_download:
                 if not any([args.species, args.genus, args.accession_file]):
-                    self.logger.error(
-                        "At least one of --species, --genus, or --accession-file "
-                        "is required when not using --skip-download"
+                    return self.fail(
+                        ValidationError(
+                            "At least one of --species, --genus or --accession-file is required without --skip-download"
+                        ),
+                        self.name,
                     )
-                    return 1
 
                 accessions = self._collect_accessions(args)
                 if not accessions:

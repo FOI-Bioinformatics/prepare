@@ -2065,7 +2065,7 @@ class TestStoreUsageCommand:
         with caplog.at_level("ERROR"):
             rc = StoreUsageCommand().execute(_usage_args(data_root=str(root), project="Wolbachia"))
 
-        assert rc == 1
+        assert rc == 2  # a usage error
         assert any("proja" in message and "projc" in message for message in caplog.messages)
 
     def test_selector_by_organism(self, tmp_path, capsys):

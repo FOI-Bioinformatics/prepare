@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Tuple
 
 from prepare.cli.base import BaseCommand
 from prepare.cli.commands.store._shared import _required_store
-from prepare.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError, ValidationError
 from prepare.store.catalog import Catalog
 from prepare.store.layout import store_paths
 
@@ -188,10 +188,10 @@ class StoreUsageCommand(BaseCommand):
                     selector = "project"
                     project_id, ambiguous = self._resolve_project_id(catalog, args.project)
                     if ambiguous:
-                        self.logger.error(
-                            "Project name %r is ambiguous: %s", args.project, ", ".join(sorted(ambiguous))
+                        names = ", ".join(sorted(ambiguous))
+                        return self.fail(
+                            ValidationError(f"Project name {args.project!r} is ambiguous: {names}"), self.name
                         )
-                        return 1
                     rows = self._rows_for_project(catalog, project_id)
                 elif args.organism:
                     selector = "organism"

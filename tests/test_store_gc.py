@@ -371,7 +371,7 @@ class TestStoreGcCommand:
 
         rc = StoreGcCommand().execute(_gc_args(data_root=str(root), dry_run=True, yes=True))
 
-        assert rc == 1
+        assert rc == 2  # a usage error
         assert acc_dir.is_dir()
         with Catalog(paths) as cat:
             assert cat.get_dataset("SRR1") is not None

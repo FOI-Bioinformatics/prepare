@@ -15,7 +15,7 @@ from typing import AbstractSet, Any, Dict, List, Optional, Tuple
 from prepare.cli.base import BaseCommand, emit_error_json, non_negative_int
 from prepare.cli.commands.store._shared import _stale_project_row, _required_store
 from prepare.core.constants import GC_RECENT_USE_GRACE_SECONDS, SRA_ACCESSION_PATTERN
-from prepare.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError, ValidationError
 from prepare.data.file_io import is_hidden_name
 from prepare.data.sra import is_transient_folder
 from prepare.store import journal
@@ -388,8 +388,7 @@ class StoreGcCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         """Run the command; return the exit code."""
         if args.dry_run and args.yes:
-            self.logger.error("--dry-run and --yes cannot be combined")
-            return 1
+            return self.fail(ValidationError("--dry-run and --yes cannot be combined"), self.name)
 
         ctx = _required_store(args, self)
         if isinstance(ctx, int):

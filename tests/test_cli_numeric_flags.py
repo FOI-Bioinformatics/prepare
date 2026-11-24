@@ -64,3 +64,27 @@ def test_a_containment_threshold_outside_0_to_1_is_a_usage_error(argv, value, ca
 def test_max_cache_age_days_must_not_be_negative():
     with pytest.raises(SystemExit):
         create_parser().parse_args(["branchwater_search", "--signature", "g.sig", "--max-cache-age-days", "-1"])
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["explore_containment", "--parsed-containment", "missing.txt"],
+        ["store_gc", "--dry-run", "--yes"],
+        ["genome_download"],
+    ],
+)
+def test_usage_errors_go_through_fail(argv, tmp_path, monkeypatch, caplog):
+    """A usage or input error is one ERROR line with the exception attached (BaseCommand.fail): exit 2 for a
+    usage error (ValidationError), 1 for a missing file (DataAccessError)."""
+    import logging
+
+    from prepare.cli.main import create_parser
+
+    monkeypatch.chdir(tmp_path)
+    args = create_parser().parse_args(argv)
+    with caplog.at_level(logging.ERROR):
+        rc = args.func(args) if hasattr(args, "func") else None
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert rc == (1 if argv[0] == "explore_containment" else 2)
+    assert len(errors) == 1 and errors[0].exc_info is not None

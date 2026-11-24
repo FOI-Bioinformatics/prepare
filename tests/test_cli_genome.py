@@ -221,7 +221,7 @@ class TestGenomeDownloadCommand:
             dry_run=False,
         )
         result = cmd.execute(args)
-        assert result == 1
+        assert result == 2  # a usage error
 
     @patch("prepare.cli.commands.genome.extract_and_organize")
     @patch("prepare.cli.commands.genome.download_genomes")
@@ -684,7 +684,7 @@ class TestGenomePrepareCommand:
                 registry=str(Path(tmpdir) / "prepare_registry.json"),
             )
             result = cmd.execute(args)
-            assert result == 1
+            assert result == 2  # a usage error
 
     @patch("prepare.cli.commands.genome.download_genomes")
     @patch("prepare.cli.commands.genome.get_accessions_for_species")

@@ -14,6 +14,10 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 - Containment thresholds outside 0-1 are usage errors (exit 2): `--threshold` of `branchwater_search`,
   `select_datasets`, `extract_target_reads`, `download_metadata` and `count_metadata`, and
   `--min-containment` of `results_table` and the explore commands. `--max-cache-age-days` must not be negative.
+- Usage errors of `genome_download`, `genome_prepare`, `sra_info` (an empty accessions file), `store_gc`
+  (`--dry-run` with `--yes`) and `store_usage` (an ambiguous project name) exit with status 2, as other usage
+  errors do, through the common error report; a missing input file of the explore commands, `sra_validate`
+  and `sra_profile` is reported the same way (still exit 1).
 
 ### Fixed
 

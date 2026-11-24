@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from prepare.cli.base import unit_interval, BaseCommand
-from prepare.core.exceptions import ExitCode, PrepareError
+from prepare.core.exceptions import DataAccessError, ExitCode, PrepareError
 from prepare.core.utils import get_genome_columns
 from prepare.data.file_io import write_csv
 from prepare.data.genome_taxonomy import (
@@ -55,8 +55,7 @@ class EnrichTaxonomyCommand(BaseCommand):
         try:
             containment_path = Path(args.parsed_containment)
             if not containment_path.exists():
-                self.logger.error("Containment file not found: %s", containment_path)
-                return 1
+                return self.fail(DataAccessError(f"Containment file not found: {containment_path}"), self.name)
 
             # Only the column names are needed here, so the data rows are not read.
             df = pd.read_csv(containment_path, sep="\t", index_col=0, nrows=0)
@@ -141,8 +140,7 @@ class ExploreContainmentCommand(BaseCommand):
 
             containment_path = Path(args.parsed_containment)
             if not containment_path.exists():
-                self.logger.error("Containment file not found: %s", containment_path)
-                return 1
+                return self.fail(DataAccessError(f"Containment file not found: {containment_path}"), self.name)
 
             df = pd.read_csv(containment_path, sep="\t", index_col=0)
 
@@ -150,8 +148,7 @@ class ExploreContainmentCommand(BaseCommand):
             if args.taxonomy_map:
                 taxonomy_path = Path(args.taxonomy_map)
                 if not taxonomy_path.exists():
-                    self.logger.error("Taxonomy map not found: %s", taxonomy_path)
-                    return 1
+                    return self.fail(DataAccessError(f"Taxonomy map not found: {taxonomy_path}"), self.name)
                 taxonomy = load_taxonomy_cache(taxonomy_path)
             else:
                 genome_cols = get_genome_columns(df)
@@ -163,8 +160,7 @@ class ExploreContainmentCommand(BaseCommand):
             if args.metadata:
                 metadata_path = Path(args.metadata)
                 if not metadata_path.exists():
-                    self.logger.error("Metadata file not found: %s", metadata_path)
-                    return 1
+                    return self.fail(DataAccessError(f"Metadata file not found: {metadata_path}"), self.name)
                 metadata = pd.read_csv(metadata_path, sep="\t", index_col=0)
 
             output_path = generate_containment_explorer(
@@ -257,13 +253,11 @@ class FindByTaxonomyCommand(BaseCommand):
 
             containment_path = Path(args.parsed_containment)
             if not containment_path.exists():
-                self.logger.error("Containment file not found: %s", containment_path)
-                return 1
+                return self.fail(DataAccessError(f"Containment file not found: {containment_path}"), self.name)
 
             taxonomy_path = Path(args.taxonomy_map)
             if not taxonomy_path.exists():
-                self.logger.error("Taxonomy map not found: %s", taxonomy_path)
-                return 1
+                return self.fail(DataAccessError(f"Taxonomy map not found: {taxonomy_path}"), self.name)
 
             df = pd.read_csv(containment_path, sep="\t", index_col=0)
             taxonomy = load_taxonomy_cache(taxonomy_path)

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from prepare.cli.base import BaseCommand, accessions_from_args, anchored_folder, resolve_command_store
-from prepare.core.exceptions import PrepareError, ValidationError
+from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
 from prepare.core.validation import validate_accession
 from prepare.data import run_log
 from prepare.data.file_io import visible_files, write_text_atomic
@@ -303,8 +303,7 @@ class SRAProfileCommand(BaseCommand):
     def _run(self, args: argparse.Namespace) -> int:
         folder = Path(args.fastq_folder)
         if not folder.is_dir():
-            self.logger.error("FASTQ folder %s does not exist", folder)
-            return 1
+            return self.fail(DataAccessError(f"FASTQ folder {folder} does not exist"), self.name)
         accessions = self._resolve_accessions(args)
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)

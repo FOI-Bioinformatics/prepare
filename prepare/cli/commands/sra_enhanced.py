@@ -21,7 +21,7 @@ from prepare.cli.base import (
     read_accessions_file,
     resolve_command_store,
 )
-from prepare.core.exceptions import DataAccessError, PrepareError
+from prepare.core.exceptions import DataAccessError, PrepareError, ValidationError
 from prepare.core.settings import require_email, setting_for
 from prepare.core.validation import validate_accession
 from prepare.data import registry_blocks as rb
@@ -142,8 +142,7 @@ class SRAInfoCommand(BaseCommand):
             accessions = read_accessions_file(args.accessions_file)
 
             if not accessions:
-                self.logger.error("No accessions found in file")
-                return 1
+                return self.fail(ValidationError("No accessions found in file"), self.name)
 
             self.emit(f"Analyzing {len(accessions)} SRA accessions...")
 
@@ -449,8 +448,7 @@ class SRAValidateCommand(BaseCommand):
             args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
             fastq_folder = Path(args.fastq_folder)
             if not fastq_folder.exists():
-                self.logger.error(f"FASTQ folder {fastq_folder} does not exist")
-                return 1
+                return self.fail(DataAccessError(f"FASTQ folder {fastq_folder} does not exist"), self.name)
 
             self.emit("Validating downloaded SRA datasets...")
 
