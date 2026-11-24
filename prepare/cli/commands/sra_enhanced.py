@@ -153,8 +153,7 @@ class SRAInfoCommand(BaseCommand):
                 client.close()
 
             if not metadata:
-                self.logger.error("Could not fetch metadata for any accessions")
-                return 1
+                return self.fail(DataAccessError("Could not fetch metadata for any accessions"), self.name)
 
             self._print_analysis_summary(accessions, metadata, tech_counts, total_size_gb, args.bandwidth_mbps)
 

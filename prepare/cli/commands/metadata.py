@@ -280,8 +280,7 @@ class ParseMetadataCommand(BaseCommand):
             if term is not None and term.stop.is_set():
                 raise KeyboardInterrupt("parse_metadata stopped")
             if errors:
-                self.logger.error("%d metadata file(s) could not be parsed: %s", len(errors), ", ".join(errors))
-                return 1
+                raise DataAccessError(f"{len(errors)} metadata file(s) could not be parsed: {', '.join(errors)}")
             return 0
         except PrepareError as e:
             return self.fail(e, "Error parsing metadata")

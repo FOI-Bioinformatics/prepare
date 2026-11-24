@@ -142,6 +142,8 @@ class TestSRAInfoCommand:
 
         assert result == 1
         assert "Could not fetch metadata for any accessions" in caplog.text
+        # Reported through BaseCommand.fail, with the traceback attached for the log file.
+        assert any(r.exc_info for r in caplog.records if "Could not fetch metadata" in r.getMessage())
 
     @patch("builtins.open", side_effect=FileNotFoundError())
     def test_execute_file_error(self, mock_open, caplog):

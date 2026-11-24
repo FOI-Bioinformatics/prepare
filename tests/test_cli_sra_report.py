@@ -127,7 +127,7 @@ def test_a_group_with_no_profiled_accession_is_dropped_with_a_warning(tmp_path, 
     groups = _groups_file(tmp_path, {"A": ["SRR1", "SRR2"], "B": ["SRR3"], "C": ["SRR9"]})
 
     with caplog.at_level(logging.WARNING):
-        assert SRAReportCommand().execute(_args(tmp_path, groups_file=groups)) == 0
+        assert SRAReportCommand().execute(_args(tmp_path, groups_file=groups)) == 1  # an accession was left out
 
     assert (tmp_path / "reports" / "sra_report.html").is_file()
     assert "C" in caplog.text and "SRR9" in caplog.text
@@ -140,7 +140,7 @@ def test_a_single_group_left_gives_no_comparison(tmp_path, caplog):
     groups = _groups_file(tmp_path, {"A": ["SRR1", "SRR2"], "B": ["SRR9"]})
 
     with caplog.at_level(logging.WARNING):
-        assert SRAReportCommand().execute(_args(tmp_path, groups_file=groups)) == 0
+        assert SRAReportCommand().execute(_args(tmp_path, groups_file=groups)) == 1  # an accession was left out
 
     html = (tmp_path / "reports" / "sra_report.html").read_text()
     assert "Statistical tests" not in html
@@ -196,13 +196,15 @@ def test_saved_profiles_alone_name_the_accessions(tmp_path, capsys):
     assert "Reusing 2 saved quality profile(s)" in capsys.readouterr().out
 
 
-def test_an_accession_without_fastq_is_left_out_with_a_warning(tmp_path, caplog):
+def test_an_accession_without_fastq_is_left_out_and_the_run_exits_1(tmp_path, caplog):
+    """Audit P17: sra_report exited 0 when it left accessions out, where sra_profile exits 1."""
     _datasets(tmp_path, ("SRR1", "SRR2"))
     accessions = tmp_path / "acc.txt"
     accessions.write_text("SRR1\nSRR2\nSRR404\n")
     with caplog.at_level(logging.WARNING):
-        assert SRAReportCommand().execute(_args(tmp_path, accessions_file=str(accessions))) == 0
-    assert "SRR404" in caplog.text
+        assert SRAReportCommand().execute(_args(tmp_path, accessions_file=str(accessions))) == 1
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1 and "SRR404" in errors[0].getMessage() and errors[0].exc_info
     saved = json.loads((tmp_path / "reports" / "sra_report.json").read_text())
     assert saved["failed_accessions"] == ["SRR404"]
 

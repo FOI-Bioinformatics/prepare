@@ -15,6 +15,8 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   and wrote those files in the subfolder. Lists written by hand (`--accessions-file`, `--groups-file`,
   `blacklist --from-file`) stay relative to the working directory. The default metadata table is looked
   for in the project root.
+- `sra_report` exits with status 1 when it leaves an accession out (no readable FASTQ files), as
+  `sra_profile` does; the report of the other accessions is still written. It exited 0.
 
 ### Fixed
 
@@ -22,6 +24,9 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   `../x` wrote the matches CSV into a subfolder or outside `matches/` and is now a usage error (exit 2).
 - `parse_containment` keeps the cANI an accession's screening entry already holds (from `branchwater_search`
   or `status --init`) while its containment is unchanged; it wrote no value over it.
+- `parse_metadata` with unreadable metadata files, `sra_info` without any metadata, and `sra_profile` with
+  accessions it could not profile report the error through the common error report, which keeps the
+  traceback for `--log-file` (exit codes unchanged).
 - `store_reindex` keeps the first and the last journal line of each project, so a catalogue rebuilt
   after compaction keeps the project's `created` time. The one-time copy of a pre-journal catalogue
   into the journal now carries each project's `created` and `last_seen` times as well.

@@ -202,6 +202,6 @@ The groups file is a JSON object that maps group names to accession lists:
 }
 ```
 
-Each accession is profiled once, by the same path as `sra_profile`, and that profile serves both the quality section and the comparison. An accession found in `--quality-profiles` is not profiled again. With neither `--accessions-file` nor `--groups-file`, every profile in that folder is reported. An accession without readable FASTQ files is left out with a warning.
+Each accession is profiled once, by the same path as `sra_profile`, and that profile serves both the quality section and the comparison. An accession found in `--quality-profiles` is not profiled again. With neither `--accessions-file` nor `--groups-file`, every profile in that folder is reported. An accession without readable FASTQ files is left out of the report, which is still written, and the command then exits with status 1, as `sra_profile` does.
 
 The report opens in a browser unless `--no-open` is given. `--no-report` writes only `sra_report.json` and prints the results, and needs neither plotly nor jinja2. With `--groups-file`, scipy (the `analysis` extra) is checked before any dataset is profiled, also under `--no-report`. Without it the command exits with status 3 and writes nothing. A `report` analysis is recorded per accession with the total reads and bases, the GC content and the quality grade, so the profile columns of `results_table` are filled also for a project that never ran `sra_profile`.

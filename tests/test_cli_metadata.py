@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import logging
 from unittest.mock import patch
 
 import pandas as pd
@@ -315,3 +316,21 @@ def test_parse_metadata_with_no_xml_writes_no_table_and_exits_1(tmp_path, caplog
     assert "No metadata XML in" in caplog.text
     assert table.read_text() == "Run_ID\nSRR_OLD\n"
     assert not (tmp_path / "prepare_registry.json").exists()
+
+
+def test_parse_metadata_reports_unparsed_files_through_fail(tmp_path, caplog):
+    """Audit P17: the error was logged by hand and returned 1, without the traceback self.fail attaches."""
+    from prepare.cli.commands.metadata import ParseMetadataCommand
+
+    folder = tmp_path / "metadata"
+    folder.mkdir()
+    (folder / "SRR1_metadata.xml").write_text("<not xml")
+    args = argparse.Namespace(
+        metadata_folder=str(folder),
+        metadata_table_file=str(tmp_path / "metadata_table.txt"),
+        registry=str(tmp_path / "prepare_registry.json"),
+    )
+    with caplog.at_level(logging.ERROR):
+        assert ParseMetadataCommand().execute(args) == 1
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR and "could not be parsed" in r.getMessage()]
+    assert len(errors) == 1 and errors[0].exc_info
