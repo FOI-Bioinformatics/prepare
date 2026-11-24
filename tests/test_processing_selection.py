@@ -416,3 +416,20 @@ def test_ties_resolve_by_run_name(tmp_path):
         "SRR2\t0.90\t0.90\tGCF_A\n"
     )
     assert select_accessions(cont, threshold=0.1) == ["SRR2", "SRR1", "SRR5", "SRR9"]
+
+
+def test_the_no_metadata_warning_counts_only_candidates_not_excluded(run_tables, caplog):
+    """Review (0.13.0): exclusions now follow the run filters, so excluded rows with a value hid the warning."""
+    from prepare.processing.selection import RunFilters, select_accessions_ranked
+
+    cont, meta = run_tables
+    with caplog.at_level("WARNING"):
+        select_accessions_ranked(
+            cont,
+            threshold=0.5,
+            metadata_file=meta,
+            run_filters=RunFilters(max_run_size=500_000_000),
+            exclude={"SRR1", "SRR2"},
+        )
+    # Left after the exclusions: SRR4 only, which has no Run_Size value.
+    assert "dropped all 1 remaining candidate(s); none has a Run_Size value" in caplog.text

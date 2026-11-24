@@ -234,7 +234,8 @@ def record_selection(
     """
     root = project_root(registry)
     criteria = {**criteria, **{k: _project_relative(v, root) for k, v in criteria.items() if k == "table" and v}}
-    kept = [acc for acc in dict.fromkeys(keep) if acc not in set(accessions)]
+    wanted = set(accessions)
+    kept = [acc for acc in dict.fromkeys(keep) if acc not in wanted]
     output, chosen = _project_relative(output, root), set(accessions) | set(kept)
     for accession in registry.datasets:
         earlier = rb.selection_block(registry, accession)

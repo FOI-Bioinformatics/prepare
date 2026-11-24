@@ -1,11 +1,12 @@
 """Select SRA accessions from a parsed containment table, optionally filtered by metadata."""
 
+import functools
 import logging
 import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Set, Tuple, Union
+from typing import AbstractSet, Any, Callable, List, Optional, Set, Tuple, Union
 
 import pandas as pd
 
@@ -171,6 +172,7 @@ def _apply_run_test(
     column: str,
     flag: str,
     description: str,
+    ignore: AbstractSet[str] = frozenset(),
 ) -> List[Entry]:
     """Keep entries whose value passes ``keep``; a run absent from ``values`` or without a value is dropped.
 
@@ -183,35 +185,52 @@ def _apply_run_test(
     unknown = 0
     for entry in ranked:
         value = values.get(entry[0])
-        if value is None or pd.isna(value) or value == "":
+        if _no_value(value):
             unknown += 1
         elif keep(value):
             kept.append(entry)
     logger.info(
         "%d accession(s) dropped by %s (%d with no %s value)", len(ranked) - len(kept), description, unknown, column
     )
-    if ranked and unknown == len(ranked):
+    # The exclusions are applied after this filter, so they are left out of the "no value at all" check.
+    considered = [entry for entry in ranked if entry[0] not in ignore]
+    if considered and all(_no_value(values.get(entry[0])) for entry in considered):
         logger.warning(
             "%s dropped all %d remaining candidate(s); none has a %s value. "
             "Run download_metadata for the candidate list first.",
             flag,
-            len(ranked),
+            len(considered),
             column,
         )
     return kept
 
 
-def _filter_by_run(ranked: List[Entry], metadata: pd.DataFrame, filters: RunFilters, table_name: str) -> List[Entry]:
+def _no_value(value: Any) -> bool:
+    """Whether a metadata cell holds no value (missing, NaN or empty)."""
+    return value is None or pd.isna(value) or value == ""
+
+
+def _filter_by_run(
+    ranked: List[Entry],
+    metadata: pd.DataFrame,
+    filters: RunFilters,
+    table_name: str,
+    ignore: AbstractSet[str] = frozenset(),
+) -> List[Entry]:
     """Apply the run size, spot count and platform filters, in that order.
+
+    ``ignore`` holds the accessions the exclusions drop afterwards; they do not count towards the
+    warning that no candidate has a value.
 
     Raises:
         ProcessingError: If a requested filter's column is missing from the metadata table.
     """
     _check_run_columns(metadata, filters, table_name)
+    test = functools.partial(_apply_run_test, ignore=ignore)
     if filters.max_run_size is not None:
         sizes = pd.to_numeric(metadata[RUN_SIZE_COLUMN], errors="coerce")
         ceiling = filters.max_run_size
-        ranked = _apply_run_test(
+        ranked = test(
             ranked,
             sizes,
             lambda v: v <= ceiling,
@@ -222,16 +241,14 @@ def _filter_by_run(ranked: List[Entry], metadata: pd.DataFrame, filters: RunFilt
     spots = pd.to_numeric(metadata[SPOTS_COLUMN], errors="coerce") if SPOTS_COLUMN in metadata.columns else None
     if filters.min_spots is not None:
         floor = filters.min_spots
-        ranked = _apply_run_test(
-            ranked, spots, lambda v: v >= floor, SPOTS_COLUMN, "--min-spots", f"--min-spots < {floor}"
-        )
+        ranked = test(ranked, spots, lambda v: v >= floor, SPOTS_COLUMN, "--min-spots", f"--min-spots < {floor}")
     if filters.max_spots is not None:
         cap = filters.max_spots
-        ranked = _apply_run_test(ranked, spots, lambda v: v <= cap, SPOTS_COLUMN, "--max-spots", f"--max-spots > {cap}")
+        ranked = test(ranked, spots, lambda v: v <= cap, SPOTS_COLUMN, "--max-spots", f"--max-spots > {cap}")
     if filters.platform is not None:
         wanted = filters.platform.strip().lower()
         platforms = metadata[PLATFORM_COLUMN].map(lambda v: v.strip().lower() if isinstance(v, str) else v)
-        ranked = _apply_run_test(
+        ranked = test(
             ranked,
             platforms,
             lambda v: v == wanted,
@@ -365,7 +382,7 @@ def select_accessions_ranked(
         if metadata_column and metadata_value:
             ranked = _filter_by_metadata(ranked, metadata, table_name, metadata_column, metadata_value)
         if run_filters.active():
-            ranked = _filter_by_run(ranked, metadata, run_filters, table_name)
+            ranked = _filter_by_run(ranked, metadata, run_filters, table_name, ignore=exclude or set())
 
     # After the metadata and run filters, so ``dropped`` holds only accessions that meet every other
     # criterion, and before --top-n, so the cap counts only the accessions not excluded.

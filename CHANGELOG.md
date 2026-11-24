@@ -50,6 +50,15 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   assembly was already tried and gave no contigs.
 - `genome_download` and `genome_prepare` handle a genome named more than once (or by two sources) once.
 - `extract_target_reads` names the assembly-only flags given without `--assemble` in a warning.
+- Deferred from the 0.12.3 and 0.13.0 reviews:
+  - `select_datasets` warns again when no remaining candidate has a value for a run filter, now counting only
+    candidates that are not excluded.
+  - Recording a selection with many kept downloads is fast again.
+  - `download_sra` and `store_adopt` still name the command to rerun for unrecorded store usage after an
+    interrupt, and `download_sra` reports only the current run's accessions.
+  - The `--threshold` warning of `extract_target_reads` counts only selected samples that are not excluded,
+    reading the table once.
+  - The `status` funnel leaves out a deleted extraction of an accession whose other genomes' work remains.
 
 ## [0.13.0] - 2026-11-23
 

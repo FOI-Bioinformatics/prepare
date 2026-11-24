@@ -2163,3 +2163,25 @@ def test_assembly_flags_without_assemble_are_named_in_a_warning(tmp_path, caplog
         assert ExtractTargetReadsCommand().execute(args) == 0
     warning = [r.message for r in caplog.records if r.levelname == "WARNING" and "--assemble" in r.message]
     assert warning and "--assembly-preset" in warning[0] and "--keep-intermediate" in warning[0]
+
+
+def test_the_threshold_warning_counts_only_selected_samples_not_excluded(tmp_path, caplog):
+    """Review (0.13.0): an excluded selected sample, skipped anyway, was counted as left out."""
+    from prepare.data.registry import record_exclusion
+
+    root, table, genome = _project_tree(tmp_path, {"SRR1": 0.9, "SRR9": 0.07, "SRR8": 0.05})
+    registry = load_registry(root / "registry.json")
+    record_selection(registry, ["SRR1", "SRR9", "SRR8"], {"column": "GCF_1", "threshold": 0.05}, "accessions.txt")
+    record_exclusion(registry, "SRR8", "host reads")
+    save_registry(registry, root / "registry.json")
+    args = _args(
+        tmp_path,
+        parsed_containment=str(table),
+        genome_fasta=str(genome),
+        fastq_folder=str(root / "fastq"),
+        threshold=0.1,
+        dry_run=True,
+    )
+    with caplog.at_level("WARNING"):
+        ExtractTargetReadsCommand().execute(args)
+    assert any("leaves out 1 selected sample(s)" in r.message for r in caplog.records)

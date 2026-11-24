@@ -647,15 +647,16 @@ class DownloadSraCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
         outcomes, started, aborted = RunOutcomes(), datetime.now(timezone.utc), None
+        self.__dict__["_usage_unrecorded"] = []  # each run reports only the accessions it linked or saved
         try:
             code = self._run(args, outcomes)
-            if unrecorded := self._unrecorded_usage():  # reported whatever else failed; exit 4 only if nothing did
-                usage_code = self.fail(usage_not_recorded("Linked or saved", unrecorded), "download_sra")
-                code = code or usage_code
         except KeyboardInterrupt:
             # download_sra has already cancelled pending downloads and stopped running tools.
             self.logger.error("Download interrupted by the user")
             code, aborted = 130, "interrupted"
+        if unrecorded := self._unrecorded_usage():  # reported whatever else happened; exit 4 only if nothing did
+            usage_code = self.fail(usage_not_recorded("Linked or saved", unrecorded), "download_sra")
+            code = code or usage_code
         if not args.dry_run:
             self._write_run_summary(args, outcomes, started, code, aborted)
         return code

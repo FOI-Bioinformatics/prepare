@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
+import pandas as pd
+
 from prepare.cli.base import finite_float, positive_int, unit_interval, BaseCommand, anchored_folder
 from prepare.cli.commands.extraction_assembly import assemble_samples
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD
@@ -614,9 +616,7 @@ class ExtractTargetReadsCommand(BaseCommand):
             return
         selection = set() if ignore else selection_for_genome(registry, args.genome_id)
         if selection:
-            in_table = set(selected_samples(args.parsed_containment, args.genome_id, 0.0))
-            kept = set(selected_samples(args.parsed_containment, args.genome_id, args.threshold))
-            below = (selection & in_table) - kept
+            below = self._selected_below(args, registry, selection)
             if below:
                 self.logger.warning(
                     "--threshold %s leaves out %d selected sample(s) for %s; omit it to use the selection's threshold",
@@ -624,6 +624,22 @@ class ExtractTargetReadsCommand(BaseCommand):
                     len(below),
                     args.genome_id,
                 )
+
+    @staticmethod
+    def _selected_below(args: argparse.Namespace, registry, selection: Set[str]) -> List[str]:
+        """The selected, non-excluded accessions whose containment in the table is below ``args.threshold``.
+
+        The table is read once; a missing table or genome column gives none (extraction reports it).
+        """
+        table = Path(args.parsed_containment)
+        if not table.is_file():
+            return []
+        column = pd.read_csv(table, sep="\t", index_col=0).get(args.genome_id)
+        if column is None:
+            return []
+        values = pd.to_numeric(column, errors="coerce")
+        excluded = set(query(registry, "excluded"))
+        return [acc for acc in selection - excluded if acc in values.index and values[acc] < args.threshold]
 
     def _report_no_reads(self, args: argparse.Namespace, results: Dict[str, ExtractionResult]) -> None:
         """Say which of the three reasons left the run without a single mapped read."""

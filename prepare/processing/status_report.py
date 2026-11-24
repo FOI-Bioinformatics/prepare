@@ -410,7 +410,7 @@ def build_report(
         report["stages"][s] = {"count": len(members[s]), "accessions": members[s]}
         if gone.get(s):
             report["stages"][s]["missing_on_disk"] = gone[s]
-    report["funnel"] = funnel(registry, members)
+    report["funnel"] = funnel(registry, members, lambda extraction, stage: _still_in_stage(registry, extraction, stage))
     report["downloads"] = download_verdicts(registry)
     report["genomes"] = _genome_report(registry, paths, args.genome, genome_counts(registry, on_disk=True))
     report["drift"] = _drift_report(drift) if drift else {}

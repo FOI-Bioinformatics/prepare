@@ -3931,3 +3931,47 @@ def test_download_sra_with_an_unreadable_blacklist_exits_1(_which, tmp_path, cap
     assert rc == 1
     mock_check.assert_not_called()
     assert "missing_blacklist.txt" in caplog.text
+
+
+class TestDownloadSraUsageAcrossRuns:
+    """Review (0.12.3): the unrecorded list outlived a run, and an interrupt dropped the rerun hint."""
+
+    def _args(self, tmp_path):
+        from prepare.store.layout import init_store
+
+        init_store(tmp_path / "store")
+        args = TestDownloadSraRegistryWrites._args(tmp_path)
+        args.data_root = str(tmp_path / "store")
+        return args
+
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
+    def test_a_second_run_reports_nothing_from_the_first(self, mock_download, _which, tmp_path, caplog):
+        def saved(**kwargs):
+            kwargs["on_result"]("SRR2", True, "Downloaded 1 files, unverified; stored")
+            return {"total": 1, "successful": 1, "failed": 0, "failed_accessions": []}
+
+        mock_download.side_effect = saved
+        command = DownloadSraCommand()
+        with patch.object(DownloadSraCommand, "_sidecar_completeness", staticmethod(lambda _s, _a: None)):
+            with patch("prepare.cli.commands.sra_record.record_usage_many", return_value=False):
+                assert command.execute(self._args(tmp_path)) == 4
+            assert command.execute(self._args(tmp_path)) == 0
+
+    @patch("prepare.cli.commands.sra.require_tools")
+    @patch("prepare.cli.commands.sra.download_sra")
+    def test_an_interrupt_still_names_the_rerun(self, mock_download, _which, tmp_path, caplog):
+        def interrupted(**kwargs):
+            kwargs["on_result"]("SRR2", True, "Downloaded 1 files, unverified; stored")
+            raise KeyboardInterrupt
+
+        mock_download.side_effect = interrupted
+        with (
+            patch("prepare.cli.commands.sra_record.record_usage_many", return_value=False),
+            patch.object(DownloadSraCommand, "_sidecar_completeness", staticmethod(lambda _s, _a: None)),
+            caplog.at_level(logging.ERROR),
+        ):
+            rc = DownloadSraCommand().execute(self._args(tmp_path))
+
+        assert rc == 130
+        assert "store_link SRR2 again before store_gc" in caplog.text
