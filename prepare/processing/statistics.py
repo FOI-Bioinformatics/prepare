@@ -18,6 +18,17 @@ from prepare.core.utils import get_genome_columns
 logger = logging.getLogger(__name__)
 
 
+def _fold_enrichment(observed: float, expected: float, total_observed: float, total_expected: float) -> float:
+    """The observed share over the expected share (a ratio of proportions); 1 means no enrichment.
+
+    Fisher's exact test reports an odds ratio, but it tests the same null hypothesis: equal shares.
+    """
+    if expected > 0:
+        share = observed / total_observed if total_observed > 0 else 0.0
+        return share / (expected / total_expected)
+    return float("inf") if observed > 0 else 1.0
+
+
 def calculate_enrichment(
     observed_counts: Dict[str, int], expected_counts: Dict[str, int], min_count: int = 5
 ) -> pd.DataFrame:
@@ -30,7 +41,8 @@ def calculate_enrichment(
         min_count: Minimum count for inclusion in results
 
     Returns:
-        DataFrame with enrichment statistics
+        DataFrame with enrichment statistics; ``fold_enrichment`` is each key's share of the observed
+        counts over its share of the expected counts
 
     Raises:
         ProcessingError: If the calculation fails
@@ -46,6 +58,8 @@ def calculate_enrichment(
             return pd.DataFrame()
 
         results = []
+        total_observed = sum(observed_counts.values())
+        total_expected = sum(expected_counts.values())
 
         # Calculate statistics for each key
         for key in common_keys:
@@ -56,18 +70,11 @@ def calculate_enrichment(
             if observed < min_count and expected < min_count:
                 continue
 
-            # Calculate fold enrichment
-            if expected > 0:
-                fold_enrichment = observed / expected
-            else:
-                fold_enrichment = float("inf") if observed > 0 else 1.0
+            fold_enrichment = _fold_enrichment(observed, expected, total_observed, total_expected)
 
-            # Calculate p-value with Fisher's exact test
-            # Create contingency table
+            # p-value with Fisher's exact test on the contingency table
             # [[observed, total_observed - observed],
             #  [expected, total_expected - expected]]
-            total_observed = sum(observed_counts.values())
-            total_expected = sum(expected_counts.values())
 
             contingency_table = np.array(
                 [
@@ -162,7 +169,7 @@ def _calculate_jaccard_distance(vec1, vec2):
 
     if union > 0:
         return 1.0 - (intersection / union)
-    return 1.0
+    return 0.0  # two empty samples are identical, as in diversity._calculate_jaccard_distance
 
 
 def _calculate_dice_distance(vec1, vec2):
@@ -182,7 +189,7 @@ def _calculate_dice_distance(vec1, vec2):
 
     if (sum1 + sum2) > 0:
         return 1.0 - (2.0 * intersection / (sum1 + sum2))
-    return 1.0
+    return 0.0  # two empty samples are identical
 
 
 def _calculate_cosine_distance(vec1, vec2):
@@ -202,7 +209,7 @@ def _calculate_cosine_distance(vec1, vec2):
 
     if norm1 > 0 and norm2 > 0:
         return 1.0 - (dot_product / (norm1 * norm2))
-    return 1.0
+    return 0.0 if norm1 == norm2 == 0 else 1.0  # two empty samples are identical
 
 
 def calculate_distance_matrix(

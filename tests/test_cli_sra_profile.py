@@ -434,7 +434,7 @@ def test_summary_lines_go_to_stdout_and_label_mates(tmp_path, capsys):
     assert SRAProfileCommand().execute(_args(tmp_path, summary_only=True)) == 0
     out = capsys.readouterr().out
     assert "Total reads (mates counted): 6" in out
-    assert "Average GC content:" in out
+    assert "Average GC content (mean of datasets):" in out
     assert "Quality profile: SRR1" not in out  # --summary-only
     assert out.isascii()
 

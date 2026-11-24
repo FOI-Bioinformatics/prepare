@@ -151,6 +151,14 @@ def int_in_range(low: int, high: int) -> Callable[[str], int]:
     return parse
 
 
+def unit_interval(text: str) -> float:
+    """An argparse type for a containment threshold: a number from 0 to 1."""
+    value = finite_float(text)
+    if not 0.0 <= value <= 1.0:
+        raise argparse.ArgumentTypeError(f"expected a containment from 0 to 1, got {text!r}")
+    return value
+
+
 def finite_float(text: str) -> float:
     """An argparse type: a finite number (``nan`` and ``inf`` are refused)."""
     try:

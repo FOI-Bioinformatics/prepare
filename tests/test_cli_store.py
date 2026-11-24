@@ -2065,7 +2065,7 @@ class TestStoreUsageCommand:
         with caplog.at_level("ERROR"):
             rc = StoreUsageCommand().execute(_usage_args(data_root=str(root), project="Wolbachia"))
 
-        assert rc == 1
+        assert rc == 2  # a usage error
         assert any("proja" in message and "projc" in message for message in caplog.messages)
 
     def test_selector_by_organism(self, tmp_path, capsys):
@@ -2899,3 +2899,22 @@ def test_adopt_records_copied_usage_even_when_the_linked_usage_fails(tmp_path, m
 
     assert calls == ["linked", "copied"]
     assert "store_link SRR1" in str(error) and "store_adopt --copy" in str(error)
+
+
+def test_store_link_counts_a_repeated_accession_once(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "store"
+    paths = init_store(root)
+    _write_fastq_gz(sra_dir(paths, "SRR1") / "SRR1.fastq.gz")
+    sidecar = _sidecar("SRR1")
+    write_sidecar(sidecar_path(paths, "SRR1"), sidecar)
+    with catalog_write(paths) as cat:
+        cat.upsert_dataset(sidecar)
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+
+    args = _link_args(
+        ["SRR1", "SRR1"], data_root=str(root), registry=str(project / "prepare_registry.json"), fastq_folder="fastq"
+    )
+    assert StoreLinkCommand().execute(args) == 0
+    assert "Linked 1 of 1 accession(s)" in capsys.readouterr().out

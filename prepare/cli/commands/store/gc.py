@@ -15,7 +15,7 @@ from typing import AbstractSet, Any, Dict, List, Optional, Tuple
 from prepare.cli.base import BaseCommand, emit_error_json, non_negative_int
 from prepare.cli.commands.store._shared import _stale_project_row, _required_store
 from prepare.core.constants import GC_RECENT_USE_GRACE_SECONDS, SRA_ACCESSION_PATTERN
-from prepare.core.exceptions import DataAccessError
+from prepare.core.exceptions import DataAccessError, ValidationError
 from prepare.data.file_io import is_hidden_name
 from prepare.data.sra import is_transient_folder
 from prepare.store import journal
@@ -303,6 +303,27 @@ class StoreGcCommand(BaseCommand):
                 return name[: -len(suffix)]
         return name
 
+    @staticmethod
+    def _unpublished_copy(paths: StorePaths, accession: str, name: str) -> bool:
+        """Whether ``tmp/<name>`` may hold the only copy of ``accession``: a run killed between the two
+        renames of ``publish_folder`` leaves ``tmp/<ACC>_old`` (and the staged ``tmp/<ACC>``) with no
+        ``sra/<ACC>``. Such a pair is kept, with a warning, instead of being removed as a leftover."""
+        if name not in (accession, f"{accession}_old") or (paths.sra / accession).exists():
+            return False
+        if not (paths.tmp / f"{accession}_old").is_dir():
+            return False
+        if name == f"{accession}_old":  # one warning per accession, on the folder that is always there
+            # The staged tmp/<ACC> is the newer, complete copy; tmp/<ACC>_old is the one it was to replace.
+            newer = (paths.tmp / accession).is_dir()
+            publish = f"tmp/{accession}" if newer else f"tmp/{accession}_old"
+            logger.warning(
+                "sra/%s is missing, and a publish of it was interrupted; move %s to sra/%s",
+                accession,
+                publish,
+                accession,
+            )
+        return True
+
     @classmethod
     def _leftover_candidates(cls, paths: StorePaths) -> List[Dict[str, Any]]:
         """Leftover build folders, cached archives and staged downloads, minus anything a live
@@ -337,7 +358,8 @@ class StoreGcCommand(BaseCommand):
                     reason = "leftover (staged download)"
                 else:
                     continue
-                if lock_is_held(paths, cls._accession_of_leftover(entry.name)):
+                accession = cls._accession_of_leftover(entry.name)
+                if lock_is_held(paths, accession) or cls._unpublished_copy(paths, accession, entry.name):
                     continue
                 candidates.append({"path": entry, "bytes": tree_bytes(entry), "reason": reason})
         sra_cache = paths.sra / ".sra-cache"
@@ -370,8 +392,7 @@ class StoreGcCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         """Run the command; return the exit code."""
         if args.dry_run and args.yes:
-            self.logger.error("--dry-run and --yes cannot be combined")
-            return 1
+            return self.fail(ValidationError("--dry-run and --yes cannot be combined"), self.name)
 
         ctx = _required_store(args, self)
         if isinstance(ctx, int):

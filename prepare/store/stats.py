@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 from prepare.core.constants import DEFAULT_NUM_THREADS, SRA_ACCESSION_PATTERN
 from prepare.core.exceptions import DataAccessError
 from prepare.data.sra import count_fastq_reads, fastq_files, sample_records
-from prepare.data.sra.sampling import distribution_from_histogram, quality_histogram
+from prepare.data.sra.sampling import base_fraction, distribution_from_histogram, quality_histogram
 from prepare.store.layout import StorePaths, sidecar_path as dataset_sidecar_path, store_paths
 from prepare.store.locks import dataset_lock
 from prepare.store.sidecar import read_sidecar, write_sidecar
@@ -63,7 +63,9 @@ def _file_signature(files: List[Path]) -> Dict[str, List[Union[int, float]]]:
 # Marks a record whose per-read figures are sampled over every file of the dataset. Records
 # written before 0.12.2 sampled only the first file (with ``--split-3`` the orphan reads), so
 # ``cached_stats`` does not reuse a record without it.
-SAMPLE_SCOPE = "all_files"
+# Changed whenever the meaning of a cached figure changes, so older records are recomputed:
+# "all_files_base_weighted" (0.14.0) has GC and N content as base fractions.
+SAMPLE_SCOPE = "all_files_base_weighted"
 
 
 def _sample_reads(paths: List[Path], sample_size: int, total_reads: int) -> Tuple[List[str], List[bytes]]:
@@ -261,11 +263,11 @@ def compute_dataset_stats(
     return {
         **counts,
         "n50": _n50(sample_lengths),
-        "gc_content": _mean([_gc_fraction(s) for s in sequences]),
+        "gc_content": base_fraction(sequences, "GCgc"),
         "length_histogram": _length_histogram(sample_lengths),
         "quality_summary": _quality_summary(qualities),
         "duplication_rate": (1.0 - len(set(sequences)) / len(sequences)) if sequences else 0.0,
-        "n_content": _mean([((s.count("N") + s.count("n")) / len(s)) if s else 0.0 for s in sequences]),
+        "n_content": base_fraction(sequences, "Nn"),
         "sample_size": sample_size,
         "sampled": sampled,
         "sample_scope": SAMPLE_SCOPE,

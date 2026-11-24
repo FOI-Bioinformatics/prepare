@@ -127,6 +127,7 @@ class StoreLinkCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         """Run the command; return the exit code."""
+        args.accessions = list(dict.fromkeys(args.accessions))  # a repeated accession is handled once
         if (rc := refuse_bad_accessions(self.logger, args.accessions)) is not None:
             return rc
         ctx = _required_store(args, self)
@@ -214,6 +215,7 @@ class StoreUnlinkCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         """Run the command; return the exit code."""
+        args.accessions = list(dict.fromkeys(args.accessions))  # a repeated accession is handled once
         if (rc := refuse_bad_accessions(self.logger, args.accessions)) is not None:
             return rc
         fastq = anchored_folder(args.fastq_folder, args.registry)

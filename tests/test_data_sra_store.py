@@ -121,6 +121,25 @@ class TestDownloadSraStore:
         assert seen == [(True, True)]
         assert (fastq_folder / "SRR1").is_symlink()
 
+    def test_store_download_refuses_a_foreign_link_before_fetching(self, tmp_path):
+        """Review (0.14.0): a link to data outside the store was refused only after the whole fetch."""
+        import os
+
+        paths = self._store(tmp_path)
+        fastq_folder = tmp_path / "project" / "fastq"
+        fastq_folder.mkdir(parents=True)
+        elsewhere = tmp_path / "elsewhere" / "SRR1"
+        elsewhere.mkdir(parents=True)
+        os.symlink(elsewhere, fastq_folder / "SRR1")
+        calls = []
+
+        with patch("prepare.data.sra.accession.download_accession", side_effect=self._fake_download(calls)):
+            success, message = store_handoff_mod._store_download("SRR1", fastq_folder, paths, force=True)
+
+        assert success is False
+        assert "outside the store" in message
+        assert calls == []
+
     def test_store_download_refuses_a_real_project_folder_before_fetching(self, tmp_path):
         """The project's own reads under fastq/<ACC> are never replaced by a link, so no fetch starts."""
         from prepare.data.sra.retry import _split_not_found

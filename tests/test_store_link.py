@@ -500,3 +500,28 @@ def test_link_dataset_releases_the_dataset_lock_it_took(tmp_path, paths):
     link_dataset(tmp_path / "project" / "fastq", "SRR1", paths)
 
     assert not lock_path(paths, "SRR1").exists()
+
+
+def test_link_dataset_refuses_to_replace_a_link_outside_the_store(tmp_path, paths):
+    """Review: a user's own link to data elsewhere was replaced without a word."""
+    _store_dataset(paths)
+    elsewhere = tmp_path / "elsewhere" / "SRR1"
+    elsewhere.mkdir(parents=True)
+    project_fastq = tmp_path / "project" / "fastq"
+    project_fastq.mkdir(parents=True)
+    os.symlink(elsewhere, project_fastq / "SRR1")
+
+    with pytest.raises(DataAccessError, match="outside the store"):
+        link_dataset(project_fastq, "SRR1", paths)
+    assert Path(os.readlink(project_fastq / "SRR1")) == elsewhere
+
+
+def test_link_dataset_replaces_a_dangling_link_into_the_store(tmp_path, paths):
+    _store_dataset(paths)
+    project_fastq = tmp_path / "project" / "fastq"
+    project_fastq.mkdir(parents=True)
+    os.symlink(paths.sra / "SRR9", project_fastq / "SRR1")
+
+    link = link_dataset(project_fastq, "SRR1", paths)
+
+    assert link.resolve() == (paths.sra / "SRR1").resolve()

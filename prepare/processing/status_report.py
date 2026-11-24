@@ -410,12 +410,24 @@ def build_report(
         report["stages"][s] = {"count": len(members[s]), "accessions": members[s]}
         if gone.get(s):
             report["stages"][s]["missing_on_disk"] = gone[s]
-    report["funnel"] = funnel(registry, members)
+    report["funnel"] = funnel(registry, members, lambda extraction, stage: _still_in_stage(registry, extraction, stage))
     report["downloads"] = download_verdicts(registry)
     report["genomes"] = _genome_report(registry, paths, args.genome, genome_counts(registry, on_disk=True))
     report["drift"] = _drift_report(drift) if drift else {}
     report["timing"] = timing_summary(registry)
     return report
+
+
+# The columns of the two status --export-tsv tables, in the order the rows below are built.
+DATASET_COLUMNS = [
+    "accession", "screened_genomes", "selected", "excluded", "exclusion_reason", "download_state", "download_date",
+    "bytes_total", "metadata", "analyses", "total_reads", "gc_percent", "quality_grade", "download_seconds",
+]  # fmt: skip
+EXTRACTION_COLUMNS = [
+    "accession", "genome_id", "mapped_reads", "breadth", "mean_depth", "extraction_date", "contigs", "total_bp",
+    "n50", "assembly_date", "extraction_seconds", "assembly_seconds", "coverage_tsv", "n90", "largest",
+    "assembly_dir",
+]  # fmt: skip
 
 
 def to_dataframes(registry: Registry) -> Tuple["pd.DataFrame", "pd.DataFrame"]:
@@ -470,6 +482,7 @@ def to_dataframes(registry: Registry) -> Tuple["pd.DataFrame", "pd.DataFrame"]:
                     "assembly_dir": asm.dir if asm else None,
                 }
             )
-    datasets = pd.DataFrame(rows).set_index("accession") if rows else pd.DataFrame()
-    extractions = pd.DataFrame(ext_rows)
+    # Explicit columns, so a table with no rows is still written with its header.
+    datasets = pd.DataFrame(rows, columns=DATASET_COLUMNS).set_index("accession")
+    extractions = pd.DataFrame(ext_rows, columns=EXTRACTION_COLUMNS)
     return datasets, extractions

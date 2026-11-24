@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from prepare.cli.base import finite_float, int_in_range, BaseCommand, anchored_folder
+from prepare.cli.base import int_in_range, unit_interval, BaseCommand, anchored_folder
 from prepare.core.exceptions import DataAccessError, NetworkError, PrepareError, ValidationError
 from prepare.core.settings import require_email, setting_for
 from prepare.data import registry_blocks as rb
@@ -73,7 +73,7 @@ class DownloadMetadataCommand(BaseCommand):
         )
         parser.add_argument(
             "--threshold",
-            type=finite_float,
+            type=unit_interval,
             default=0.0,
             help="Threshold for containment values (inclusive)",
         )
@@ -354,7 +354,7 @@ class CountMetadataCommand(BaseCommand):
         )
         parser.add_argument(
             "--threshold",
-            type=finite_float,
+            type=unit_interval,
             default=0.5,
             help="Threshold for containment values (inclusive)",
         )

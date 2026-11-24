@@ -8,7 +8,7 @@ bytes, seconds and/or pairs read from the registry's raw blocks in the same pass
 `project_report` command reads it to build the project-level report.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from prepare.data.registry import Registry, stage_members
 from prepare.data.registry_timing import TIMED_DOWNLOAD_STATES
@@ -24,6 +24,10 @@ def _seconds(value: Any) -> Optional[float]:
 def _total_seconds(values: List[float]) -> Optional[float]:
     """The rounded sum of ``values``, or None when there are none (nothing in the stage was timed)."""
     return round(sum(values), 3) if values else None
+
+
+# A check whether one raw extraction record's work for a stage is still on disk (see status_report).
+OnDisk = Optional[Callable[[Dict[str, Any], str], bool]]
 
 
 def _tally_download(download: Dict[str, Any], tally: Dict[str, Any], counted: bool = True) -> None:
@@ -45,17 +49,28 @@ def _tally_download(download: Dict[str, Any], tally: Dict[str, Any], counted: bo
             tally["seconds" if state == "downloaded" else "failed_seconds"].append(seconds)
 
 
-def _tally_extractions(record: Dict[str, Any], work: Dict[str, Any], extracted: bool, assembled: bool) -> None:
+def _tally_extractions(
+    record: Dict[str, Any], work: Dict[str, Any], extracted: bool, assembled: bool, on_disk: OnDisk = None
+) -> None:
     """Add one dataset's extractions with mapped reads (when ``extracted``) and assemblies with
-    contigs (when ``assembled``) to ``work``: pair counts, assembled bases and the time lists."""
+    contigs (when ``assembled``) to ``work``: pair counts, assembled bases and the time lists.
+
+    ``on_disk(extraction, stage)``, when given, leaves out each pair whose own work is gone from disk,
+    so an accession kept in a stage by one genome does not count another genome's deleted pair.
+    """
     for extraction in (record.get("extractions") or {}).values():
         if not isinstance(extraction, dict):
             continue
-        if extracted and (extraction.get("mapped_reads") or 0) > 0:
+        if on_disk is not None:
+            extracted_here = extracted and on_disk(extraction, "extracted")
+            assembled_here = assembled and on_disk(extraction, "assembled")
+        else:
+            extracted_here, assembled_here = extracted, assembled
+        if extracted_here and (extraction.get("mapped_reads") or 0) > 0:
             work["extracted"] += 1
             _append_seconds(work["extracted_seconds"], extraction.get("seconds"))
         assembly = extraction.get("assembly")
-        if assembled and isinstance(assembly, dict) and (assembly.get("contigs") or 0) > 0:
+        if assembled_here and isinstance(assembly, dict) and (assembly.get("contigs") or 0) > 0:
             work["assembled"] += 1
             work["total_bp"] += int(assembly.get("total_bp") or 0)
             _append_seconds(work["assembled_seconds"], assembly.get("seconds"))
@@ -68,7 +83,9 @@ def _append_seconds(times: List[float], value: Any) -> None:
         times.append(seconds)
 
 
-def funnel(registry: Registry, members: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
+def funnel(
+    registry: Registry, members: Optional[Dict[str, List[str]]] = None, on_disk: OnDisk = None
+) -> Dict[str, Any]:
     """How many of ``registry``'s datasets made it through each stage of the pipeline.
 
     ``members`` is ``stage_members(registry)`` when the caller already built it (``status``
@@ -115,7 +132,7 @@ def funnel(registry: Registry, members: Optional[Dict[str, List[str]]] = None) -
         if isinstance(download, dict):
             _tally_download(download, download_tally, counted=acc in downloaded)
         if acc in extracted or acc in assembled:
-            _tally_extractions(record, work, acc in extracted, acc in assembled)
+            _tally_extractions(record, work, acc in extracted, acc in assembled, on_disk)
 
     return {
         "screened": {"accessions": len(members["screened"])},

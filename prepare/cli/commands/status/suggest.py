@@ -253,6 +253,24 @@ def _would_extract(registry: Registry, accession: str, genome_id: str, selection
     return containment is not None and containment >= threshold
 
 
+def _assemble_candidates(registry: Registry, genome_id: str, excluded: set) -> List[str]:
+    """Extracted accessions with no assembly recorded for ``genome_id`` yet, excluded ones left out.
+
+    An assembly already recorded, even with no contigs, was tried: running it again changes nothing.
+    """
+    assembled = set(query(registry, "assembled", genome_id))
+    tried = {
+        acc
+        for acc in registry.datasets
+        if (block := rb.extraction_block(registry, acc, genome_id)) is not None and block.assembly is not None
+    }
+    return [
+        acc
+        for acc in query(registry, "extracted", genome_id)
+        if acc not in assembled and acc not in excluded and acc not in tried
+    ]
+
+
 def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict[str, Any]]:
     steps: List[Dict[str, Any]] = []
     excluded = set(query(registry, "excluded"))
@@ -279,10 +297,7 @@ def _extraction_next_steps(registry: Registry, paths: ProjectPaths) -> List[Dict
         ]
         if to_extract:
             steps.append({"command": base, "accessions": to_extract})
-        assembled = set(query(registry, "assembled", genome_id))
-        to_assemble = [
-            acc for acc in query(registry, "extracted", genome_id) if acc not in assembled and acc not in excluded
-        ]
+        to_assemble = _assemble_candidates(registry, genome_id, excluded)
         if to_assemble:
             steps.append({"command": f"{base} --assemble", "accessions": to_assemble})
     return steps

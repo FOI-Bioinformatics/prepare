@@ -160,10 +160,10 @@ class StoreAdoptCommand(BaseCommand):
 
         unrecorded = self._record_outcome(args, paths, report)
         self._print_report(report)
+        # Reported before an interrupt is raised, so the rerun hint is not lost with it.
+        code = self.fail(unrecorded, self.name) if unrecorded is not None else 0
         self._raise_if_stopped(term)
-        if unrecorded is not None:
-            return self.fail(unrecorded, self.name)
-        return 0
+        return code
 
     def _record_partial(self, args: argparse.Namespace, paths: StorePaths, report: AdoptReport) -> None:
         """Record what an interrupted ``adopt`` finished; a failure here never hides the original error."""

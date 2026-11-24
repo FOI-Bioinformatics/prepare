@@ -1585,3 +1585,19 @@ class TestRescreeningDropsVanishedAccessions:
         self._record(r, tmp_path, "\tG\nSRR1\t0.9\n")
         assert "screening" not in r.datasets["SRR2"]
         assert r.datasets["SRR2"]["download"]["state"] == "downloaded"
+
+
+@pytest.mark.perf
+def test_record_selection_with_many_kept_accessions_is_fast(tmp_path):
+    """Review (0.12.3): set(accessions) was rebuilt for every kept accession, under the registry lock."""
+    import os
+    import time
+
+    from prepare.data.registry import Registry, record_selection
+
+    registry = Registry(path=tmp_path / "prepare_registry.json")
+    accessions = [f"SRR{i}" for i in range(10_000)]
+    keep = [f"SRR{i}" for i in range(10_000, 20_000)]
+    started = time.perf_counter()
+    record_selection(registry, accessions, {"column": "G"}, tmp_path / "a.txt", keep=keep)
+    assert time.perf_counter() - started < 1.0 * float(os.environ.get("PREPARE_PERF_SCALE", "1"))

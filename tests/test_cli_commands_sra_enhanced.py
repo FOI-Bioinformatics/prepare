@@ -119,7 +119,7 @@ class TestSRAInfoCommand:
         with patch("builtins.open", mock_open(read_data="")):
             result = command.execute(args)
 
-        assert result == 1
+        assert result == 2  # a usage error
         assert "No accessions found in file" in caplog.text
 
     @patch("prepare.cli.commands.sra_enhanced.create_download_preview")

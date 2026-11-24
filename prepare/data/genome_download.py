@@ -9,13 +9,15 @@ import json
 import logging
 import re
 import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from prepare.core.constants import GENOME_ACCESSION_PATTERN, GENOME_ACCESSION_PREFIXES
-from prepare.core.exceptions import DataAccessError, ValidationError
+from prepare.core.exceptions import DataAccessError, NetworkError, ValidationError
 from prepare.data.file_io import copy_file, unique_temp_path
+from prepare.data.sra.accession import classify_download_error
 from prepare.utils.security import SecureSubprocess
 
 logger = logging.getLogger(__name__)
@@ -109,7 +111,7 @@ def download_genomes(
         SecureSubprocess.run_secure("datasets", args)
         finished = True
     except Exception as e:
-        raise DataAccessError(f"Failed to download genomes: {e}")
+        raise _datasets_error("Failed to download genomes", e) from e
     finally:
         if not finished:
             # The zip is this run's own; a failed or interrupted download's partial one is not kept.
@@ -120,6 +122,21 @@ def download_genomes(
 
     logger.info(f"Downloaded genomes to {zip_path}")
     return zip_path
+
+
+def _datasets_error(context: str, error: Exception) -> DataAccessError:
+    """The error to raise for a failed ``datasets`` call: its stderr named, a network failure transient.
+
+    ``str(CalledProcessError)`` carries no stderr, so the tool's own reason (last 500 characters)
+    is added; a failure that reads as a network problem is a ``NetworkError`` (exit code 4).
+    """
+    detail = str(error)
+    if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+        detail = str(error.stderr).strip()[-500:]
+    message = f"{context}: {detail}"
+    if classify_download_error(detail) == "network":
+        return NetworkError(message)
+    return DataAccessError(message)
 
 
 def genome_assembly_levels(accessions: Sequence[str]) -> Dict[str, str]:
@@ -135,7 +152,7 @@ def genome_assembly_levels(accessions: Sequence[str]) -> Dict[str, str]:
     try:
         result = SecureSubprocess.run_secure("datasets", args, check=False)
     except Exception as e:
-        raise DataAccessError(f"Failed to look up genome assembly levels: {e}")
+        raise _datasets_error("Failed to look up genome assembly levels", e) from e
     levels: Dict[str, str] = {}
     for line in str(result.stdout or "").splitlines():
         parsed = _assembly_level(line)

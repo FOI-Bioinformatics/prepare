@@ -124,6 +124,23 @@ def _split_efetch_packages(xml_text: str, wanted: Set[str]) -> Dict[str, str]:
     return found
 
 
+def _backoff(attempt: int) -> None:
+    """Wait before the next attempt (2, 4, ... seconds); no wait after the last one."""
+    if attempt < MAX_RETRIES:
+        time.sleep(2**attempt)
+
+
+def _final_http_message(error: HTTPError) -> Optional[str]:
+    """The failure message for an HTTP error not worth retrying, or None for 429 and 5xx (transient)."""
+    if error.code == 429 or error.code >= 500:
+        return None
+    if error.code == 404:
+        return "HTTP 404: not found at NCBI"
+    if error.code == 400:
+        return "HTTP 400: bad request (check the accession and --api-key)"
+    return f"HTTP {error.code}: {error.reason}"
+
+
 def _download_single_metadata(
     accession: str, metadata_path: Path, entrez_email: str, api_key: Optional[str] = None
 ) -> Tuple[bool, Any]:
@@ -153,18 +170,18 @@ def _download_single_metadata(
                 return False, f"NCBI returned a non-XML body for {accession}"
 
         except HTTPError as e:
-            if e.code in (400, 404):
-                return False, f"HTTP {e.code}: not found at NCBI"
-            transient = "network: " if e.code == 429 or e.code >= 500 else ""
-            last_error_message = f"{transient}HTTP {e.code} after {MAX_RETRIES} attempts"
+            final = _final_http_message(e)
+            if final is not None:
+                return False, final
+            last_error_message = f"network: HTTP {e.code} after {MAX_RETRIES} attempts"
             logger.warning(f"Error downloading {accession}, retrying ({attempt}/{MAX_RETRIES}): {e}")
-            time.sleep(2**attempt)
+            _backoff(attempt)
 
         # A truncated NCBI reply raises http.client.IncompleteRead, an HTTPException, not an OSError.
         except (URLError, OSError, http.client.HTTPException) as e:
             last_error_message = f"network: {e}"
             logger.warning(f"Error downloading {accession}, retrying ({attempt}/{MAX_RETRIES}): {e}")
-            time.sleep(2**attempt)
+            _backoff(attempt)
 
         else:
             # Written outside the try: a local write error (a full disk) is not a network failure.
@@ -232,25 +249,24 @@ def _download_batch_metadata(
                 acc: f"network: NCBI returned a non-XML body after {MAX_RETRIES} attempts" for acc in batch
             }
             logger.warning(f"Non-XML reply for a batch, retrying ({attempt}/{MAX_RETRIES}): {e}")
-            time.sleep(2**attempt)
+            _backoff(attempt)
 
         except HTTPError as e:
-            if e.code in (400, 404):
-                if len(batch) > 1:
-                    return _download_accessions_individually(batch, metadata_path, email, api_key)
-                return {}, {batch[0]: f"HTTP {e.code}: not found at NCBI"}
-            if e.code == 429 or 500 <= e.code < 600:
-                last_failures = {acc: f"network: HTTP {e.code} after {MAX_RETRIES} attempts" for acc in batch}
-                logger.warning(f"Error fetching batch, retrying ({attempt}/{MAX_RETRIES}): {e}")
-                time.sleep(2**attempt)
-                continue
-            return {}, {accession: f"HTTP {e.code}: {e.reason}" for accession in batch}
+            if e.code in (400, 404) and len(batch) > 1:
+                # One accession NCBI cannot serve fails the whole batch: find which, one at a time.
+                return _download_accessions_individually(batch, metadata_path, email, api_key)
+            final = _final_http_message(e)
+            if final is not None:
+                return {}, {accession: final for accession in batch}
+            last_failures = {acc: f"network: HTTP {e.code} after {MAX_RETRIES} attempts" for acc in batch}
+            logger.warning(f"Error fetching batch, retrying ({attempt}/{MAX_RETRIES}): {e}")
+            _backoff(attempt)
 
         # A truncated NCBI reply raises http.client.IncompleteRead, an HTTPException, not an OSError.
         except (URLError, OSError, http.client.HTTPException) as e:
             last_failures = {accession: f"network: {e}" for accession in batch}
             logger.warning(f"Error fetching batch, retrying ({attempt}/{MAX_RETRIES}): {e}")
-            time.sleep(2**attempt)
+            _backoff(attempt)
 
         else:
             # Written outside the try: a local write error (a full disk) is not a network failure.

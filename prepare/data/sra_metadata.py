@@ -577,8 +577,8 @@ def format_statistics_summary(df: pd.DataFrame) -> List[str]:
         f"Total datasets: {len(df)}",
         f"Total reads (mates counted): {df['total_reads'].sum():,}{sampled}",
         f"Total bases: {df['total_bases'].sum():,}",
-        f"Average read length: {df['avg_read_length'].mean():.1f}",
-        f"Average GC content: {df['gc_percent'].mean():.1f}%",
+        f"Average read length (mean of datasets): {df['avg_read_length'].mean():.1f}",
+        f"Average GC content (mean of datasets): {df['gc_percent'].mean():.1f}%",
         "\nLayout distribution:",
     ]
     lines.extend(f"  {layout}: {count}" for layout, count in df["layout"].value_counts().items())

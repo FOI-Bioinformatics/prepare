@@ -238,6 +238,10 @@ def _link_locked(project_path: Path, accession: str, paths: StorePaths, mode: st
     resolved_project = project_path.resolve()
     resolved_dataset = store_dataset.resolve()
 
+    if link.is_symlink() and not is_store_link(link, paths):
+        # The user's own link to data elsewhere: never replaced silently.
+        raise DataAccessError(f"{link} links outside the store ({os.readlink(link)}); remove it first")
+
     if mode == "copy":
         # Refused before any copying when the entry holds the project's own reads.
         _refuse_project_data(link, replace_store_copy=True)

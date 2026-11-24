@@ -273,3 +273,20 @@ class TestDiversityInputChecks:
         assert np.isnan(result.loc["S1", "chao1"])
         assert result.loc["S1", "observed_species"] == 5
         assert "chao1" in caplog.text.lower()
+
+
+def test_shannon_of_one_species_is_exactly_zero():
+    from prepare.processing.diversity import _calculate_shannon_diversity
+
+    assert _calculate_shannon_diversity(np.array([[10.0, 0.0, 0.0]]))[0] == 0.0
+    assert _calculate_shannon_diversity(np.array([[5.0, 5.0]]))[0] == pytest.approx(np.log(2))
+
+
+def test_pielou_of_a_single_species_is_zero_without_a_warning():
+    import warnings
+
+    from prepare.processing.diversity import _calculate_pielou_evenness
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _calculate_pielou_evenness(np.array([[10.0, 0.0], [0.0, 0.0]])).tolist() == [0.0, 0.0]

@@ -2059,3 +2059,37 @@ def test_gaps_leave_out_excluded_and_deleted_downloads(tmp_path, capsys):
 
     assert "SRR5" not in gaps
     assert "Downloaded but not extracted for GCF_1 : SRR2" in gaps
+
+
+def test_export_of_a_project_without_extractions_has_a_header(tmp_path):
+    """Review: an empty extractions table was written as a single newline, which pandas cannot read."""
+    import pandas as pd
+
+    from prepare.data.registry import Registry
+    from prepare.processing.status_report import to_dataframes
+
+    datasets, extractions = to_dataframes(Registry(path=tmp_path / "prepare_registry.json"))
+    path = tmp_path / "x_extractions.tsv"
+    extractions.to_csv(path, sep="\t", index=False)  # the export writes through write_csv the same way
+    back = pd.read_csv(path, sep="\t")
+    assert list(back.columns)[:3] == ["accession", "genome_id", "mapped_reads"] and back.empty
+    assert "download_state" in datasets.columns and datasets.empty
+
+
+def test_funnel_pairs_leave_out_a_deleted_extraction_of_a_multi_genome_accession(tmp_path, capsys):
+    """Review (0.13.0): an accession kept in 'extracted' by one genome still counted the other's deleted pair."""
+    _project_tree(tmp_path)
+    StatusCommand().execute(_status_args(tmp_path, init=True))
+    with registry_transaction(tmp_path / "prepare_registry.json") as registry:
+        for genome in ("GCF_1", "GCF_2"):
+            reads = tmp_path / "targeted" / "SRR1" / f"SRR1_{genome}_1.fastq.gz"
+            reads.parent.mkdir(parents=True, exist_ok=True)
+            reads.write_bytes(gzip.compress(b"@r\nACGT\n+\nIIII\n"))
+            record_extraction(registry, "SRR1", genome, [reads], 1, False, {})
+    (tmp_path / "targeted" / "SRR1" / "SRR1_GCF_2_1.fastq.gz").unlink()
+    capsys.readouterr()
+
+    assert StatusCommand().execute(_status_args(tmp_path, json=True)) == 0
+    report = json.loads(capsys.readouterr().out)
+
+    assert report["funnel"]["extracted"]["pairs"] == 1

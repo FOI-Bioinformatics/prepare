@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 from prepare import __version__
 from prepare.core import settings
 from prepare.core.exceptions import ValidationError
-from prepare.data.file_io import write_text_atomic
+from prepare.data.file_io import finite_json, write_text_atomic
 from prepare.data.registry import REGISTRY_FILENAME
 from prepare.utils.lockfile import LockPolicy, held_lock
 
@@ -132,8 +132,11 @@ def new_run_id(command: str, started: datetime) -> str:
 
 
 def _json_safe(value: Any) -> Any:
-    """``value`` with paths as strings, sequences and sets as lists and anything unknown as its text."""
-    if value is None or isinstance(value, (bool, int, float, str)):
+    """``value`` with paths as strings, sequences and sets as lists, NaN and infinity as None (they are
+    not JSON, and strict readers such as jq refuse them) and anything unknown as its text."""
+    if isinstance(value, float):
+        return finite_json(value)
+    if isinstance(value, (type(None), bool, int, str)):
         return value
     if isinstance(value, Path):
         return str(value)

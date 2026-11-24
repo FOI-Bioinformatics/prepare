@@ -33,3 +33,14 @@ def test_reader_accepts_a_pattern_and_can_skip_validation(tmp_path):
         read_accessions_file(f)
     with pytest.raises(ValidationError, match="line 3"):
         read_accessions_file(f, pattern=r"GCF_[0-9]+\.[0-9]+")
+
+
+def test_an_experiment_accession_in_an_accessions_file_is_refused_up_front(tmp_path):
+    """Review: SRX/SRS passed the file check and then failed one by one inside the download."""
+    from prepare.core.exceptions import ValidationError
+    from prepare.data.accessions import read_accessions_file
+
+    path = tmp_path / "accessions.txt"
+    path.write_text("SRR1\nSRX123\n")
+    with pytest.raises(ValidationError, match="SRX123"):
+        read_accessions_file(path)

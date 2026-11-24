@@ -618,7 +618,8 @@ class TestGenerateStatisticsReport:
         )
         # total_reads counts mates, not NCBI spots; the summary says so.
         assert "Total reads (mates counted): 30" in lines
-        assert "Average GC content: 50.0%" in lines
+        # Means of the per-dataset figures, not weighted by reads; the label says so.
+        assert "Average GC content (mean of datasets): 50.0%" in lines
         assert "  PAIRED: 1" in lines and "  SINGLE: 1" in lines
         assert capsys.readouterr().out == ""
 

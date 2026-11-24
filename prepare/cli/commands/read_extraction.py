@@ -6,7 +6,9 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
-from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
+import pandas as pd
+
+from prepare.cli.base import finite_float, positive_int, unit_interval, BaseCommand, anchored_folder
 from prepare.cli.commands.extraction_assembly import assemble_samples
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD
 from prepare.core.exceptions import PrepareError, TransientError
@@ -116,7 +118,7 @@ class ExtractTargetReadsCommand(BaseCommand):
         parser.add_argument("--output-folder", default="targeted", help="Root folder for the extracted reads")
         parser.add_argument(
             "--threshold",
-            type=finite_float,
+            type=unit_interval,
             default=None,
             help=(
                 "Minimum containment for a sample to be included (default: the lowest threshold of the recorded "
@@ -585,6 +587,22 @@ class ExtractTargetReadsCommand(BaseCommand):
             ignore_selection=getattr(args, "ignore_selection", False),
         )
 
+    def _warn_ignored_assembly_flags(self, args: argparse.Namespace) -> None:
+        """Name the assembly-only flags given without --assemble, which then have no effect."""
+        if args.assemble:
+            return
+        given = {
+            "--assembly-threads": args.assembly_threads is not None,
+            "--assembly-memory": getattr(args, SETTINGS["assembly_memory"].cli_dest or "", None) is not None,
+            "--min-contig-len": args.min_contig_len is not None,
+            "--assembly-preset": args.assembly_preset != "meta-sensitive",
+            "--keep-intermediate": args.keep_intermediate,
+            "--no-coverage": args.no_coverage,
+        }
+        named = [flag for flag, present in given.items() if present]
+        if named:
+            self.logger.warning("%s only apply with --assemble; ignored", ", ".join(named))
+
     def _resolve_threshold(self, args: argparse.Namespace, registry) -> None:
         """Set ``args.threshold``: as given, else the recorded selection's, else the default.
 
@@ -598,9 +616,7 @@ class ExtractTargetReadsCommand(BaseCommand):
             return
         selection = set() if ignore else selection_for_genome(registry, args.genome_id)
         if selection:
-            in_table = set(selected_samples(args.parsed_containment, args.genome_id, 0.0))
-            kept = set(selected_samples(args.parsed_containment, args.genome_id, args.threshold))
-            below = (selection & in_table) - kept
+            below = self._selected_below(args, registry, selection)
             if below:
                 self.logger.warning(
                     "--threshold %s leaves out %d selected sample(s) for %s; omit it to use the selection's threshold",
@@ -608,6 +624,22 @@ class ExtractTargetReadsCommand(BaseCommand):
                     len(below),
                     args.genome_id,
                 )
+
+    @staticmethod
+    def _selected_below(args: argparse.Namespace, registry, selection: Set[str]) -> List[str]:
+        """The selected, non-excluded accessions whose containment in the table is below ``args.threshold``.
+
+        The table is read once; a missing table or genome column gives none (extraction reports it).
+        """
+        table = Path(args.parsed_containment)
+        if not table.is_file():
+            return []
+        column = pd.read_csv(table, sep="\t", index_col=0).get(args.genome_id)
+        if column is None:
+            return []
+        values = pd.to_numeric(column, errors="coerce")
+        excluded = set(query(registry, "excluded"))
+        return [acc for acc in selection - excluded if acc in values.index and values[acc] < args.threshold]
 
     def _report_no_reads(self, args: argparse.Namespace, results: Dict[str, ExtractionResult]) -> None:
         """Say which of the three reasons left the run without a single mapped read."""
@@ -650,6 +682,7 @@ class ExtractTargetReadsCommand(BaseCommand):
             args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
             args.output_folder = str(anchored_folder(args.output_folder, getattr(args, "registry", None)))
             self._warn_dangling_links(args)
+            self._warn_ignored_assembly_flags(args)
             registry = load_registry(args.registry)
             self._resolve_threshold(args, registry)
             store = self._resolve_store(args, registry)

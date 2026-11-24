@@ -49,10 +49,8 @@ class TestSequenceQualityAnalyzer:
         self.analyzer = SequenceQualityAnalyzer()
 
     def test_analyzer_initialization(self):
-        """Test SequenceQualityAnalyzer initialization."""
-        assert hasattr(self.analyzer, "quality_encodings")
-        assert "sanger" in self.analyzer.quality_encodings
-        assert self.analyzer.quality_encodings["sanger"] == 33
+        """The analyzer needs no configuration; the quality offset is read from the data."""
+        assert SequenceQualityAnalyzer() is not None
 
     def test_calculate_gc_content(self):
         """Test GC content calculation."""
@@ -1379,3 +1377,30 @@ def test_adapter_at_seven_percent_is_flagged_and_counted(tmp_path):
     summary = SRAReportGenerator(tmp_path)._calculate_quality_summary(profiles)
     assert report.anomalous_datasets == ["SRR1"]
     assert summary["high_contamination_count"] == 1
+
+
+def test_quality_summary_gc_and_n_means_are_base_weighted():
+    import numpy as np
+
+    sequences = ["G" * 1000] + ["A" * 9 + "N"] * 10
+    summary = SequenceQualityAnalyzer()._summarise(
+        [len(s) for s in sequences],
+        [s.count("G") / len(s) for s in sequences],
+        np.zeros(94, dtype=np.int64),
+        [s.count("N") / len(s) for s in sequences],
+        sequences,
+    )
+    assert summary["gc_content_stats"]["mean"] == pytest.approx(100 * 1000 / 1100)
+    assert summary["n_content_stats"]["mean"] == pytest.approx(10 / 1100)
+
+
+def test_groups_without_variance_are_skipped_not_significant():
+    """Review: fixed read lengths 100,100 vs 200,200 gave t=inf, p=0 and 'significant' with n=2 per group."""
+    pytest.importorskip("scipy")
+    import pandas as pd
+
+    df = pd.DataFrame({"group": ["a", "a", "b", "b"], "avg_read_length": [100.0, 100.0, 200.0, 200.0]})
+    tests = SRADatasetAnalyzer()._perform_statistical_tests(df, {"a": [], "b": []})
+    result = tests["avg_read_length"]
+    assert result["test"].startswith("skipped")
+    assert result["significant"] is False and result["p_value"] is None

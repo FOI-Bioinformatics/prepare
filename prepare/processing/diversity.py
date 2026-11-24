@@ -228,10 +228,10 @@ def _calculate_shannon_diversity(data: np.ndarray) -> np.ndarray:
 
     # Normalize to relative abundances
     rel_abundance = np.divide(data_float, row_sums, out=np.zeros_like(data_float), where=row_sums != 0)
-    rel_abundance = rel_abundance + 1e-12  # Add small constant to avoid log(0)
 
-    # Shannon index: H = -sum(pi * ln(pi))
-    shannon = -np.sum(rel_abundance * np.log(rel_abundance), axis=1)
+    # Shannon index: H = -sum(pi * ln(pi)) over the species present (0 * ln 0 is taken as 0)
+    log_p = np.log(rel_abundance, out=np.zeros_like(rel_abundance), where=rel_abundance > 0)
+    shannon = -np.sum(rel_abundance * log_p, axis=1)
 
     # Set Shannon to 0 for zero-abundance samples
     shannon[zero_rows] = 0.0
@@ -296,9 +296,10 @@ def _calculate_pielou_evenness(data: np.ndarray) -> np.ndarray:
     shannon = _calculate_shannon_diversity(data)
     observed = _calculate_observed_species(data)
 
-    # Pielou's J = H / ln(S)
-    evenness = shannon / np.log(observed)
-    evenness[observed <= 1] = 0  # Handle cases with <=1 species
+    # Pielou's J = H / ln(S); 0 for a sample with fewer than two species (ln S would be 0 or undefined)
+    several = observed > 1
+    evenness = np.zeros(len(observed))
+    evenness[several] = shannon[several] / np.log(observed[several])
 
     return evenness
 

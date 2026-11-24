@@ -4,6 +4,68 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-24
+
+The low-severity findings of the 2026-11-23 bug sweep and the minors deferred by the reviews of
+0.12.3 and 0.13.0. Changed behaviour is listed first.
+
+### Changed
+
+- `store_link` and a download into a project no longer replace a symlink that points outside the store;
+  they report it and leave it in place.
+- `branchwater_search --output` records the screening under the output file's stem, the name
+  `parse_containment` gives the genome; it used the FASTA's name, so the two commands recorded one genome
+  twice.
+- Containment thresholds outside 0-1 are usage errors (exit 2): `--threshold` of `branchwater_search`,
+  `select_datasets`, `extract_target_reads`, `download_metadata` and `count_metadata`, and
+  `--min-containment` of `results_table` and the explore commands. `--max-cache-age-days` must not be negative.
+- Usage errors of `genome_download`, `genome_prepare`, `sra_info` (an empty accessions file), `store_gc`
+  (`--dry-run` with `--yes`) and `store_usage` (an ambiguous project name) exit with status 2, as other usage
+  errors do, through the common error report; a missing input file of the explore commands, `sra_validate`
+  and `sra_profile` is reported the same way (still exit 1).
+
+### Fixed
+
+- Statistics library: `calculate_enrichment` reports the fold of proportions (the share of the observed
+  counts over the share of the expected counts), the quantity whose null its Fisher test checks; two samples with no genome above the threshold are at distance 0 (Jaccard, Dice,
+  cosine); Shannon diversity uses no pseudo-count, and Pielou evenness gives 0 without a warning for a
+  sample with fewer than two species.
+- GC and N content in the dataset statistics record and in quality profiles are fractions of all
+  sampled bases, not means of per-read fractions; cached records are recomputed. Phred+64 qualities
+  (Illumina 1.3-1.7) are detected and decoded (all characters from `@` to `i`, some above `J`). A group comparison whose groups have no within-group
+  variance is reported as skipped rather than as p=0. The `sra_profile` summary labels its averages as
+  means of datasets, and the `--sample-size` help text matches the sampling.
+- `validate_taxonomy` with an empty species list reports that there is nothing to validate (it divided by zero).
+- `genome_download` names the `datasets` tool's own error, and a network failure exits with status 4.
+- NCBI metadata fetches retry only rate limits, server errors and network failures (a 401 or 403 is not
+  retried), wait only between attempts, and report HTTP 400 as a bad request rather than a missing
+  accession.
+- A download whose FASTQ compression fails is a failed download, as a corrupted compression is; it was
+  recorded as downloaded with some files compressed and some not.
+- Accessions files accept only run accessions (SRR, ERR, DRR); an experiment or sample accession such as
+  `SRX123` is refused when the file is read.
+- `store_gc` keeps a staged copy and its `_old` partner when the published folder is missing (a run killed
+  between the two renames of a publish), with a warning; they were removed as leftovers.
+- `store_link` and `store_unlink` handle a repeated accession once.
+- Store journal lines are written at the end of a catalogue session, just before its commit, so a session
+  that fails leaves no line for `store_reindex` to replay; a replay of an uncompacted journal keeps each
+  project's `created` and `last_seen` times.
+- `status --export-tsv` writes a header for an empty table (a project without extractions gave a file
+  pandas could not read). The run log and the registry write NaN and infinity as `null`, so strict JSON
+  readers such as jq accept them. `status --next` no longer suggests `--assemble` for an extraction whose
+  assembly was already tried and gave no contigs.
+- `genome_download` and `genome_prepare` handle a genome named more than once (or by two sources) once.
+- `extract_target_reads` names the assembly-only flags given without `--assemble` in a warning.
+- Deferred from the 0.12.3 and 0.13.0 reviews:
+  - `select_datasets` warns again when no remaining candidate has a value for a run filter, now counting only
+    candidates that are not excluded.
+  - Recording a selection with many kept downloads is fast again.
+  - `download_sra` and `store_adopt` still name the command to rerun for unrecorded store usage after an
+    interrupt, and `download_sra` reports only the current run's accessions.
+  - The `--threshold` warning of `extract_target_reads` counts only selected samples that are not excluded,
+    reading the table once.
+  - The `status` funnel leaves out a deleted extraction of an accession whose other genomes' work remains.
+
 ## [0.13.0] - 2026-11-23
 
 Fixes for the medium-severity findings of the 2026-11-23 bug sweep. Three of them change behaviour:

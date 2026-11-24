@@ -267,9 +267,9 @@ def _handle_download_output(
         if corrupted:
             return False, "compression corrupted " + "; ".join(corrupted)
         if compression_failures:
-            # Appended, never prepended, so parse_verdict_message's regex/substring checks
-            # on the leading verdict text keep working unchanged.
-            message += "; compression failed for " + ", ".join(compression_failures)
+            # Failed like a corrupted compression: a folder with some files compressed and some
+            # not would be a second layout for every later reader.
+            return False, "compression failed for " + ", ".join(compression_failures)
 
     return True, message
 

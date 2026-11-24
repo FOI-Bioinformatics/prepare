@@ -266,3 +266,25 @@ def test_a_branchwater_search_leaves_entries_from_match_tables_alone(tmp_path):
         record_screening(registry, "SRR3", genome, 0.4, None, "matches", 0.0, None)
 
     assert _search_twice(tmp_path, [("SRR1", 0.9)], [("SRR1", 0.9)], seed=seed) == ["SRR1", "SRR3"]
+
+
+def _genomes_after_search(tmp_path, output):
+    from prepare.data.registry import load_registry
+
+    args = _args(tmp_path, signature=str(tmp_path / "GCF_1.sig"), output=output)
+    with (
+        patch("prepare.cli.commands.branchwater_search.write_branchwater_csv"),
+        patch("prepare.cli.commands.branchwater_search.load_signature", return_value={"signatures": []}),
+        patch("prepare.cli.commands.branchwater_search.search_index", return_value=[("SRR1", 0.9)]),
+    ):
+        assert BranchwaterSearchCommand().execute(args) == 0
+    return list(load_registry(args.registry).genomes)
+
+
+def test_a_custom_output_records_under_its_stem(tmp_path):
+    """Review: parse_containment names the column after the CSV stem, so the registry must too."""
+    assert _genomes_after_search(tmp_path, str(tmp_path / "branchwater" / "foo.csv")) == ["foo"]
+
+
+def test_default_output_records_under_the_genome_name(tmp_path):
+    assert _genomes_after_search(tmp_path, None) == ["GCF_1"]
