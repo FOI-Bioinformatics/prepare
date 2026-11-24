@@ -483,10 +483,11 @@ def test_skip_downloaded_keeps_the_downloaded_accessions_selected(tmp_path, monk
 
 
 def test_selection_paths_are_recorded_relative_to_the_project_root(tmp_path, monkeypatch):
-    """Run from a subfolder, the recorded output and table still name the files from the project root."""
+    """Run from a subfolder, the table is read from and the output written to the project root
+    (audit P15), and both are recorded relative to it."""
     sub = tmp_path / "analysis"
     sub.mkdir()
-    (sub / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\n")
+    (tmp_path / "parsed_containment.txt").write_text("\tGCF_A\tmax_containment\nSRR1\t0.9\t0.9\n")
     (tmp_path / "prepare_registry.json").write_text("{}")
     monkeypatch.chdir(sub)
 
@@ -494,8 +495,9 @@ def test_selection_paths_are_recorded_relative_to_the_project_root(tmp_path, mon
     assert SelectDatasetsCommand().execute(args) == 0
 
     selection = load_registry(tmp_path / "prepare_registry.json").datasets["SRR1"]["selection"]
-    assert selection["output"] == "analysis/accessions.txt"
-    assert selection["criteria"]["table"] == "analysis/parsed_containment.txt"
+    assert selection["output"] == "accessions.txt"
+    assert selection["criteria"]["table"] == "parsed_containment.txt"
+    assert (tmp_path / "accessions.txt").is_file()
 
 
 def test_counts_only_the_exclusions_that_dropped_an_accession_from_this_table(tmp_path, monkeypatch, caplog):

@@ -5,7 +5,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List
 
-from prepare.cli.base import positive_int, unit_interval, BaseCommand
+from prepare.cli.base import anchor_args, positive_int, unit_interval, BaseCommand
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD, DEFAULT_TOP_N
 from prepare.core.exceptions import PrepareError, ValidationError
 from prepare.data import registry_blocks as rb
@@ -194,6 +194,7 @@ class SelectDatasetsCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "parsed_containment", "metadata_file", "output")
             run_filters = RunFilters(
                 max_run_size=args.max_run_size,
                 min_spots=args.min_spots,

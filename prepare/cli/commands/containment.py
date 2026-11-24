@@ -6,7 +6,7 @@ import argparse
 import shlex
 
 
-from prepare.cli.base import finite_float, positive_int, BaseCommand, anchored_folder
+from prepare.cli.base import anchor_args, finite_float, positive_int, BaseCommand, anchored_folder
 from prepare.core.exceptions import PrepareError
 from prepare.data.branchwater import parse_containment_data
 from prepare.core.constants import DEFAULT_REGISTRY_MAX_SCREENED
@@ -69,6 +69,7 @@ class ParseContainmentCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         try:
             args.matches_folder = str(anchored_folder(args.matches_folder, getattr(args, "registry", None)))
+            anchor_args(args, "parsed_containment_file", "summary_containment_file", "details_file")
             summary = parse_containment_data(
                 args.matches_folder,
                 args.parsed_containment_file,

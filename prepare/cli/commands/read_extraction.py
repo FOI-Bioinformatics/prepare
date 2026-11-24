@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 import pandas as pd
 
-from prepare.cli.base import finite_float, positive_int, unit_interval, BaseCommand, anchored_folder
+from prepare.cli.base import anchor_args, finite_float, positive_int, unit_interval, BaseCommand, anchored_folder
 from prepare.cli.commands.extraction_assembly import assemble_samples
 from prepare.core.constants import DEFAULT_CONTAINMENT_THRESHOLD
 from prepare.core.exceptions import PrepareError, TransientError
@@ -681,6 +681,7 @@ class ExtractTargetReadsCommand(BaseCommand):
             self._check_required_tools(args)
             args.fastq_folder = str(anchored_folder(args.fastq_folder, getattr(args, "registry", None)))
             args.output_folder = str(anchored_folder(args.output_folder, getattr(args, "registry", None)))
+            anchor_args(args, "parsed_containment")
             self._warn_dangling_links(args)
             self._warn_ignored_assembly_flags(args)
             registry = load_registry(args.registry)

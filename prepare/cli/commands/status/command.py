@@ -21,7 +21,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-from prepare.cli.base import BaseCommand
+from prepare.cli.base import anchor_args, BaseCommand
 from prepare.cli.commands.status.render_text import print_report
 from prepare.cli.commands.status.suggest import next_steps
 from prepare.core.exceptions import DataAccessError, PrepareError
@@ -169,6 +169,7 @@ class StatusCommand(BaseCommand):
         and swallowed here so the CLI exits cleanly instead of printing a traceback).
         """
         try:
+            anchor_args(args, "parsed_containment")
             registry_file = registry_path(args.registry)
             # Relative folders belong to the project that owns the registry, not the working directory.
             paths = ProjectPaths.anchored(

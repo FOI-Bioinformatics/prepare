@@ -6,12 +6,12 @@ from typing import Optional
 
 import pandas as pd
 
-from prepare.cli.base import unit_interval, BaseCommand
+from prepare.cli.base import anchor_args, unit_interval, BaseCommand
 from prepare.core.constants import DEFAULT_PARSED_CONTAINMENT_FILE
 from prepare.core.exceptions import PrepareError
 from prepare.data import run_log
 from prepare.data.file_io import write_csv
-from prepare.data.registry import load_registry, record_export, registry_transaction
+from prepare.data.registry import _project_relative, load_registry, project_root, record_export, registry_transaction
 from prepare.processing.results import results_dataframe, results_rows
 
 EXPORT_NAME = "results_table"
@@ -67,6 +67,7 @@ class ResultsTableCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "parsed_containment", "output")
             registry = load_registry(args.registry)
             parsed_table = self._load_parsed_table(args.parsed_containment)
             rows = results_rows(
@@ -96,7 +97,7 @@ class ResultsTableCommand(BaseCommand):
                     "genomes": genomes,
                     "genome_id": args.genome_id,
                     "min_containment": args.min_containment,
-                    "output": str(output),
+                    "output": _project_relative(output, project_root(registry)),
                 },
             )
 

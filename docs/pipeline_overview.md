@@ -7,6 +7,13 @@ dataset stands at any time. This page lists the stages in order, with the comman
 and what the registry keeps. Depth on a topic is in the page named in the relevant section; the flags of
 every command are in `prepare <command> --help`.
 
+A relative path given to a project folder (`--fastq-folder`, `--matches-folder` and the like) or to a file
+one step writes and another reads back (`parsed_containment.txt`, `accessions.txt`, `metadata_table.txt`,
+`results.tsv`, `blacklist.txt`, the `sra_profile` and `sra_report` folders, the explore outputs) is taken
+against the project root, the folder of `prepare_registry.json`, so a command run from a subfolder uses the
+same files. A list written by hand (`--accessions-file`, `--groups-file`, `blacklist --from-file`) is taken
+against the working directory, as the shell would. Absolute paths are used as given.
+
 ## Stage summary
 
 | Stage | Commands | Main output | Recorded in the registry |

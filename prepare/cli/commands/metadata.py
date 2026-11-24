@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from prepare.cli.base import int_in_range, unit_interval, BaseCommand, anchored_folder
+from prepare.cli.base import anchor_args, int_in_range, unit_interval, BaseCommand, anchored_folder
 from prepare.core.exceptions import DataAccessError, NetworkError, PrepareError, ValidationError
 from prepare.core.settings import require_email, setting_for
 from prepare.data import registry_blocks as rb
@@ -271,6 +271,7 @@ class ParseMetadataCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         try:
             args.metadata_folder = str(anchored_folder(args.metadata_folder, getattr(args, "registry", None)))
+            anchor_args(args, "metadata_table_file")
             errors: List[str] = []
             df = parse_metadata(args.metadata_folder, args.metadata_table_file, errors=errors)
             term = getattr(args, "_termination", None)
@@ -315,6 +316,7 @@ class CheckMetadataAttributesCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "file_path", "output_file")
             check_metadata_attributes(str(resolve_metadata_table(args.file_path)), args.output_file)
             return 0
         except PrepareError as e:
@@ -367,6 +369,7 @@ class CountMetadataCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "summary_file", "metadata_file", "output_file", "stat_file")
             count_metadata(
                 summary_file=args.summary_file,
                 metadata_file=str(resolve_metadata_table(args.metadata_file)),
@@ -415,6 +418,7 @@ class PlotMetadataCountsCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "file_path")
             plot_metadata_counts(
                 file_path=args.file_path,
                 title=args.title,
@@ -455,6 +459,7 @@ class PlotMapCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> int:
         fig = None
         try:
+            anchor_args(args, "metadata_file", "output")
             data = pd.read_csv(resolve_metadata_table(args.metadata_file), sep="\t")
             if args.lat_lon_column not in data.columns:
                 raise ValidationError(f"--lat-lon-column {args.lat_lon_column!r} is not a column of the metadata table")

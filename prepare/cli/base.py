@@ -77,6 +77,22 @@ def anchored_folder(folder: Union[str, Path], registry: Optional[str]) -> Path:
     return path if path.is_absolute() else project_root(registry_path(registry)) / path
 
 
+def anchor_args(args: argparse.Namespace, *dests: str) -> None:
+    """Resolve each named project file or folder argument of ``args`` against the project root.
+
+    For the files one pipeline step writes and another reads back (a parsed containment table, an
+    accession list a command writes, a report folder), as ``anchored_folder`` does for the project
+    folders. An argument that is absent or None is left alone; a list the user writes by hand
+    (``--accessions-file``, ``--groups-file``) is not passed here and stays relative to the working
+    directory.
+    """
+    registry = getattr(args, "registry", None)
+    for dest in dests:
+        value = getattr(args, dest, None)
+        if value is not None:
+            setattr(args, dest, str(anchored_folder(value, registry)))
+
+
 def resolve_command_store(args: argparse.Namespace, registry: "Registry") -> Optional["StorePaths"]:
     """The shared data store (if any) for a command's ``--data-root`` and registry.
 

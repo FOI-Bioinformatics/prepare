@@ -4,6 +4,18 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+### Changed
+
+- A relative path to a file one step writes and another reads back is taken against the project root, as
+  the project folders already were: the tables of `parse_containment`, the input and output of
+  `select_datasets`, `extract_target_reads --parsed-containment`, `results_table`, the metadata tables
+  and outputs of `parse_metadata`, `check_metadata_attributes`, `count_metadata`, `single_sample`,
+  `plot_metadata_counts` and `plot_map`, the `sra_profile` and `sra_report` folders, `--blacklist-file`,
+  `status --parsed-containment` and the explore commands' files. Run from a subfolder, these commands read
+  and wrote those files in the subfolder. Lists written by hand (`--accessions-file`, `--groups-file`,
+  `blacklist --from-file`) stay relative to the working directory. The default metadata table is looked
+  for in the project root.
+
 ### Fixed
 
 - `sra_sketch --genome-id` must be a plain name (letters, digits, `.`, `_`, `-`); a value such as `a/b` or

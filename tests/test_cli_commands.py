@@ -249,7 +249,7 @@ class TestParseContainmentCommand:
         mock_command.assert_called_once_with(
             str(tmp_path.resolve() / "test_matches"),
             str(tmp_path / "parsed.txt"),
-            "summary.txt",
+            str(tmp_path.resolve() / "summary.txt"),
             0.05,
             details_file=None,
         )
@@ -2847,7 +2847,7 @@ class TestSingleSampleCommand:
 
     @patch("prepare.cli.commands.samples.resolve_metadata_table")
     @patch("prepare.cli.commands.samples.count_single_sample")
-    def test_execute(self, mock_command, mock_resolve):
+    def test_execute(self, mock_command, mock_resolve, tmp_path):
         """Test command execution."""
         mock_command.return_value = {"organism1": 5, "organism2": 3}
         mock_resolve.return_value = Path("metadata.txt")
@@ -2860,13 +2860,15 @@ class TestSingleSampleCommand:
             metadata_file="metadata.txt",
             threshold=0.1,
             top_n=100,
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         result = command.execute(args)
         assert result == 0
-        mock_resolve.assert_called_once_with("metadata.txt")
+        # Project files are taken from the project root (the registry's folder).
+        mock_resolve.assert_called_once_with(str(tmp_path.resolve() / "metadata.txt"))
         mock_command.assert_called_once_with(
-            summary_file="summary.txt",
+            summary_file=str(tmp_path.resolve() / "summary.txt"),
             metadata_file="metadata.txt",
             summary_column="test_genome",
             metadata_column="organism",
@@ -2915,7 +2917,9 @@ class TestParseMetadataCommand:
 
         result = command.execute(args)
         assert result == 0
-        mock_command.assert_called_once_with(str(tmp_path.resolve() / "metadata"), "metadata_table.txt", errors=[])
+        mock_command.assert_called_once_with(
+            str(tmp_path.resolve() / "metadata"), str(tmp_path.resolve() / "metadata_table.txt"), errors=[]
+        )
 
     @patch("prepare.cli.commands.metadata.parse_metadata")
     def test_execute_resolves_the_project_root_once(self, mock_parse, tmp_path):
@@ -3093,7 +3097,7 @@ class TestCountMetadataCommand:
 
     @patch("prepare.cli.commands.metadata.resolve_metadata_table")
     @patch("prepare.cli.commands.metadata.count_metadata")
-    def test_execute(self, mock_command, mock_resolve):
+    def test_execute(self, mock_command, mock_resolve, tmp_path):
         """Test command execution."""
         mock_command.return_value = None
         mock_resolve.return_value = Path("metadata.txt")
@@ -3106,17 +3110,19 @@ class TestCountMetadataCommand:
             threshold=0.5,
             output_file="counts.txt",
             stat_file=None,
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         result = command.execute(args)
         assert result == 0
-        mock_resolve.assert_called_once_with("metadata.txt")
+        root = tmp_path.resolve()
+        mock_resolve.assert_called_once_with(str(root / "metadata.txt"))
         mock_command.assert_called_once_with(
-            summary_file="summary.txt",
+            summary_file=str(root / "summary.txt"),
             metadata_file="metadata.txt",
             metadata_column="organism",
             threshold=0.5,
-            output_file="counts.txt",
+            output_file=str(root / "counts.txt"),
             stat_file=None,
         )
 
@@ -3313,7 +3319,7 @@ class TestPlotMetadataCountsCommand:
         assert args.show_title is True
 
     @patch("prepare.cli.commands.metadata.plot_metadata_counts")
-    def test_execute(self, mock_command):
+    def test_execute(self, mock_command, tmp_path):
         """Test command execution."""
         import matplotlib.pyplot as plt
 
@@ -3321,13 +3327,24 @@ class TestPlotMetadataCountsCommand:
         command = PlotMetadataCountsCommand()
 
         args = argparse.Namespace(
-            file_path="counts.txt", plot_type="bar", title=None, colors=None, save_format=None, show_title=False
+            file_path="counts.txt",
+            plot_type="bar",
+            title=None,
+            colors=None,
+            save_format=None,
+            show_title=False,
+            registry=str(tmp_path / "prepare_registry.json"),
         )
 
         result = command.execute(args)
         assert result == 0
         mock_command.assert_called_once_with(
-            file_path="counts.txt", title=None, plot_type="bar", colors=None, show_title=False, save_format=None
+            file_path=str(tmp_path.resolve() / "counts.txt"),
+            title=None,
+            plot_type="bar",
+            colors=None,
+            show_title=False,
+            save_format=None,
         )
 
     @patch("prepare.cli.commands.metadata.plot_metadata_counts")

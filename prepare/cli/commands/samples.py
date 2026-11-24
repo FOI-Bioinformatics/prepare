@@ -4,7 +4,7 @@ Sample analysis CLI commands.
 
 import argparse
 
-from prepare.cli.base import finite_float, positive_int, BaseCommand
+from prepare.cli.base import anchor_args, finite_float, positive_int, BaseCommand
 from prepare.core.exceptions import PrepareError
 from prepare.data.defaults import resolve_metadata_table
 from prepare.processing.containment import count_single_sample
@@ -56,6 +56,7 @@ class SingleSampleCommand(BaseCommand):
 
     def execute(self, args: argparse.Namespace) -> int:
         try:
+            anchor_args(args, "summary_file", "metadata_file")
             count_dict = count_single_sample(
                 summary_file=args.summary_file,
                 metadata_file=str(resolve_metadata_table(args.metadata_file)),
