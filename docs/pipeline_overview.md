@@ -99,7 +99,9 @@ and `containment`. An unreadable file makes `use_branchwater`, `parse_containmen
 Use the details table when a later step needs cANI or sample provenance. `parsed_containment.txt` stays
 the samples-by-genomes matrix that the rest of the pipeline reads. `plot_containment` writes a plot image
 (png by default). The registry keeps the screened accessions with their containment per genome, up to a
-cap described in [project_state.md](project_state.md#the-registry).
+cap described in [project_state.md](project_state.md#the-registry). The cANI that `branchwater_search` or
+`status --init` recorded from a match CSV is kept while the accession's containment for that genome is
+unchanged; `parse_containment` reads no cANI itself.
 
 ## 2. Select
 
