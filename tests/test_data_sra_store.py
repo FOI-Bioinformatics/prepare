@@ -140,6 +140,22 @@ class TestDownloadSraStore:
         assert "outside the store" in message
         assert calls == []
 
+    def test_store_download_replaces_a_link_into_the_stores_old_location(self, tmp_path):
+        """Deferred (0.14.0): after the store moved, its own old link was refused as foreign."""
+        import os
+
+        paths = self._store(tmp_path)
+        fastq_folder = tmp_path / "project" / "fastq"
+        fastq_folder.mkdir(parents=True)
+        os.symlink(tmp_path / "old_store" / "sra" / "SRR1", fastq_folder / "SRR1")  # dangling
+        calls = []
+
+        with patch("prepare.data.sra.accession.download_accession", side_effect=self._fake_download(calls)):
+            success, message = store_handoff_mod._store_download("SRR1", fastq_folder, paths, force=True)
+
+        assert "outside the store" not in message
+        assert calls
+
     def test_store_download_refuses_a_real_project_folder_before_fetching(self, tmp_path):
         """The project's own reads under fastq/<ACC> are never replaced by a link, so no fetch starts."""
         from prepare.data.sra.retry import _split_not_found

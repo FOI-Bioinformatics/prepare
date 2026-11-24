@@ -17,7 +17,7 @@ from typing import List, Optional, Union
 from prepare.core.exceptions import DataAccessError
 from prepare.data.accessions import require_accession
 from prepare.data.file_io import unique_temp_path
-from prepare.store.layout import StorePaths, sra_dir
+from prepare.store.layout import StorePaths, read_marker, sra_dir
 from prepare.store.locks import LockHeld, dataset_lock, lock_holder, touch_dataset_use
 from prepare.utils.progress import active_item_level
 from prepare.utils.sizes import tree_bytes
@@ -239,8 +239,10 @@ def _link_locked(project_path: Path, accession: str, paths: StorePaths, mode: st
     resolved_dataset = store_dataset.resolve()
 
     if link.is_symlink() and not is_store_link(link, paths):
-        # The user's own link to data elsewhere: never replaced silently.
-        raise DataAccessError(f"{link} links outside the store ({os.readlink(link)}); remove it first")
+        if not is_store_link(link, paths, include_moved=True):
+            # The user's own link to data elsewhere: never replaced silently.
+            raise DataAccessError(f"{link} links outside the store ({os.readlink(link)}); remove it first")
+        logger.info("Replacing %s, a link to this store's earlier location (%s)", link, os.readlink(link))
 
     if mode == "copy":
         # Refused before any copying when the entry holds the project's own reads.
@@ -281,18 +283,40 @@ def unlink_dataset(project_fastq: Union[str, Path], accession: str) -> bool:
     return True
 
 
-def is_store_link(path: Union[str, Path], paths: StorePaths) -> bool:
+def is_store_link(path: Union[str, Path], paths: StorePaths, include_moved: bool = False) -> bool:
     """True when ``path`` is a symlink pointing into this store's ``sra`` folder.
 
     A dangling link still counts: it says where the dataset was meant to come from, which is
-    what a caller deciding whether to relink needs to know.
+    what a caller deciding whether to relink needs to know. With ``include_moved``, a link this
+    store made before it was moved or remounted elsewhere counts too (``_points_into_moved_store``);
+    callers that only decide whether a link may be replaced or removed pass it.
     """
     link = Path(path)
     if not link.is_symlink():
         return False
     target = Path(os.path.realpath(link))
     store_sra = Path(os.path.realpath(paths.sra))
-    return target == store_sra or store_sra in target.parents
+    if target == store_sra or store_sra in target.parents:
+        return True
+    return include_moved and _points_into_moved_store(link, paths)
+
+
+def _points_into_moved_store(link: Path, paths: StorePaths) -> bool:
+    """Whether ``link`` is ``<root>/sra/<name>`` of this store at an earlier location.
+
+    The target must have a store's dataset layout, the dataset named as the link is. A target
+    that still exists must also lie in a store whose marker carries this store's id (the same
+    store, still visible at its old path); a target that is gone holds no data, so the layout
+    alone decides. Another store's link, or a link elsewhere, is never counted.
+    """
+    target = Path(os.path.normpath(os.path.join(link.parent, os.readlink(link))))
+    if target.name != link.name or target.parent.name != paths.sra.name:
+        return False
+    if not os.path.lexists(target):
+        return True
+    old_marker = read_marker(target.parent.parent)
+    own_marker = read_marker(paths.root)
+    return bool(old_marker and own_marker and old_marker.get("id") and old_marker.get("id") == own_marker.get("id"))
 
 
 def dangling_links(project_fastq: Union[str, Path]) -> List[str]:

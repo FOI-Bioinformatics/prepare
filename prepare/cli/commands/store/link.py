@@ -230,7 +230,7 @@ class StoreUnlinkCommand(BaseCommand):
                 self.logger.error("%s is a real directory, not a store link; refusing to remove it", accession)
                 refused.append(accession)
                 continue
-            if store is not None and link_path.is_symlink() and not is_store_link(link_path, store):
+            if store is not None and link_path.is_symlink() and not is_store_link(link_path, store, include_moved=True):
                 self.logger.error("%s links outside the store (%s); refusing to remove it", accession, store.root)
                 refused.append(accession)
                 continue

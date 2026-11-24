@@ -955,6 +955,35 @@ class TestStoreAdoptCommand:
         assert not (project_dir / "fastq" / "SRR2").is_symlink()
 
 
+def test_store_adopt_reports_unrecorded_usage_before_an_interrupt(tmp_path, monkeypatch, caplog):
+    """Deferred (0.14.0): the rerun hint for usage the catalogue missed must not be lost to exit 130."""
+    import importlib
+
+    adopt_mod = importlib.import_module("prepare.store.adopt")
+    root = tmp_path / "store"
+    init_store(root)
+    project_dir = tmp_path / "project"
+    for acc in ("SRR1", "SRR2"):
+        entry = project_dir / "fastq" / acc
+        entry.mkdir(parents=True)
+        (entry / f"{acc}.fastq").write_text("@r\nACGT\n+\nIIII\n")
+    monkeypatch.chdir(project_dir)
+    monkeypatch.setattr("prepare.cli.commands.store.adopt.record_usage_many", lambda *a, **k: False)
+    args = _adopt_args(data_root=str(root), registry=str(project_dir / "prepare_registry.json"))
+    original = adopt_mod._adopt_one
+
+    def stop_after_first(accession, *a, **kw):
+        result = original(accession, *a, **kw)
+        args._termination.stop.set()
+        return result
+
+    with patch.object(adopt_mod, "_adopt_one", side_effect=stop_after_first), caplog.at_level(logging.ERROR):
+        rc = StoreAdoptCommand().run(args)
+
+    assert rc == 130
+    assert "store_link SRR1 again before store_gc" in caplog.text
+
+
 class TestStoreVerifyCommand:
     def test_command_properties(self):
         cmd = StoreVerifyCommand()
@@ -2831,6 +2860,24 @@ class TestStoreUnlinkOnlyRemovesStoreLinks:
 
         assert rc == 1
         assert (project_dir / "fastq" / "SRR1").is_symlink()
+
+    def test_a_link_into_the_store_at_its_old_path_is_removed(self, tmp_path, monkeypatch):
+        """Deferred (0.14.0): after the store moved, store_unlink refused its own old links as foreign."""
+        (tmp_path / "old" / "sra" / "SRR1").mkdir(parents=True)
+        project_dir = tmp_path / "project"
+        (project_dir / "fastq").mkdir(parents=True)
+        (project_dir / "fastq" / "SRR1").symlink_to(tmp_path / "old" / "sra" / "SRR1", target_is_directory=True)
+        (tmp_path / "old" / "sra" / "SRR1").rmdir()  # the store moved to tmp_path / "new"
+        paths = init_store(tmp_path / "new")
+        registry = load_registry(project_dir / "prepare_registry.json")
+        registry.store = {"root": str(paths.root), "linked": ["SRR1"]}
+        save_registry(registry)
+        monkeypatch.chdir(project_dir)
+
+        rc = StoreUnlinkCommand().execute(_unlink_args(["SRR1"]))
+
+        assert rc == 0
+        assert not (project_dir / "fastq" / "SRR1").is_symlink()
 
 
 class TestUsageNotRecorded:

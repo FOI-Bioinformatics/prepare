@@ -637,7 +637,7 @@ def _store_download(
             f"{STORE_PROJECT_FOLDER_PREFIX} {own} holds the project's own reads and is not a store link; "
             f"run store_adopt to move them into the store, or remove the folder"
         )
-    if own.is_symlink() and not is_store_link(own, store):
+    if own.is_symlink() and not is_store_link(own, store, include_moved=True):
         # The user's own link to data elsewhere: link_dataset would refuse it after the fetch.
         return False, f"{STORE_PROJECT_FOLDER_PREFIX} {own} links outside the store; remove the link first"
     for directory in (store.sra, store.tmp, store.locks):
