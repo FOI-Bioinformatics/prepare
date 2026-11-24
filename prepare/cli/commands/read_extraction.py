@@ -593,7 +593,7 @@ class ExtractTargetReadsCommand(BaseCommand):
             return
         given = {
             "--assembly-threads": args.assembly_threads is not None,
-            "--assembly-memory": getattr(args, SETTINGS["assembly_memory"].cli_dest, None) is not None,
+            "--assembly-memory": getattr(args, SETTINGS["assembly_memory"].cli_dest or "", None) is not None,
             "--min-contig-len": args.min_contig_len is not None,
             "--assembly-preset": args.assembly_preset != "meta-sensitive",
             "--keep-intermediate": args.keep_intermediate,

@@ -228,15 +228,14 @@ def record_selection(
 
     ``ranked`` is the per-accession rank detail (``{"accession", "rank", "column", "value"}``)
     for the selected accessions; entries for accessions outside ``accessions`` are dropped so
-    the recorded list is always capped to what was actually selected. An accession in ``keep`` (one that
-    meets the criteria but was left out of ``accessions``, e.g. by ``--skip-downloaded``) is selected with
-    the same ``criteria``. ``output`` and ``criteria["table"]`` are recorded project-relative.
+    the recorded list is always capped to what was selected. ``keep`` (met the criteria, left out by e.g.
+    ``--skip-downloaded``) is selected too; ``output`` and ``criteria["table"]`` are recorded project-relative.
     """
     root = project_root(registry)
     criteria = {**criteria, **{k: _project_relative(v, root) for k, v in criteria.items() if k == "table" and v}}
     wanted = set(accessions)
     kept = [acc for acc in dict.fromkeys(keep) if acc not in wanted]
-    output, chosen = _project_relative(output, root), set(accessions) | set(kept)
+    output, chosen = _project_relative(output, root), wanted | set(kept)
     for accession in registry.datasets:
         earlier = rb.selection_block(registry, accession)
         if earlier and earlier.selected and accession not in chosen:
