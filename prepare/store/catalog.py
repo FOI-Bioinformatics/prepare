@@ -166,8 +166,8 @@ class Catalog:
         self.journal_enabled: bool = True
         # Set by catalog_write to the lock it holds, so commit_now can check it is still ours.
         self._held_lock: Any = None
-        # Inside a catalog_write session: journal appends wait here until the commit, so a
-        # session that is rolled back leaves no line behind. None outside a session (immediate).
+        # Inside a catalog_write session: journal appends wait here until just before the commit,
+        # so a session whose body raises leaves no line behind. None outside a session (immediate).
         self._pending_journal: Optional[List[Callable[[], None]]] = None
 
     @property
@@ -508,7 +508,7 @@ class Catalog:
             self._pending_journal.append(append)
 
     def _flush_journal(self) -> None:
-        """Write the journal lines of everything committed so far in this session."""
+        """Write the journal lines of everything about to be committed in this session."""
         pending, self._pending_journal = self._pending_journal or [], []
         for append in pending:
             append()
@@ -520,11 +520,11 @@ class Catalog:
         """
         if self._held_lock is not None:
             verify_held(self._held_lock)
+        self._flush_journal()
         try:
             self.conn.commit()
         except sqlite3.Error as e:
             raise DataAccessError(f"Cannot commit catalog write: {e}") from e
-        self._flush_journal()
 
     # ----------------------------------------------------------------- queries
 
@@ -660,9 +660,12 @@ def catalog_write(paths: StorePaths) -> Iterator[Catalog]:
             catalog._pending_journal = []
             yield catalog
             verify_held(lock)
+            # The journal lines are written just before the commit, under the lock: a session that
+            # raises in its body leaves none, and a failed append rolls the session back, so a
+            # committed row always has its line (store rule 4). A commit that fails after the lines
+            # leaves only lines that make a dataset look used, never one that looks unused.
+            catalog._flush_journal()
             try:
                 catalog.conn.commit()
             except sqlite3.Error as e:
                 raise DataAccessError(f"Cannot commit catalog write: {e}") from e
-            # Journal lines follow the commit, still under the lock: a rolled-back session has none.
-            catalog._flush_journal()

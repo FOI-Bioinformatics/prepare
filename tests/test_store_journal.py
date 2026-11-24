@@ -413,3 +413,24 @@ def test_replay_keeps_project_timestamps(tmp_path):
         after = dict(cat.conn.execute("SELECT created, last_seen FROM projects WHERE project_id = 'p1'").fetchone())
 
     assert after == before
+
+
+def test_a_failed_journal_append_rolls_the_session_back(tmp_path, monkeypatch):
+    """Review (0.14.0): with lines written after the commit, a failed append left committed rows unjournaled."""
+    paths = init_store(tmp_path / "store")
+    real_append, calls = journal._append, []
+
+    def failing(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError(28, "No space left on device")
+        return real_append(*args, **kwargs)
+
+    monkeypatch.setattr(journal, "_append", failing)
+    with pytest.raises(Exception):
+        with catalog_write(paths) as cat:
+            cat.upsert_project("p1", "p1", str(tmp_path), str(tmp_path / "r.json"))
+            cat.record_usage("SRR1", "p1", "", "linked", "test")
+
+    with Catalog(paths) as cat:
+        assert cat.conn.execute("SELECT COUNT(*) FROM usage").fetchone()[0] == 0
