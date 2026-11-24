@@ -358,3 +358,14 @@ def test_explore_containment_title_flag_reaches_the_page(tmp_path, monkeypatch):
     ):
         ExploreContainmentCommand().execute(args)
     assert gen.call_args.kwargs.get("title") == "X"
+
+
+def test_explorer_charts_and_headers_are_described(containment_df, taxonomy, tmp_path):
+    """Audit G21: charts had no text alternative and the sortable headers no scope."""
+    import re
+
+    page = generate_containment_explorer(containment_df, taxonomy, output_file=tmp_path / "e.html").read_text()
+    panels = re.findall(r'<div class="pre-panel"([^>]*)>', page)
+    assert panels and all('role="figure"' in p and re.search(r'aria-label="[^"]+"', p) for p in panels)
+    headers = re.findall(r"<th [^>]*>", page)
+    assert headers and all('scope="col"' in h for h in headers)

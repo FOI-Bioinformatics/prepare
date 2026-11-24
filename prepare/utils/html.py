@@ -406,3 +406,14 @@ def page_footer(note: str = "") -> str:
 
     text = f"Generated {utc_stamp()} by PREPARE {__version__}." + (f" {escape(note)}" if note else "")
     return f'<footer class="pre-footer">{text}</footer>'
+
+
+def figure_title(fig: Any) -> str:
+    """The title text of a plotly figure, without markup after a line break; "Figure" when it has none."""
+    text = getattr(getattr(fig.layout, "title", None), "text", None) or "Figure"
+    return str(text).split("<br>")[0]
+
+
+def chart_panel(html: str, label: str) -> str:
+    """``html`` (one figure) in a page panel described by ``label`` for screen readers."""
+    return f'<div class="pre-panel" role="figure" aria-label="{escape(label)}">{html}</div>'

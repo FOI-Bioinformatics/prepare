@@ -14,7 +14,7 @@ from typing import Any, Dict, List
 from prepare.core.optional import require
 from prepare.processing.project_report import SECTION_TITLES
 from prepare.processing.project_report_markdown import format_cell, section_blocks, subtitle
-from prepare.utils.html import page_footer, page_head, plotly_layout
+from prepare.utils.html import chart_panel, figure_title, page_footer, page_head, plotly_layout
 
 PURPOSE = "The project report's HTML page"
 FUNNEL_STAGES = ("screened", "selected", "downloaded", "analysed", "extracted", "assembled")
@@ -29,7 +29,7 @@ def require_html() -> None:
 
 def _figure_div(figure: Any) -> str:
     offline = require("plotly.offline", "interactive", PURPOSE)
-    return str(offline.plot(figure, output_type="div", include_plotlyjs=False))
+    return chart_panel(str(offline.plot(figure, output_type="div", include_plotlyjs=False)), figure_title(figure))
 
 
 def _stage_figure_object(funnel: Dict[str, Any]) -> Any:
@@ -143,7 +143,7 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
         {% for section in sections %}
         <section class="pre-section" id="{{ section.id }}">
             <h2>{{ section.title }}</h2>
-            {% if section.figure %}<div class="pre-panel">{{ section.figure|safe }}</div>{% endif %}
+            {% if section.figure %}{{ section.figure|safe }}{% endif %}
             {% for block in section.blocks %}
                 {% if block.header %}
                 <div class="pre-table-wrap"><table class="pre-table">

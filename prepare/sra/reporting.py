@@ -29,13 +29,29 @@ from prepare.sra.analytics import (
 )
 from prepare.core.optional import require
 from prepare.data.file_io import write_text_atomic
-from prepare.utils.html import CATEGORICAL_COLORS, page_footer, page_head, plotly_layout, utc_stamp
+from prepare.utils.html import (
+    CATEGORICAL_COLORS,
+    chart_panel,
+    figure_title,
+    page_footer,
+    page_head,
+    plotly_layout,
+    utc_stamp,
+)
 
 # Quality-grade colours drawn from the validated categorical palette (ordinal:
 # excellent -> poor).
 _GRADE_COLORS = {"excellent": "#008300", "good": "#2a78d6", "fair": "#eda100", "poor": "#e34948"}
 
 logger = logging.getLogger(__name__)
+
+# How each numeric column is named, with its unit, in figures and test headings.
+METRIC_LABELS = {
+    "avg_read_length": "Mean read length (bp)",
+    "gc_percent": "GC content (%)",
+    "total_reads": "Reads",
+    "complexity_score": "Complexity score",
+}
 
 _PURPOSE = "An SRA HTML report"
 
@@ -254,14 +270,18 @@ class SRAReportGenerator:
         )
         fig_grades.update_layout(**plotly_layout())
         fig_grades.update_layout(title_text="Quality grade distribution")
-        plots["quality_grades"] = pyo.plot(fig_grades, output_type="div", include_plotlyjs=False)
+        plots["quality_grades"] = chart_panel(
+            pyo.plot(fig_grades, output_type="div", include_plotlyjs=False), figure_title(fig_grades)
+        )
 
         # GC content distribution
         gc_percents = [p.gc_percent for p in profiles.values()]
         fig_gc = go.Figure(data=[go.Histogram(x=gc_percents, nbinsx=25)])
         fig_gc.update_layout(**plotly_layout())
         fig_gc.update_layout(title_text="GC content distribution", xaxis_title="GC content (%)", yaxis_title="Count")
-        plots["gc_distribution"] = pyo.plot(fig_gc, output_type="div", include_plotlyjs=False)
+        plots["gc_distribution"] = chart_panel(
+            pyo.plot(fig_gc, output_type="div", include_plotlyjs=False), figure_title(fig_gc)
+        )
 
         # Read length vs complexity scatter
         read_lengths = [p.avg_read_length for p in profiles.values()]
@@ -285,7 +305,9 @@ class SRAReportGenerator:
             xaxis_title="Average read length (bp)",
             yaxis_title="Complexity score",
         )
-        plots["complexity_scatter"] = pyo.plot(fig_complexity, output_type="div", include_plotlyjs=False)
+        plots["complexity_scatter"] = chart_panel(
+            pyo.plot(fig_complexity, output_type="div", include_plotlyjs=False), figure_title(fig_complexity)
+        )
 
         return plots
 
@@ -310,11 +332,11 @@ class SRAReportGenerator:
                         fig_box.add_trace(go.Box(y=group_data, name=group, boxpoints="outliers"))
 
                     fig_box.update_layout(**plotly_layout())
-                    fig_box.update_layout(
-                        title_text=f"{col.replace('_', ' ').title()} by group",
-                        yaxis_title=col.replace("_", " ").title(),
+                    label = METRIC_LABELS.get(col, col)
+                    fig_box.update_layout(title_text=f"{label} by group", yaxis_title=label)
+                    plots[f"{col}_boxplot"] = chart_panel(
+                        pyo.plot(fig_box, output_type="div", include_plotlyjs=False), figure_title(fig_box)
                     )
-                    plots[f"{col}_boxplot"] = pyo.plot(fig_box, output_type="div", include_plotlyjs=False)
 
         return plots
 
@@ -420,7 +442,7 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
             <h2>Quality metrics</h2>
             <div class="pre-grid">
             {% for plot_name, plot_html in plots.items() %}
-                <div class="pre-panel">{{ plot_html|safe }}</div>
+                {{ plot_html|safe }}
             {% endfor %}
             </div>
         </section>
@@ -441,7 +463,7 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
             <h2>Statistical tests</h2>
             {% for test_name, test_result in comparison.statistical_tests.items() %}
             <div class="pre-note{% if test_result.significant %} warn{% endif %}">
-                <h3>{{ test_name.replace('_', ' ').title() }}</h3>
+                <h3>{{ metric_labels.get(test_name, test_name) }}</h3>
                 {# A skipped test carries no p-value (None) or NaN, which is not equal to itself. #}
                 {% if test_result.p_value is none or test_result.p_value != test_result.p_value %}
                 <p>{{ test_result.test }}{% if test_result.note %} &middot; {{ test_result.note }}{% endif %}</p>
@@ -462,7 +484,7 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
             <h2>Comparative visualizations</h2>
             <div class="pre-grid">
             {% for plot_name, plot_html in plots.items() %}
-                <div class="pre-panel">{{ plot_html|safe }}</div>
+                {{ plot_html|safe }}
             {% endfor %}
             </div>
         </section>
@@ -496,6 +518,7 @@ def _render_page(
     return template.render(
         head_html=page_head(title),
         footer_html=page_footer(),
+        metric_labels=METRIC_LABELS,
         eyebrow=eyebrow,
         title=title,
         timestamp=timestamp,

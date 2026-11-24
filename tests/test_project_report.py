@@ -360,3 +360,15 @@ def test_html_title_names_the_project_and_times_are_utc(registry, no_checks):
     assert "<title>Project report: Wolbachia survey</title>" in page
     assert re.search(r"Generated \d{4}-\d\d-\d\d \d\d:\d\d UTC by PREPARE \d+\.\d+\.\d+", page)
     assert re.search(r"<td>created</td>\s*<td[^>]*>\d{4}-\d\d-\d\d \d\d:\d\d UTC</td>", page)
+
+
+def test_html_figures_have_a_text_alternative(registry, no_checks):
+    pytest.importorskip("plotly")
+    pytest.importorskip("jinja2")
+    import re
+
+    from prepare.visualization.project_report import render_html
+
+    page = render_html(_report(registry))
+    panels = re.findall(r'<div class="pre-panel"([^>]*)>', page)
+    assert panels and all('role="figure"' in p and re.search(r'aria-label="[^"]+"', p) for p in panels)

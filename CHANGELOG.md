@@ -36,6 +36,11 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   a zone. `sra_report` declares its language and has a skip link, as the other pages do. The
   `project_report` title names the project, and its created and updated times are in UTC.
   `explore_containment --title` sets the explorer's title.
+- Figure titles, axis labels and test headings of `sra_report` name each metric with its unit ("GC content
+  (%) by group"); they read "Gc Percent By Group". Every chart panel of the HTML pages carries a text
+  description (`role="figure"` and the figure's title), and the explorer's column headers are marked as such.
+  The `interactive_plot` figures follow the page width and use the report style, instead of a fixed 800 px
+  width and plotly's default style.
 - `store_reindex` keeps the first and the last journal line of each project, so a catalogue rebuilt
   after compaction keeps the project's `created` time. The one-time copy of a pre-journal catalogue
   into the journal now carries each project's `created` and `last_seen` times as well.

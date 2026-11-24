@@ -385,3 +385,12 @@ class TestEdgeCasesExtended:
 #   pytest --cov=prepare.visualization.interactive --cov-report=term-missing \
 #          tests/test_interactive_plots.py tests/test_interactive_plots_extended.py
 # ============================================================================
+
+
+def test_pca_figure_follows_the_page_width_and_the_shared_style(sample_data):
+    """Audit G14: the figures were a fixed 800 px wide with the default plotly style."""
+    from prepare.utils.html import plotly_layout
+
+    fig = create_interactive_pca(sample_data, show_plot=False)
+    assert fig.layout.width is None and fig.layout.autosize is True
+    assert fig.layout.font.family == plotly_layout()["font"]["family"]

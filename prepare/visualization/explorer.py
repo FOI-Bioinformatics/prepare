@@ -27,6 +27,8 @@ from prepare.data.file_io import write_text_atomic
 from prepare.utils.html import (
     CONTAINMENT_SCALE,
     TABLE_SCRIPT,
+    chart_panel,
+    figure_title,
     page_footer,
     page_head,
     plotly_layout,
@@ -228,7 +230,8 @@ def _sunburst_figure(long_df: pd.DataFrame):
 
 def _build_sunburst(long_df: pd.DataFrame) -> str:
     """Build taxonomy sunburst chart. Returns Plotly HTML fragment."""
-    return _sunburst_figure(long_df).to_html(full_html=False, include_plotlyjs=False)
+    fig = _sunburst_figure(long_df)
+    return chart_panel(fig.to_html(full_html=False, include_plotlyjs=False), figure_title(fig))
 
 
 def _build_heatmap(long_df: pd.DataFrame) -> str:
@@ -245,7 +248,7 @@ def _build_heatmap(long_df: pd.DataFrame) -> str:
         aspect="auto",
     )
     fig.update_layout(**plotly_layout(height=min(EXPLORER_HEATMAP_MAX_HEIGHT, max(320, 22 * len(pivot.index) + 110))))
-    return fig.to_html(full_html=False, include_plotlyjs=False)
+    return chart_panel(fig.to_html(full_html=False, include_plotlyjs=False), figure_title(fig))
 
 
 def _build_distributions(long_df: pd.DataFrame) -> tuple:
@@ -260,7 +263,7 @@ def _build_distributions(long_df: pd.DataFrame) -> tuple:
         labels={"family": "Family", "containment": "Containment"},
     )
     box_fig.update_layout(**plotly_layout(height=450, xaxis_tickangle=-30, showlegend=False))
-    box_html = box_fig.to_html(full_html=False, include_plotlyjs=False)
+    box_html = chart_panel(box_fig.to_html(full_html=False, include_plotlyjs=False), figure_title(box_fig))
 
     genus_counts = long_df.groupby("genus")["sample"].nunique().reset_index()
     genus_counts.columns = ["genus", "sample_count"]
@@ -276,7 +279,7 @@ def _build_distributions(long_df: pd.DataFrame) -> tuple:
         labels={"genus": "Genus", "sample_count": "Samples"},
     )
     bar_fig.update_layout(**plotly_layout(height=450, xaxis_tickangle=-30))
-    bar_html = bar_fig.to_html(full_html=False, include_plotlyjs=False)
+    bar_html = chart_panel(bar_fig.to_html(full_html=False, include_plotlyjs=False), figure_title(bar_fig))
 
     return box_html, bar_html
 
@@ -367,8 +370,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         <section class="pre-section">
             <h2>Taxonomy overview</h2>
             <div class="pre-grid">
-                {% if sunburst_html %}<div class="pre-panel">{{ sunburst_html|safe }}</div>{% endif %}
-                {% if heatmap_html %}<div class="pre-panel">{{ heatmap_html|safe }}</div>{% endif %}
+                {% if sunburst_html %}{{ sunburst_html|safe }}{% endif %}
+                {% if heatmap_html %}{{ heatmap_html|safe }}{% endif %}
             </div>
         </section>
         {% endif %}
@@ -386,7 +389,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
                     <thead>
                         <tr>
                         {%- for h in headers %}
-                            <th tabindex="0" role="button"
+                            <th scope="col" tabindex="0" role="button"
                                 onclick="sortTable({{ loop.index0 }})"
                                 onkeydown="sortKey(event,{{ loop.index0 }})">{{ h }}</th>
                         {%- endfor %}
@@ -403,8 +406,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         <section class="pre-section">
             <h2>Distributions</h2>
             <div class="pre-grid">
-                {% if box_html %}<div class="pre-panel">{{ box_html|safe }}</div>{% endif %}
-                {% if bar_html %}<div class="pre-panel">{{ bar_html|safe }}</div>{% endif %}
+                {% if box_html %}{{ box_html|safe }}{% endif %}
+                {% if bar_html %}{{ bar_html|safe }}{% endif %}
             </div>
         </section>
         {% endif %}

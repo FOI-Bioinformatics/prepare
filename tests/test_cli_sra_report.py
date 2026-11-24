@@ -544,3 +544,16 @@ def test_the_report_page_has_lang_a_skip_link_and_a_utc_footer(tmp_path):
     assert page.count('class="pre-skip"') == 1 and 'id="report"' in page
     assert re.search(r"Generated \d{4}-\d\d-\d\d \d\d:\d\d UTC by PREPARE \d+\.\d+\.\d+", page)
     assert re.search(r"generated <b>\d{4}-\d\d-\d\d \d\d:\d\d UTC</b>", page)
+
+
+def test_group_labels_carry_units_and_charts_have_a_text_alternative(tmp_path):
+    """Audit G20/G21: str.title() gave "Gc Percent By Group" with no unit; charts had no text alternative."""
+    import re
+
+    _datasets(tmp_path)
+    assert SRAReportCommand().execute(_args(tmp_path, groups_file=_groups_file(tmp_path))) == 0
+    page = (tmp_path / "reports" / "sra_report.html").read_text()
+    assert "GC content (%) by group" in page and "Gc Percent" not in page
+    assert "<h3>GC content (%)</h3>" in page
+    panels = re.findall(r'<div class="pre-panel"([^>]*)>', page)
+    assert panels and all('role="figure"' in p and re.search(r'aria-label="[^"]+"', p) for p in panels)
