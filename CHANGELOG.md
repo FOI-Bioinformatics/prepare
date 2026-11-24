@@ -4,6 +4,11 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-24
+
+The low-severity findings of the 2026-11-23 bug sweep and the minors deferred by the reviews of
+0.12.3 and 0.13.0. Changed behaviour is listed first.
+
 ### Changed
 
 - `store_link` and a download into a project no longer replace a symlink that points outside the store;
