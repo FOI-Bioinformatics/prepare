@@ -4,6 +4,11 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-24
+
+The Low findings of the 2026-10-21 pipeline and page audit that were still present, the two minors
+deferred by the 0.12.1 review, and the four minors deferred after 0.14.0. Changed behaviour is listed first.
+
 ### Changed
 
 - A relative path to a file one step writes and another reads back is taken against the project root, as
