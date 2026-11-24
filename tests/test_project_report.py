@@ -344,3 +344,19 @@ def test_markdown_funnel_says_its_counts_come_from_the_registry(registry, no_che
     text = render_markdown(_report(registry))
     assert "as recorded in the registry" in text
     assert "prepare status" in text
+
+
+def test_html_title_names_the_project_and_times_are_utc(registry, no_checks):
+    """Audit G16: the title was the constant "Project report"; created/updated were local times."""
+    pytest.importorskip("plotly")
+    pytest.importorskip("jinja2")
+    import re
+
+    from prepare.visualization.project_report import render_html
+
+    report = _report(registry)
+    report["project"]["name"] = "Wolbachia survey"
+    page = render_html(report)
+    assert "<title>Project report: Wolbachia survey</title>" in page
+    assert re.search(r"Generated \d{4}-\d\d-\d\d \d\d:\d\d UTC by PREPARE \d+\.\d+\.\d+", page)
+    assert re.search(r"<td>created</td>\s*<td[^>]*>\d{4}-\d\d-\d\d \d\d:\d\d UTC</td>", page)

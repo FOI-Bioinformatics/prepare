@@ -5,7 +5,9 @@ stylesheet and Plotly styling, and the sortable/filterable table JavaScript so
 the several HTML generators do not each carry their own copy.
 """
 
-from typing import Any, Dict, List
+from datetime import datetime, timezone
+from html import escape
+from typing import Any, Dict, List, Optional
 
 from prepare.core.optional import require
 
@@ -366,3 +368,41 @@ function exportCSV() {
     a.click();
 }
 </script>"""
+
+
+# --- Page frame ---------------------------------------------------------------
+# The head and footer every report page shares, so the pages carry one stamp format.
+
+
+def utc_stamp(iso: Optional[str] = None) -> str:
+    """``iso`` (an ISO 8601 time with any offset; now when omitted) as "YYYY-MM-DD HH:MM UTC".
+
+    A value that is not an ISO time is returned unchanged; one without an offset is taken as local time.
+    """
+    if iso is None:
+        moment = datetime.now(timezone.utc)
+    else:
+        try:
+            moment = datetime.fromisoformat(str(iso))
+        except ValueError:
+            return str(iso)
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def page_head(title: str) -> str:
+    """The inside of a report page's ``<head>``: charset, viewport, title, plotly.js and the stylesheet."""
+    return (
+        '<meta charset="UTF-8">\n'
+        '    <meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"    <title>{escape(title)}</title>\n"
+        f"    {plotly_js_script()}\n"
+        f"    <style>{REPORT_CSS}</style>"
+    )
+
+
+def page_footer(note: str = "") -> str:
+    """The footer of a report page: when (UTC) and by which PREPARE version, then ``note`` (escaped)."""
+    from prepare import __version__
+
+    text = f"Generated {utc_stamp()} by PREPARE {__version__}." + (f" {escape(note)}" if note else "")
+    return f'<footer class="pre-footer">{text}</footer>'

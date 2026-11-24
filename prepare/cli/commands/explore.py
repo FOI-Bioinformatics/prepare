@@ -18,6 +18,8 @@ from prepare.data.genome_taxonomy import (
     summarize_by_taxonomy,
 )
 
+DEFAULT_EXPLORER_TITLE = "PREPARE Containment Explorer"
+
 
 class EnrichTaxonomyCommand(BaseCommand):
     """Command to enrich genome accessions with GTDB taxonomy."""
@@ -114,6 +116,7 @@ class ExploreContainmentCommand(BaseCommand):
             default="containment_explorer.html",
             help="Output HTML file",
         )
+        parser.add_argument("--title", default=DEFAULT_EXPLORER_TITLE, help="Title of the explorer page")
         parser.add_argument(
             "--min-containment",
             type=unit_interval,
@@ -170,6 +173,7 @@ class ExploreContainmentCommand(BaseCommand):
                 taxonomy=taxonomy,
                 metadata=metadata,
                 output_file=args.output,
+                title=getattr(args, "title", None) or DEFAULT_EXPLORER_TITLE,
                 min_containment=args.min_containment,
             )
             self.logger.info("Generated containment explorer: %s", output_path)

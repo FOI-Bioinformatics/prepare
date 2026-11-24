@@ -14,7 +14,7 @@ from typing import Any, Dict, List
 from prepare.core.optional import require
 from prepare.processing.project_report import SECTION_TITLES
 from prepare.processing.project_report_markdown import format_cell, section_blocks, subtitle
-from prepare.utils.html import REPORT_CSS, plotly_js_script, plotly_layout
+from prepare.utils.html import page_footer, page_head, plotly_layout
 
 PURPOSE = "The project report's HTML page"
 FUNNEL_STAGES = ("screened", "selected", "downloaded", "analysed", "extracted", "assembled")
@@ -99,15 +99,17 @@ def render_html(report: Dict[str, Any]) -> str:
     jinja2 = require("jinja2", "interactive", PURPOSE)
     template = jinja2.Environment(loader=jinja2.BaseLoader(), autoescape=True).from_string(_PAGE_TEMPLATE)
     project = report["project"]
+    title = f"Project report: {project['name']}" if project.get("name") else "Project report"
+    note = "Written by prepare project_report; the same content is in project_report.md and project_report.json."
     return str(
         template.render(
-            title="Project report",
+            title=title,
             subtitle=subtitle(report),
             project=project,
             funnel=report["funnel"],
             sections=_sections(report),
-            plotly_js=plotly_js_script(),
-            report_css=REPORT_CSS,
+            head_html=page_head(title),
+            footer_html=page_footer(note),
         )
     )
 
@@ -115,11 +117,7 @@ def render_html(report: Dict[str, Any]) -> str:
 _PAGE_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ title }}</title>
-    {{ plotly_js|safe }}
-    <style>{{ report_css|safe }}</style>
+    {{ head_html|safe }}
     <style>
         /* Static tables: no sort control, and space between the blocks of a section. */
         table.pre-table th { cursor: default; }
@@ -162,8 +160,7 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
             {% endfor %}
         </section>
         {% endfor %}
-        <footer class="pre-footer">Written by prepare project_report; the same content is in
-            project_report.md and project_report.json.</footer>
+        {{ footer_html|safe }}
     </main>
 </body>
 </html>

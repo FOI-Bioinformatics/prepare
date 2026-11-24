@@ -12,6 +12,7 @@ import math
 from typing import Any, Callable, Dict, List, NamedTuple, Sequence
 
 from prepare.processing.project_report import SECTION_TITLES
+from prepare.utils.html import utc_stamp
 
 FUNNEL_DETAIL = (
     ("excluded", "excluded"),
@@ -22,6 +23,8 @@ FUNNEL_DETAIL = (
     ("seconds", "seconds"),
     ("failed_seconds", "failed seconds"),
 )
+# Project fields holding a time, shown in UTC like the page stamp.
+_TIME_FIELDS = ("created", "updated")
 TIMING_FIELDS = ("count", "min", "p25", "median", "p75", "p90", "max")
 
 
@@ -69,7 +72,11 @@ def _table(header: Sequence[str], rows: Sequence[Sequence[Any]]) -> Block:
 
 
 def _project(section: Dict[str, Any]) -> List[Block]:
-    rows = [[key.replace("_", " "), value] for key, value in section.items() if value is not None]
+    rows = [
+        [key.replace("_", " "), utc_stamp(value) if key in _TIME_FIELDS else value]
+        for key, value in section.items()
+        if value is not None
+    ]
     return [_table(["field", "value"], rows)]
 
 
@@ -213,7 +220,7 @@ def subtitle(report: Dict[str, Any]) -> str:
     """The line under the title: when, by which PREPARE version and from which registry."""
     project = report.get("project", {})
     return (
-        f"Generated {report.get('generated')} by PREPARE {project.get('prepare_version')} "
+        f"Generated {utc_stamp(report.get('generated'))} by PREPARE {project.get('prepare_version')} "
         f"from {project.get('registry')}."
     )
 

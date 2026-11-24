@@ -31,6 +31,11 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   be recorded, including one whose recording was failing when the stop arrived.
 - `download_metadata` names how many accessions failed for a network reason ("NCBI could not be reached
   for 1 of 2 accession(s)"); it counted every failed accession.
+- The explorer, `sra_report` and `project_report` pages share one head and one footer, which gives the time
+  in UTC and the PREPARE version; the explorer had no date or version and `sra_report` a local time without
+  a zone. `sra_report` declares its language and has a skip link, as the other pages do. The
+  `project_report` title names the project, and its created and updated times are in UTC.
+  `explore_containment --title` sets the explorer's title.
 - `store_reindex` keeps the first and the last journal line of each project, so a catalogue rebuilt
   after compaction keeps the project's `created` time. The one-time copy of a pre-journal catalogue
   into the journal now carries each project's `created` and `last_seen` times as well.

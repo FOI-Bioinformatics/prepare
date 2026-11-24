@@ -162,7 +162,7 @@ class TestHTMLGeneration:
             "plots": {},
         }
 
-        with patch("prepare.sra.reporting.plotly_js_script", return_value=""):
+        with patch("prepare.utils.html.plotly_js_script", return_value=""):
             html = generator._generate_quality_html(dashboard_data)
 
         assert "<html" in html
@@ -181,7 +181,7 @@ class TestHTMLGeneration:
             "plots": {},
         }
 
-        with patch("prepare.sra.reporting.plotly_js_script", return_value=""):
+        with patch("prepare.utils.html.plotly_js_script", return_value=""):
             html = generator._generate_comparative_html(report_data)
 
         assert "<html" in html

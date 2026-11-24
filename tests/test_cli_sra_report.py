@@ -529,3 +529,18 @@ def test_groups_file_entries_are_stripped(tmp_path):
     path = tmp_path / "groups.json"
     path.write_text('{"a": [" SRR1 ", "SRR2\\n"], "b": ["SRR3"]}')
     assert load_groups(str(path)) == {"a": ["SRR1", "SRR2"], "b": ["SRR3"]}
+
+
+def test_the_report_page_has_lang_a_skip_link_and_a_utc_footer(tmp_path):
+    """Audit G15/G16: no lang, no skip link, local time without a zone, no version."""
+    import re
+
+    _datasets(tmp_path, ("SRR1", "SRR2"))
+    accessions = tmp_path / "acc.txt"
+    accessions.write_text("SRR1\nSRR2\n")
+    assert SRAReportCommand().execute(_args(tmp_path, accessions_file=str(accessions))) == 0
+    page = (tmp_path / "reports" / "sra_report.html").read_text()
+    assert page.startswith('<!DOCTYPE html>\n<html lang="en">')
+    assert page.count('class="pre-skip"') == 1 and 'id="report"' in page
+    assert re.search(r"Generated \d{4}-\d\d-\d\d \d\d:\d\d UTC by PREPARE \d+\.\d+\.\d+", page)
+    assert re.search(r"generated <b>\d{4}-\d\d-\d\d \d\d:\d\d UTC</b>", page)
