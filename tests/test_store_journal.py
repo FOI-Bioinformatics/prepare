@@ -291,12 +291,13 @@ def test_prune_usage_without_a_journal_is_a_noop(tmp_path):
     assert not (paths.journal / "usage.jsonl").exists()
 
 
-def test_compact_projects_keeps_the_latest_line_per_project_and_corrupt_lines(tmp_path):
+def test_compact_projects_keeps_the_first_and_last_line_per_project_and_corrupt_lines(tmp_path):
     paths = init_store(tmp_path / "store")
     with catalog_write(paths) as c:
         c.upsert_project("p1", "first", "/a", "r1.json")
         c.upsert_project("p2", "other", "/b", "r2.json")
         c.upsert_project("p1", "second", "/a", "r1.json")
+        c.upsert_project("p1", "third", "/a", "r1.json")
     projects_file = paths.journal / "projects.jsonl"
     with open(projects_file, "a", encoding="utf-8") as handle:
         handle.write('{oops\n{"name": "no id"}\n')
@@ -304,9 +305,8 @@ def test_compact_projects_keeps_the_latest_line_per_project_and_corrupt_lines(tm
     assert journal.compact_projects(paths) == 1
 
     lines = projects_file.read_text(encoding="utf-8").splitlines()
-    assert json.loads(lines[0])["project_id"] == "p2"
-    assert json.loads(lines[1])["name"] == "second"
-    assert lines[2:] == ["{oops", '{"name": "no id"}']
+    assert [json.loads(line)["name"] for line in lines[:3]] == ["first", "other", "third"]
+    assert lines[3:] == ["{oops", '{"name": "no id"}']
 
 
 def test_prune_usage_writes_kept_lines_back_byte_identical(tmp_path):
@@ -330,8 +330,8 @@ def test_prune_usage_writes_kept_lines_back_byte_identical(tmp_path):
 def test_journal_rewrites_are_fsynced(tmp_path, monkeypatch):
     paths = init_store(tmp_path / "store")
     with catalog_write(paths) as c:
-        c.upsert_project("pid1", "proj", str(tmp_path / "proj"), "r.json")
-        c.upsert_project("pid1", "proj", str(tmp_path / "proj"), "r.json")
+        for _ in range(3):
+            c.upsert_project("pid1", "proj", str(tmp_path / "proj"), "r.json")
         c.record_usage("SRR1", "pid1", "", "downloaded", "")
     calls = []
     real = journal.write_text_atomic
@@ -434,3 +434,38 @@ def test_a_failed_journal_append_rolls_the_session_back(tmp_path, monkeypatch):
 
     with Catalog(paths) as cat:
         assert cat.conn.execute("SELECT COUNT(*) FROM usage").fetchone()[0] == 0
+
+
+def _project_times(paths, project_id):
+    (paths.root / "catalog.sqlite").unlink()
+    with catalog_write(paths) as c:
+        journal.replay(paths, c)
+        row = c.conn.execute("SELECT created, last_seen FROM projects WHERE project_id = ?", (project_id,)).fetchone()
+    return row["created"], row["last_seen"]
+
+
+def test_compacted_journal_still_restores_when_a_project_was_created(tmp_path):
+    """Deferred (0.14.0): compaction kept only the last line, so a rebuild set created to last_seen."""
+    paths = init_store(tmp_path / "store")
+    times = ["2020-01-01T00:00:00+00:00", "2021-01-01T00:00:00+00:00", "2022-01-01T00:00:00+00:00"]
+    with catalog_write(paths) as c:
+        for when in times:
+            c.upsert_project("p1", "proj", "/a", "r.json", at=when)
+
+    assert journal.compact_projects(paths) == 1
+    assert _project_times(paths, "p1") == (times[0], times[2])
+
+
+def test_backfill_keeps_a_projects_created_and_last_seen_times(tmp_path):
+    """A pre-journal project's backfilled line carried the backfill time, losing both bounds."""
+    paths = init_store(tmp_path / "store")
+    first, last = "2020-01-01T00:00:00+00:00", "2021-06-01T00:00:00+00:00"
+    with catalog_write(paths) as c:
+        c.journal_enabled = False  # simulate a store written before the journal existed
+        c.upsert_project("p1", "proj", "/a", "r.json", at=first)
+        c.upsert_project("p1", "proj", "/a", "r.json", at=last)
+
+    with catalog_write(paths):
+        pass  # backfill runs on entry
+
+    assert _project_times(paths, "p1") == (first, last)
