@@ -233,18 +233,23 @@ def _joined_sequences(buf: bytes, newline_at: np.ndarray, complete: int) -> byte
 
 # Older Illumina pipelines (1.3-1.7) wrote Phred+64 qualities: every character is '@' (64) or above.
 PHRED64_OFFSET = 64
+# The lowest median character of real Phred+64 data: Q20 under that offset.
+PHRED64_MEDIAN_FLOOR = ord("T")
 
 
 def _phred_offset(raw: np.ndarray) -> int:
     """The quality offset the characters counted in ``raw`` use: 64 when none is below '@' (64), some
-    is above 'J' (74, the highest Phred+33 score of current Illumina data) and none is above 'i' (105,
-    the end of the Phred+64 range), else 33. High-quality Phred+33 data reaching '~' (long reads) is
-    therefore read as Phred+33; a sample of Phred+33 scores that all lie between Q31 and Q72, some above
-    Q41, cannot be told from Phred+64 and is read as such."""
+    is above 'J' (74, the highest Phred+33 score of current Illumina data), none is above 'i' (105, the
+    end of the Phred+64 range) and the median is at least 'T' (Q20 in Phred+64), else 33. High-quality
+    Phred+33 data reaching '~' (long reads) is therefore read as Phred+33, and so is short-read data
+    filtered to Q31 and above, whose median under Phred+64 would be below Q20. A Phred+33 sample whose
+    scores all lie between Q31 and Q72 with a median above Q51 cannot be told from Phred+64 and is read
+    as such."""
     present = np.nonzero(raw)[0]
-    if present.size and present[0] >= PHRED64_OFFSET and ord("J") < present[-1] <= ord("i"):
-        return PHRED64_OFFSET
-    return PHRED_OFFSET
+    if not (present.size and present[0] >= PHRED64_OFFSET and ord("J") < present[-1] <= ord("i")):
+        return PHRED_OFFSET
+    median = int(np.searchsorted(np.cumsum(raw), raw.sum() / 2))
+    return PHRED64_OFFSET if median >= PHRED64_MEDIAN_FLOOR else PHRED_OFFSET
 
 
 def _fold_raw_counts(raw: np.ndarray, offset: int = PHRED_OFFSET) -> np.ndarray:

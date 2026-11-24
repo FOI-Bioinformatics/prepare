@@ -4,6 +4,19 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 
 ## [Unreleased]
 
+### Fixed
+
+- `store_reindex` keeps the first and the last journal line of each project, so a catalogue rebuilt
+  after compaction keeps the project's `created` time. The one-time copy of a pre-journal catalogue
+  into the journal now carries each project's `created` and `last_seen` times as well.
+- After a store is moved or remounted, `store_link`, `store_unlink` and a download into a project
+  replace or remove the project's links to the store's earlier location instead of refusing them as
+  links outside the store. Such a link is recognised by its `<root>/sra/<ACC>` target, and, when that
+  target still exists, by a store marker with the same store id. Links into another store, and other
+  links, are still refused.
+- A Phred+33 sample filtered to Q31 and above with some scores above Q41 is no longer read as Phred+64:
+  Phred+64 now also needs a median quality character of at least `T` (Q20 under that offset).
+
 ## [0.14.0] - 2026-11-24
 
 The low-severity findings of the 2026-11-23 bug sweep and the minors deferred by the reviews of
