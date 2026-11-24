@@ -91,7 +91,8 @@ class TestTableScript:
         assert 'val = "\'" + val' in html.TABLE_SCRIPT
 
     def test_sort_parses_only_whole_numeric_cells_and_starts_ascending(self):
-        assert "/^-?\\d+(\\.\\d+)?$/" in html.TABLE_SCRIPT
+        # Whole cells only; an exponent (1e-05) still reads as a number (audit G18).
+        assert "/^-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?$/" in html.TABLE_SCRIPT
         assert "parseFloat" not in html.TABLE_SCRIPT
         assert 'getAttribute("data-sort-dir") == "asc"' in html.TABLE_SCRIPT
 

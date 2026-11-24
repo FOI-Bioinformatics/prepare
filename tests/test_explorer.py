@@ -369,3 +369,14 @@ def test_explorer_charts_and_headers_are_described(containment_df, taxonomy, tmp
     assert panels and all('role="figure"' in p and re.search(r'aria-label="[^"]+"', p) for p in panels)
     headers = re.findall(r"<th [^>]*>", page)
     assert headers and all('scope="col"' in h for h in headers)
+
+
+def test_explorer_shows_the_recorded_containment_and_names_its_export(taxonomy, tmp_path):
+    """Audit G18: a value above 1 was shown clipped to 1.000; the export had a fixed name and the sort
+    ignored scientific notation."""
+    df = pd.DataFrame({"genA": [1.2, 0.5], "genB": [0.2, 0.1]}, index=["SRR001", "SRR002"])
+    page = generate_containment_explorer(df, taxonomy, output_file=tmp_path / "e.html", title="My hits").read_text()
+    assert "<span>1.200</span>" in page and "--v:1.000" in page
+    assert "document.title" in page and "containment_results.csv" not in page
+    assert "Export CSV saves the rows shown" in page
+    assert r"([eE][-+]?\d+)?" in page

@@ -175,7 +175,7 @@ The report has ten sections:
 6. The failed downloads with their reason, the number of attempts over all runs (`attempts_total`) and the date. The report CSV and `download_run.json` of `download_sra` count the attempts of one run.
 7. Timing: the totals and medians of `status` plus the minimum, quartiles, 90th percentile and maximum of each step.
 8. The environment checks of `doctor`, without network access. `--no-environment` leaves them out.
-9. The recorded exports and analysis outputs.
+9. The recorded exports and analysis outputs, one row per output (up to `--max-rows` per analysis); in the HTML page an output that is an HTML page of the project is a link to it.
 10. The last 10 runs of the run log.
 
 Tables and accession lists are cut to `--max-rows` rows (200 by default, 0 for all) and say how many rows there were. `results_table` writes every extraction row.

@@ -177,11 +177,16 @@ def _outputs(section: Dict[str, Any]) -> List[Block]:
         rows = [[name, e.get("date"), e.get("output"), e.get("summary")] for name, e in section["exports"].items()]
         blocks.append(_table(["export", "date", "output", "summary"], rows))
     if section["analyses"]:
+        # One row per output, so every one is listed (up to --max-rows per analysis).
         rows = [
-            [name, a["datasets"], a["latest"], a["outputs_total"], a["outputs"][0] if a["outputs"] else None]
+            [name, a["datasets"], a["latest"], output]
             for name, a in section["analyses"].items()
+            for output in (a["outputs"] or [None])
         ]
-        blocks.append(_table(["analysis", "datasets", "latest", "outputs", "first output"], rows))
+        blocks.append(_table(["analysis", "datasets", "latest", "output"], rows))
+        cut = sum(a["outputs_total"] - len(a["outputs"]) for a in section["analyses"].values())
+        if cut:
+            blocks.append(_text(f"{cut} further output(s) not listed; --max-rows 0 lists them all."))
     return blocks or [_text("No export or analysis output is recorded.")]
 
 

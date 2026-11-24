@@ -298,12 +298,13 @@ def _build_table_html(long_df: pd.DataFrame, max_rows: int = EXPLORER_TABLE_ROWS
     rows = []
     for _, r in long_df.sort_values("containment", ascending=False).head(max_rows).iterrows():
         raw = r.get("containment", 0)
-        val = 0.0 if pd.isna(raw) else max(0.0, min(1.0, float(raw)))
+        shown = 0.0 if pd.isna(raw) else float(raw)
+        val = max(0.0, min(1.0, shown))  # the bar's width only; the cell shows the recorded value
         before = "".join(f"<td>{html_escape(str(r.get(c, '')))}</td>" for c in ["sample", "genome"])
         containment = (
             f'<td class="pre-num"><span class="pre-cell">'
             f'<span class="pre-heatbar" style="--v:{val:.3f}"></span>'
-            f"<span>{val:.3f}</span></span></td>"
+            f"<span>{shown:.3f}</span></span></td>"
         )
         after = "".join(
             f"<td>{html_escape(str(r.get(c, '')))}</td>" for c in ["species", "genus", "family", "location", "date"]
@@ -378,7 +379,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
         <section class="pre-section" id="results">
             <h2>Results</h2>
-            {% if table_note %}<p class="pre-note">{{ table_note }}</p>{% endif %}
+            <p class="pre-note">{% if table_note %}{{ table_note }}. {% endif %}Export CSV saves the rows shown.</p>
             <div class="pre-toolbar">
                 <input type="text" id="searchInput" onkeyup="filterTable()"
                        aria-label="Filter results" placeholder="Filter across all columns&hellip;">

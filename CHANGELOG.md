@@ -41,6 +41,10 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   description (`role="figure"` and the figure's title), and the explorer's column headers are marked as such.
   The `interactive_plot` figures follow the page width and use the report style, instead of a fixed 800 px
   width and plotly's default style.
+- The explorer table shows the recorded containment, where a value above 1 was shown as 1.000; its CSV
+  export is named after the page title and the table says it holds the rows shown; the column sort orders
+  values written in scientific notation as numbers. The project report lists every analysis output, one
+  row each (it listed the first), and links the outputs that are HTML pages of the project.
 - `store_reindex` keeps the first and the last journal line of each project, so a catalogue rebuilt
   after compaction keeps the project's `created` time. The one-time copy of a pre-journal catalogue
   into the journal now carries each project's `created` and `last_seen` times as well.

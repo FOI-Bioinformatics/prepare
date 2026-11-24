@@ -314,7 +314,7 @@ function sortTable(col) {
     var rows = Array.from(table.tBodies[0].rows);
     var asc = !(table.getAttribute("data-sort-col") == col
                 && table.getAttribute("data-sort-dir") == "asc");
-    var numeric = /^-?\\d+(\\.\\d+)?$/;
+    var numeric = /^-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?$/;
     rows.sort(function(a, b) {
         var va = a.cells[col].textContent.trim();
         var vb = b.cells[col].textContent.trim();
@@ -364,7 +364,8 @@ function exportCSV() {
     var blob = new Blob([csv.join("\\n")], {type: "text/csv"});
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "containment_results.csv";
+    var name = document.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    a.download = (name || "table") + ".csv";
     a.click();
 }
 </script>"""
