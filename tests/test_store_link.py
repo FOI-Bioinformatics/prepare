@@ -525,3 +525,66 @@ def test_link_dataset_replaces_a_dangling_link_into_the_store(tmp_path, paths):
     link = link_dataset(project_fastq, "SRR1", paths)
 
     assert link.resolve() == (paths.sra / "SRR1").resolve()
+
+
+# ------------------------------------------------------- links into a moved store
+
+
+def _moved_store(tmp_path, keep_old=False):
+    """Link SRR1 from a store at ``old``, then move (or, with ``keep_old``, copy) the store to ``new``."""
+    old = init_store(tmp_path / "old")
+    _store_dataset(old)
+    project_fastq = tmp_path / "project" / "fastq"
+    link_dataset(project_fastq, "SRR1", old, mode="absolute")
+    new_root = tmp_path / "new"
+    if keep_old:
+        shutil.copytree(old.root, new_root, symlinks=True)
+    else:
+        os.rename(old.root, new_root)
+    return project_fastq, init_store(new_root)
+
+
+def test_link_dataset_relinks_a_link_left_dangling_by_a_moved_store(tmp_path):
+    """Deferred (0.14.0): after the store moved, its own old links were refused as foreign."""
+    project_fastq, new = _moved_store(tmp_path)
+
+    link = link_dataset(project_fastq, "SRR1", new)
+
+    assert link.resolve() == (new.sra / "SRR1").resolve()
+
+
+def test_link_dataset_relinks_a_link_into_the_same_store_at_its_old_path(tmp_path):
+    """A remounted store still visible at its old path carries the same marker id."""
+    project_fastq, new = _moved_store(tmp_path, keep_old=True)
+
+    link = link_dataset(project_fastq, "SRR1", new)
+
+    assert link.resolve() == (new.sra / "SRR1").resolve()
+
+
+def test_link_dataset_still_refuses_a_link_into_another_store(tmp_path, paths):
+    other = init_store(tmp_path / "other")
+    _store_dataset(other)
+    _store_dataset(paths)
+    project_fastq = tmp_path / "project" / "fastq"
+    link_dataset(project_fastq, "SRR1", other)
+
+    with pytest.raises(DataAccessError, match="outside the store"):
+        link_dataset(project_fastq, "SRR1", paths)
+
+
+def test_link_dataset_still_refuses_a_dangling_link_that_is_not_a_store_path(tmp_path, paths):
+    _store_dataset(paths)
+    project_fastq = tmp_path / "project" / "fastq"
+    project_fastq.mkdir(parents=True)
+    os.symlink(tmp_path / "gone" / "SRR1", project_fastq / "SRR1")
+
+    with pytest.raises(DataAccessError, match="outside the store"):
+        link_dataset(project_fastq, "SRR1", paths)
+
+
+def test_is_store_link_counts_a_moved_store_link_only_when_asked(tmp_path):
+    project_fastq, new = _moved_store(tmp_path)
+
+    assert is_store_link(project_fastq / "SRR1", new) is False
+    assert is_store_link(project_fastq / "SRR1", new, include_moved=True) is True

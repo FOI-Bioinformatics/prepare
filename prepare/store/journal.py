@@ -8,7 +8,7 @@ appends one JSON line here, and ``replay`` feeds those lines back into a rebuilt
 Appends happen inside ``catalog_write``, which holds the store-wide write lock, and so do the
 two rewrites that keep the files from growing without bound: ``prune_usage`` (``store_gc``
 drops the lines of the accessions it removed) and ``compact_projects`` (``store_reindex``
-keeps only the latest line per project).
+keeps only the first and last line per project, which hold its creation time and current state).
 """
 
 import json
@@ -234,11 +234,11 @@ def backfill_from_catalog(paths: StorePaths, catalog: Any) -> Tuple[int, int]:
     usage rows reference a project by id. Uses ``append_project``/``append_usage`` directly
     (not ``catalog.upsert_project``/``record_usage``), so nothing already in ``catalog.sqlite``
     is written back to it and nothing is appended twice. Each line carries the catalogue row's
-    own ``hostname`` and ``first_used`` (else ``last_used``) time as ``at``, plus the row's own
-    ``last_used`` (which can be later than ``first_used`` for a row touched more than once
-    before the journal existed), rather than the host and time of the backfill, so a later
-    replay restores both bounds the catalogue held; a row with no recorded host falls back to
-    this machine, as ``append_project`` does.
+    own host and times rather than those of the backfill, so a later replay restores both
+    bounds the catalogue held: a project gets a line at its ``created`` time and, when later,
+    one at its ``last_seen`` time; a usage line carries ``first_used`` (else ``last_used``) as
+    ``at`` plus the row's own ``last_used``. A row with no recorded host falls back to this
+    machine, as ``append_project`` does.
     """
     projects_path = paths.journal / PROJECTS_FILE
     if _has_records(projects_path):
@@ -246,7 +246,7 @@ def backfill_from_catalog(paths: StorePaths, catalog: Any) -> Tuple[int, int]:
 
     try:
         project_rows = catalog.conn.execute(
-            "SELECT project_id, name, path, registry, hostname FROM projects"
+            "SELECT project_id, name, path, registry, hostname, created, last_seen FROM projects"
         ).fetchall()
     except sqlite3.Error as e:
         raise DataAccessError(str(e)) from e
@@ -254,14 +254,19 @@ def backfill_from_catalog(paths: StorePaths, catalog: Any) -> Tuple[int, int]:
         return 0, 0
 
     for row in project_rows:
-        append_project(
-            paths,
-            row["project_id"],
-            row["name"] or "",
-            row["path"] or "",
-            row["registry"] or "",
-            hostname=row["hostname"],
-        )
+        # A line at ``created`` and, when later, one at ``last_seen``: replay sets ``created``
+        # from a project's first line and ``last_seen`` from its last.
+        times = [row["created"], row["last_seen"]] if row["last_seen"] != row["created"] else [row["created"]]
+        for when in times:
+            append_project(
+                paths,
+                row["project_id"],
+                row["name"] or "",
+                row["path"] or "",
+                row["registry"] or "",
+                hostname=row["hostname"],
+                at=when,
+            )
 
     try:
         usage_rows = catalog.conn.execute(
@@ -357,13 +362,15 @@ def prune_usage(paths: StorePaths, accessions: Iterable[str], project_id: Option
     )
 
 
-def _latest_per_project(entries: List[_Entry]) -> List[bool]:
-    """Keep flags: the last line of each ``project_id``, plus every line without one."""
+def _first_and_last_per_project(entries: List[_Entry]) -> List[bool]:
+    """Keep flags: the first and the last line of each ``project_id``, plus every line without one."""
+    first: Dict[str, int] = {}
     last: Dict[str, int] = {}
     for index, (_, record) in enumerate(entries):
         if record is not None and "project_id" in record:
+            first.setdefault(str(record["project_id"]), index)
             last[str(record["project_id"])] = index
-    keep_indexes = set(last.values())
+    keep_indexes = set(first.values()) | set(last.values())
     return [
         record is None or "project_id" not in record or index in keep_indexes
         for index, (_, record) in enumerate(entries)
@@ -371,11 +378,12 @@ def _latest_per_project(entries: List[_Entry]) -> List[bool]:
 
 
 def compact_projects(paths: StorePaths) -> int:
-    """Reduce ``projects.jsonl`` to the latest line per project; return the number dropped.
+    """Reduce ``projects.jsonl`` to the first and last line per project; return the number dropped.
 
     ``upsert_project`` appends a line every time a project touches the store, and ``replay``
-    applies them in order, so only the last line of each project decides what is restored.
-    Called by ``store_reindex`` under the store-wide write lock. Kept lines stay in their
-    original order; lines that cannot be parsed, or carry no ``project_id``, are kept.
+    applies them in order: the first line sets the project's ``created`` time and the last one
+    decides everything else, so the lines in between carry nothing a replay needs. Called by
+    ``store_reindex`` under the store-wide write lock. Kept lines stay in their original order;
+    lines that cannot be parsed, or carry no ``project_id``, are kept.
     """
-    return _rewrite(paths.journal / PROJECTS_FILE, _latest_per_project)
+    return _rewrite(paths.journal / PROJECTS_FILE, _first_and_last_per_project)

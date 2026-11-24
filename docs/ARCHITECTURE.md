@@ -190,7 +190,7 @@ each other and each is small enough to test alone:
   and `store_adopt` bounds how long each waits for another project's lock before giving up.
 - **journal**: append-only JSON-lines copies of the catalogue's project and usage records, which
   `store_reindex` replays into a rebuilt catalogue; `store_gc` prunes the lines of the accessions it
-  removed and `store_reindex` keeps the latest line per project.
+  removed and `store_reindex` keeps the first and last line per project.
 - **sketches**: caches the sourmash signature `sra_sketch` built from a store dataset beside the copy
   (`<ACC>.sig.gz`) and describes it in the sidecar's optional `sketch` block (file snapshot, k-mer
   sizes, totals), with the same file-snapshot invalidation and bounded lock wait as **stats**; the

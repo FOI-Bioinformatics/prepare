@@ -229,3 +229,12 @@ def test_high_quality_phred33_up_to_tilde_is_not_read_as_phred64():
 
     hist = quality_histogram([b"@@~~", b"~~~~"])  # Q31 and Q93 in Phred+33
     assert distribution_from_histogram(hist)["median"] == 93.0
+
+
+def test_filtered_phred33_with_a_few_scores_above_q41_is_not_read_as_phred64():
+    """Deferred (0.14.0): Phred+33 reads filtered to Q31 and above, with some bases above Q41, were read as
+    Phred+64 and graded 31 points low. Under Phred+64 their median would be Q9, which real data does not show."""
+    from prepare.data.sra.sampling import distribution_from_histogram, quality_histogram
+
+    hist = quality_histogram([b"@@IK", b"IIII"])  # Q31, Q40 and Q42 in Phred+33
+    assert distribution_from_histogram(hist)["median"] == 40.0

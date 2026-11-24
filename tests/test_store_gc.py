@@ -1171,7 +1171,7 @@ class TestStoreGcLoadsRegistriesOnceAndPrunesTheJournal:
         assert [record["accession"] for record in records] == ["SRR2"]
         assert sum("could not be parsed" in record.message for record in caplog.records) == 1
 
-    def test_reindex_compacts_the_projects_journal_to_the_latest_line_per_project(self, tmp_path):
+    def test_reindex_compacts_the_projects_journal_to_the_first_and_last_line_per_project(self, tmp_path):
         paths = init_store(tmp_path / "store")
         with catalog_write(paths) as cat:
             cat.upsert_project("p1", "first", str(tmp_path / "a"), "r1.json")
@@ -1185,7 +1185,11 @@ class TestStoreGcLoadsRegistriesOnceAndPrunesTheJournal:
         records = [
             json.loads(line) for line in (paths.journal / "projects.jsonl").read_text(encoding="utf-8").splitlines()
         ]
-        assert [(record["project_id"], record["name"]) for record in records] == [("p2", "other"), ("p1", "third")]
+        assert [(record["project_id"], record["name"]) for record in records] == [
+            ("p1", "first"),
+            ("p2", "other"),
+            ("p1", "third"),
+        ]
         with Catalog(paths) as cat:
             names = dict(cat.conn.execute("SELECT project_id, name FROM projects").fetchall())
         assert names == {"p1": "third", "p2": "other"}
