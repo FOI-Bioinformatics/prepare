@@ -2095,6 +2095,38 @@ class TestExtractionFollowsTheProject:
             assert ExtractTargetReadsCommand().run(args) == 130
         assert not (root / "targeted" / "SRR2").exists()
 
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_a_stop_during_a_failing_record_still_names_the_sample(self, mock_run, tmp_path, caplog):
+        """Deferred (0.12.1): the interrupt replaced the record error, so no line named SRR1."""
+        from prepare.core.exceptions import DataAccessError
+
+        mock_run.side_effect = _fake_tools({})
+        root, args = self._two_sample_args(tmp_path)
+        stop = self._flaky_record({"SRR1": DataAccessError("disk full")}, on_error=lambda a: a._termination.stop.set())
+        with stop, caplog.at_level(logging.ERROR):
+            assert ExtractTargetReadsCommand().run(args) == 130
+        assert any("SRR1" in r.getMessage() and "disk full" in r.getMessage() for r in caplog.records)
+
+    @patch("prepare.data.read_extraction.SecureSubprocess.run_secure")
+    def test_an_interrupt_after_a_failed_record_still_reports_it(self, mock_run, tmp_path, caplog):
+        """Deferred (0.12.1): failures collected for the end of the run were lost when a later stop ended it."""
+        from prepare.core.exceptions import DataAccessError
+
+        mock_run.side_effect = _fake_tools({})
+        root, args = self._two_sample_args(tmp_path)
+        real = ExtractTargetReadsCommand._record_result
+
+        def record(self, args, accession, outcome, *rest):
+            if accession == "SRR1":
+                raise DataAccessError("disk full")
+            result = real(self, args, accession, outcome, *rest)
+            args._termination.stop.set()
+            return result
+
+        with patch.object(ExtractTargetReadsCommand, "_record_result", record), caplog.at_level(logging.ERROR):
+            assert ExtractTargetReadsCommand().run(args) == 130
+        assert "Recording failed for 1 sample(s): SRR1 (disk full)" in caplog.text
+
     def test_ignore_selection_flag_parses(self):
         parser = argparse.ArgumentParser()
         ExtractTargetReadsCommand().configure_parser(parser)

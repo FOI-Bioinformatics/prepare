@@ -27,6 +27,10 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
 - `parse_metadata` with unreadable metadata files, `sra_info` without any metadata, and `sra_profile` with
   accessions it could not profile report the error through the common error report, which keeps the
   traceback for `--log-file` (exit codes unchanged).
+- An interrupt of `extract_target_reads` no longer loses the line naming the samples whose result could not
+  be recorded, including one whose recording was failing when the stop arrived.
+- `download_metadata` names how many accessions failed for a network reason ("NCBI could not be reached
+  for 1 of 2 accession(s)"); it counted every failed accession.
 - `store_reindex` keeps the first and the last journal line of each project, so a catalogue rebuilt
   after compaction keeps the project's `created` time. The one-time copy of a pre-journal catalogue
   into the journal now carries each project's `created` and `last_seen` times as well.

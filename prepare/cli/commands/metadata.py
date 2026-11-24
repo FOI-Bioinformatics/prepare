@@ -179,9 +179,10 @@ class DownloadMetadataCommand(BaseCommand):
         names = sorted(failures)
         shown = ", ".join(names[:10]) + (f" and {len(names) - 10} more" if len(names) > 10 else "")
         self.logger.error("No metadata for %d accession(s): %s", len(names), shown)
-        if any(reason.startswith("network: ") for reason in failures.values()):
+        network = sum(1 for reason in failures.values() if reason.startswith("network: "))
+        if network:
             error: PrepareError = NetworkError(
-                f"NCBI could not be reached for {len(names)} accession(s); try again later"
+                f"NCBI could not be reached for {network} of {len(names)} accession(s); try again later"
             )
         else:
             error = DataAccessError(f"NCBI returned no metadata for {len(names)} accession(s)")

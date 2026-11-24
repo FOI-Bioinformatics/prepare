@@ -334,3 +334,17 @@ def test_parse_metadata_reports_unparsed_files_through_fail(tmp_path, caplog):
         assert ParseMetadataCommand().execute(args) == 1
     errors = [r for r in caplog.records if r.levelno == logging.ERROR and "could not be parsed" in r.getMessage()]
     assert len(errors) == 1 and errors[0].exc_info
+
+
+def test_download_metadata_counts_only_the_network_failures(tmp_path, caplog):
+    """Deferred (0.12.1): the network error counted every failed accession, not only the network ones."""
+    accessions = tmp_path / "accessions.txt"
+    accessions.write_text("SRR1000000\nSRR1000001\nSRR1000002\n")
+    (good,) = write_metadata_folder(tmp_path / "fetched", count=1, per_file=4, pool=10)
+    failures = {"SRR1000001": "network: connection refused", "SRR1000002": "not in the NCBI response"}
+    with (
+        patch("prepare.data.metadata._download_batch_metadata", side_effect=[({"SRR1000000": good}, failures)]),
+        caplog.at_level(logging.ERROR),
+    ):
+        assert DownloadMetadataCommand().execute(_download_args(tmp_path, accessions_file=str(accessions))) == 4
+    assert "NCBI could not be reached for 1 of 2 accession(s)" in caplog.text
