@@ -115,7 +115,7 @@ def test_sra_dashboard_without_plotly_is_an_error_not_a_degraded_file(monkeypatc
     monkeypatch.setitem(sys.modules, "plotly", None)
     generator = SRAReportGenerator(tmp_path / "reports")
     with pytest.raises(ConfigurationError, match=r"prepare\[interactive\]"):
-        generator.generate_quality_dashboard(["SRR000001"])
+        generator.generate_report({})
     assert list((tmp_path / "reports").iterdir()) == []
 
 

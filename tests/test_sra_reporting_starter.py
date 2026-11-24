@@ -8,8 +8,6 @@ Run: pytest tests/test_sra_reporting_starter.py -v
 import sys
 import importlib.util
 import pytest
-from datetime import datetime
-from unittest.mock import patch
 from dataclasses import dataclass
 
 from prepare.core.exceptions import ConfigurationError
@@ -124,70 +122,6 @@ class TestPlotlyIntegration:
 
         with pytest.raises(ConfigurationError, match=r"prepare\[interactive\]"):
             generator._create_quality_plots({})
-
-
-class TestErrorHandling:
-    """Test error handling in various scenarios."""
-
-    @requires_interactive
-    def test_generate_quality_dashboard_no_profiles(self, tmp_output_dir):
-        """Test quality dashboard generation with no valid profiles."""
-        generator = SRAReportGenerator(tmp_output_dir)
-
-        # Mock analyzer to fail for all accessions
-        with patch.object(generator.analyzer, "profile_dataset_quality", side_effect=Exception("API Error")):
-            with pytest.raises(ValueError, match="No datasets could be profiled"):
-                generator.generate_quality_dashboard(["SRR001", "SRR002"])
-
-
-@requires_interactive
-class TestHTMLGeneration:
-    """Test HTML generation methods."""
-
-    def test_generate_quality_html(self, tmp_output_dir):
-        """The quality dashboard renders its title and summary through the jinja2 template."""
-        generator = SRAReportGenerator(tmp_output_dir)
-
-        dashboard_data = {
-            "title": "Test Quality Dashboard",
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "total_datasets": 5,
-            "summary_stats": {
-                "total_reads": 5000000,
-                "average_gc_percent": 45.0,
-                "high_contamination_count": 2,
-                "quality_grade_distribution": {"good": 3},
-            },
-            "anomaly_report": {"anomalous_datasets": [], "explanations": {}},
-            "plots": {},
-        }
-
-        with patch("prepare.utils.html.plotly_js_script", return_value=""):
-            html = generator._generate_quality_html(dashboard_data)
-
-        assert "<html" in html
-        assert "Test Quality Dashboard" in html
-        assert "5,000,000" in html
-
-    def test_generate_comparative_html(self, tmp_output_dir):
-        """The comparative report renders each group's dataset count."""
-        generator = SRAReportGenerator(tmp_output_dir)
-
-        report_data = {
-            "title": "Comparative Analysis",
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "group_counts": {"Group A": 10, "Group B": 15},
-            "comparison": {"statistical_tests": {}, "recommendations": []},
-            "plots": {},
-        }
-
-        with patch("prepare.utils.html.plotly_js_script", return_value=""):
-            html = generator._generate_comparative_html(report_data)
-
-        assert "<html" in html
-        assert "Comparative Analysis" in html
-        assert "Group A" in html
-        assert "datasets" in html
 
 
 # ============================================================================

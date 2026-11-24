@@ -17,6 +17,8 @@ All notable changes to PREPARE are documented in this file. Dates are in YYYY-MM
   for in the project root.
 - `sra_report` exits with status 1 when it leaves an accession out (no readable FASTQ files), as
   `sra_profile` does; the report of the other accessions is still written. It exited 0.
+- `SRAReportGenerator.generate_quality_dashboard` and `create_comparative_analysis` are removed; no command
+  called them, and `generate_report` writes both sections.
 
 ### Fixed
 

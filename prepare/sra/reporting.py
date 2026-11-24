@@ -12,9 +12,8 @@ than a report without charts.
 """
 
 import logging
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, Optional, Union, Any
 
 import pandas as pd
 import numpy as np
@@ -83,122 +82,6 @@ class SRAReportGenerator:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.analyzer = SRADatasetAnalyzer(fastq_dir=fastq_dir)
-
-    def generate_quality_dashboard(
-        self,
-        accessions: List[str],
-        title: str = "SRA Quality Dashboard",
-        profiles: Optional[Dict[str, "QualityProfile"]] = None,
-    ) -> Path:
-        """
-        Generate interactive quality control dashboard.
-
-        Args:
-            accessions: List of SRA accessions to analyze
-            title: Dashboard title
-            profiles: Previously computed profiles keyed by accession. An accession
-                present here is reused as-is rather than reprofiled from FASTQ.
-
-        Returns:
-            Path to generated HTML dashboard
-
-        Raises:
-            ConfigurationError: If plotly or jinja2 is not installed
-        """
-        _require_report_packages()
-        logger.info(f"Generating quality dashboard for {len(accessions)} datasets")
-
-        # Profile all datasets, reusing any profile already supplied
-        supplied = profiles or {}
-        profiles = {}
-        for accession in accessions:
-            if accession in supplied:
-                profiles[accession] = supplied[accession]
-                continue
-            try:
-                profile = self.analyzer.profile_dataset_quality(accession)
-                profiles[accession] = profile
-            except Exception as e:
-                logger.warning(f"Failed to profile {accession}: {e}")
-
-        if not profiles:
-            raise ValueError("No datasets could be profiled")
-
-        # Create dashboard data
-        dashboard_data = {
-            "title": title,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "total_datasets": len(profiles),
-            "profiles": profiles,
-        }
-
-        # Calculate summary statistics
-        summary_stats = self._calculate_quality_summary(profiles)
-        dashboard_data["summary_stats"] = summary_stats
-
-        # Detect anomalies
-        anomaly_report = self.analyzer.detect_dataset_anomalies(list(profiles.keys()), profiles=profiles)
-        dashboard_data["anomaly_report"] = anomaly_report
-
-        # Create visualizations
-        dashboard_data["plots"] = self._create_quality_plots(profiles)
-
-        # Generate HTML dashboard
-        html_content = self._generate_quality_html(dashboard_data)
-
-        dashboard_path = self.output_dir / f"quality_dashboard_{int(datetime.now().timestamp())}.html"
-        write_text_atomic(dashboard_path, html_content)
-
-        logger.info(f"Quality dashboard saved to {dashboard_path}")
-        return dashboard_path
-
-    def create_comparative_analysis(
-        self,
-        groups: Dict[str, List[str]],
-        title: str = "Comparative Analysis Report",
-        profiles: Optional[Dict[str, "QualityProfile"]] = None,
-    ) -> Path:
-        """
-        Create comparative analysis report between dataset groups.
-
-        Args:
-            groups: Dictionary mapping group names to accession lists
-            title: Report title
-            profiles: Previously computed profiles keyed by accession, passed straight
-                through to ``SRADatasetAnalyzer.compare_datasets`` so an accession already
-                profiled (e.g. by an earlier ``sra_profile`` run) is not reprofiled
-                from FASTQ just to build this HTML report.
-
-        Returns:
-            Path to generated HTML report
-
-        Raises:
-            ConfigurationError: If plotly or jinja2 is not installed
-        """
-        _require_report_packages()
-        logger.info(f"Creating comparative analysis for {len(groups)} groups")
-
-        # Perform comparative analysis
-        comparison = self.analyzer.compare_datasets(groups, profiles=profiles)
-
-        report_data = {
-            "title": title,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "comparison": comparison,
-            "group_counts": {name: len(accessions) for name, accessions in groups.items()},
-        }
-
-        # Create comparative visualizations
-        report_data["plots"] = self._create_comparative_plots(comparison)
-
-        # Generate HTML report
-        html_content = self._generate_comparative_html(report_data)
-
-        report_path = self.output_dir / f"comparative_analysis_{int(datetime.now().timestamp())}.html"
-        write_text_atomic(report_path, html_content)
-
-        logger.info(f"Comparative analysis saved to {report_path}")
-        return report_path
 
     def quality_section(
         self, profiles: Dict[str, QualityProfile], anomalies: Optional[AnomalyReport] = None
@@ -374,22 +257,6 @@ class SRAReportGenerator:
             "average_contamination": avg_contamination,
             "high_contamination_count": high_contamination,
         }
-
-    def _generate_quality_html(self, dashboard_data: Dict[str, Any]) -> str:
-        """Generate HTML content for quality dashboard."""
-        return _render_page(
-            "SRA quality",
-            dashboard_data["title"],
-            dashboard_data["timestamp"],
-            quality=dashboard_data,
-            comparative=None,
-        )
-
-    def _generate_comparative_html(self, report_data: Dict[str, Any]) -> str:
-        """Generate HTML content for comparative analysis report."""
-        return _render_page(
-            "SRA comparison", report_data["title"], report_data["timestamp"], quality=None, comparative=report_data
-        )
 
 
 _PAGE_TEMPLATE = """<!DOCTYPE html>
